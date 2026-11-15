@@ -171,5 +171,5 @@ Everything here comes from reading code and docs. Nothing has been run. These we
 | [`engineering-practices.md`](engineering-practices.md) | How it is built and tested. |
 | [`first-slice.md`](first-slice.md) | The build order. |
 | [`repository.md`](repository.md) | The repository, releases, and moving over. |
-| [`agents-guide-draft.md`](agents-guide-draft.md) | A draft of the new repository's `AGENTS.md` (decision 93). |
+| [`agents-guide.md`](agents-guide.md) | The draft the repository's `AGENTS.md` came from (decision 93). |
 | [`research/`](research/) | Raw research notes, written fast. Useful as source material, not as settled fact. |
