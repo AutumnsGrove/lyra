@@ -34,8 +34,7 @@
     "exclude": []
   },
   "pi": {
-    "version": "1.5.2",
-    "packageRef": "4381b74eca43b95247750e2c14b74a5ab95ca7f6"
+    "version": "1.5.2"
   },
   "timeoutMinutes": 20
 }
