@@ -1,3 +1,9 @@
+# pi-review writes this file with its own serializer, and regenerates it from
+# the Pi harness. Prettier wants to collapse arrays and reindent, which would be
+# undone the next time the tool writes it, so formatting it is a fight nobody
+# wins. The workflow generated beside it is checked like any other YAML.
+.github/pi-review.json
+
 # The planning record is kept as it was written, so it can be compared with the
 # Lattice copy line for line. Prettier rewrites `*emphasis*` to `_emphasis_` in
 # markdown, which turns a path like `docs/agents/*` into `docs/agents/_`. The

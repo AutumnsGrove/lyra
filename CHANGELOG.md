@@ -28,4 +28,5 @@ new API and any breaking change, and a patch bump is fixes only.
 ### Changed
 
 - Prettier checks the code and the configuration, but not `docs/`, so the planning record stays as it
-  was written (decision 95).
+  was written, and not `.github/pi-review.json`, which pi-review generates with its own serializer
+  (decision 95).
