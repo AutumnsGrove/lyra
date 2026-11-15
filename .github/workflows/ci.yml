@@ -1,0 +1,38 @@
+name: ci
+
+# Pull requests run the gate. `main` runs it too, once, so a merged commit is
+# checked where it landed; the branch itself already passed on the PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A force-push replaces the run it superseded. Two pipelines reporting on the
+# same commit is noise, and the older one is answering a question nobody is
+# asking any more.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository, so nothing here may.
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The same command a person runs locally, so CI and the local gate cannot
+      # drift (AGENTS.md, "Definition of done"). pnpm reserves `pnpm ci` itself,
+      # so the gate runs through `run`.
+      - run: pnpm run ci

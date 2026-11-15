@@ -1,0 +1,31 @@
+{
+	"name": "@autumnsgrove/lyra",
+	"version": "0.0.0",
+	"description": "A small, portable agent core: ask a model what to do, run a tool, hand the result back, repeat until the job is done",
+	"license": "MIT",
+	"author": "Autumn Brown <autumn@grove.place>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/AutumnsGrove/lyra.git",
+		"directory": "packages/lyra"
+	},
+	"type": "module",
+	"sideEffects": false,
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json"
+	}
+}

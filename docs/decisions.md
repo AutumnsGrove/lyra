@@ -8,7 +8,7 @@ category: features
 
 A running log. Newest decisions go at the bottom of the decided list. Each entry says what was decided, why, and what it rules out.
 
-Last updated: 2026-11-13.
+Last updated: 2026-11-15.
 
 ## Decided
 
@@ -301,6 +301,22 @@ A guide for people and agents working in the repository, built from Nova's and f
 A Lyra entry in `docs/philosophy/grove-naming.md` (Operations), `GroveLyra` as the internal name, the GroveTerm manifest regenerated, and `lyra` reserved in the username blocklist. Done in the same pull request as the plan, on Autumn's instruction. One tradeoff is on record: Lyra is also a fairly common given name, so reserving it stops a Wanderer named Lyra from claiming `lyra.grove.place`. It is one line in `domain-blocklist.json` to undo. Decided 2026-11-15.
 
 What was changed: the entry in `grove-naming.md`, a row in its ecosystem table and its Internal Names table, a regenerated `grove-term-manifest.json`, one `grove_service` entry in `libs/engine/src/lib/data/domain-blocklist.json` (category `internal_services`), and a test written first and watched failing. Two things found along the way. Most Grove infrastructure names are not reserved at all (`lumen`, `warden`, and `zephyr` are absent, `mycelium` is reserved, and `moss` is held as future-reserved), so this is a choice and not the norm. And the manifest generator lets the last entry in the naming doc (Blazes) absorb the document's footer, so its "see also" list comes from the footer text: it pointed at `foliage` and `prism` from the old footer, and now points at `lyra`. Neither link means anything. That is a bug in the generator and was left alone.
+
+### 95. How the repository starts
+One pnpm workspace, one package at `packages/lyra`, and only the core entry point exists: the memory, Cloudflare, OpenAI, and testkit entry points are added with the adapter that needs each one, so the exports map never promises a module that is not there. TypeScript 7 strict (no `any`, no casts on outside data), Vitest 5 for tests, Prettier with the same options as Lattice, and a Node floor of 22.19 from `.nvmrc` and `engines`. The gate from decision 66 is one command, `pnpm run ci` (decision 98 says why the `run` is there), and `.github/workflows/ci.yml` runs exactly that command on every pull request and on `main`, so the two cannot drift. The check scripts in `scripts/` are plain Node ESM with no dependencies of their own, so the gate has nothing to install before it can judge the package.
+
+The release workflow is not built yet. The order is the gate, then the release workflow and its notes script (decision 71), then the `pi-review` install (decision 77), then step 1 of the first slice. `CHANGELOG.md` starts with an `[Unreleased]` section and nothing else, because nothing is published. Decided and built 2026-11-15.
+
+Prettier checks the code, the configuration, and the files written here, but not `docs/`: the planning record is kept verbatim so it can be compared with the Lattice copy, and prettier rewrites markdown emphasis, which turned a path like `docs/agents/*` into `docs/agents/_` when it was tried. The docs get a careful read, not a formatter.
+
+### 96. Pre-written spec rows are listed as unbuilt, not exempted
+The matrix rule (decision 62) fails a row without a test. Two areas were specified during planning before any code existed: `protocol.md` (28 rows) and `run-record.md` (9 rows). Deleting them would throw away the design record, and treating them as tested would be a lie, so `scripts/unbuilt-rows.json` names them with the step of the first slice that builds each area. `matrixcheck` fails if a listed ID is not a real row, if a listed ID already has a test (so the entry must be removed in the same change), or if a row is neither tested nor listed. The list only shrinks. Decided 2026-11-15.
+
+### 97. The core stays honestly empty until step 1
+The first commit is the plan, the license, the README, and `AGENTS.md`; the second is the gate and its check scripts (decision 71). `packages/lyra/src/index.ts` exports nothing yet, on purpose: coverage reports an empty file, the gate passes, and step 1 starts from a failing test rather than from a placeholder that would have to be deleted. Every check in `scripts/` was run against a deliberate violation before it was trusted: a `node:*` import, an import from Lattice, an undeclared dependency, a row with no test, a test citing an unknown row, and a package over budget each failed for the right reason. Decided 2026-11-15.
+
+### 98. The gate is `pnpm run ci`, not `pnpm ci`
+pnpm reserves `ci` for an install command and answers `ERR_PNPM_CI_NOT_IMPLEMENTED` to it, so the script named `ci` in `package.json` has to be called through `pnpm run ci`. Every document in `docs/` still says `pnpm ci`, and that is the name of the gate; this repository's invocation adds `run` because it has to. `AGENTS.md` and the CI workflow both say `pnpm run ci`, and the script runs the same steps either way. Found while running the gate for the first time, 2026-11-15.
 
 ## Not discussed yet
 

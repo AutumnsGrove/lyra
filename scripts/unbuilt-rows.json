@@ -1,0 +1,40 @@
+{
+	"_note": "Spec rows whose area is written down but not built yet, so the matrix rule can pass on an empty core. Remove an ID from this list in the same change that gives it a test; matrixcheck fails if an ID here has no row in its doc, or if a row here is also tested. Each entry names the step in docs/first-slice.md that builds it.",
+	"docs/protocol.md": {
+		"step": 6,
+		"rows": [
+			"ACC01",
+			"ACC02",
+			"CMD01",
+			"CMD02",
+			"CMD03",
+			"CMD04",
+			"CMD05",
+			"CMD06",
+			"CMD07",
+			"CMD08",
+			"CMD09",
+			"CMD10",
+			"CMD11",
+			"CMD12",
+			"CMD13",
+			"EVT01",
+			"EVT02",
+			"EVT03",
+			"EVT04",
+			"EVT05",
+			"EVT06",
+			"FRM01",
+			"REQ01",
+			"REQ02",
+			"REQ03",
+			"REQ04",
+			"REQ05",
+			"REQ06"
+		]
+	},
+	"docs/run-record.md": {
+		"step": 2,
+		"rows": ["REC01", "REC02", "REC03", "REC04", "REC05", "REC06", "REC07", "REC08", "REC09"]
+	}
+}

@@ -1,0 +1,10 @@
+# The planning record is kept as it was written, so it can be compared with the
+# Lattice copy line for line. Prettier rewrites `*emphasis*` to `_emphasis_` in
+# markdown, which turns a path like `docs/agents/*` into `docs/agents/_`. The
+# docs are prose, not code; they get a careful read, not a formatter.
+docs/
+
+node_modules/
+dist/
+coverage/
+pnpm-lock.yaml

@@ -1,0 +1,6 @@
+{
+	"_note": "A first ceiling for the whole package, set before any real code: 40 KiB gzipped, core and adapters together. Lower it as the modules settle, and say so in the commit when it moves (AGENTS.md, size budgets).",
+	"@autumnsgrove/lyra": {
+		"gzipBytes": 40960
+	}
+}
