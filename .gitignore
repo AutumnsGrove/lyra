@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Test output
+coverage/
+.vitest/
+
+# Cloudflare (step 4)
+.wrangler/
+.dev.vars
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Secrets
+*.secret
+*.key
+*.pem
+
+# Editor and OS
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
