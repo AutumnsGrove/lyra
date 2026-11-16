@@ -169,6 +169,7 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 | [`lumen-changes.md`](lumen-changes.md) | What Lumen has to change. |
 | [`engineering-practices.md`](engineering-practices.md) | How it is built and tested. |
 | [`first-slice.md`](first-slice.md) | The build order. |
+| [`implementation/`](implementation/README.md) | How to build each step: the shared rules, and one document per step with slices and planned spec rows. |
 | [`repository.md`](repository.md) | The repository, releases, and moving over. |
 | [`agents-guide.md`](agents-guide.md) | The draft the repository's `AGENTS.md` came from (decision 93). |
 | [`research/`](research/) | Raw research notes, written fast. Useful as source material, not as settled fact. |

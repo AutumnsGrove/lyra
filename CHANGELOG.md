@@ -25,6 +25,10 @@ new API and any breaking change, and a patch bump is fixes only.
 - The published package `@autumnsgrove/lyra` at `0.0.0`: TypeScript strict, built to `dist`, with
   only the core entry point until an adapter needs another (decisions 69, 95).
 
+- `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
+  step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
+  plus briefs for the three steps that live in Lattice. They add no decisions.
+
 ### Changed
 
 - The planning record carries no open questions, and it gained decisions 99 to 103 in the process. The

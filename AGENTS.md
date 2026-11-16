@@ -8,6 +8,8 @@ Read `docs/overview.md` first. It says what Lyra is and where each detail lives.
 
 Planning is finished as far as the first slice, and no feature code exists yet. The repository holds the planning record in `docs/`, the gate it will be built under (`pnpm ci`), and an empty core. Step 0 is in Lattice (the Lumen changes, issue #1693) and blocks step 1; the build order is in `docs/first-slice.md`. Nothing is released, so the package is at `0.0.0` and not published.
 
+**Building a step?** Read `docs/implementation/README.md` and then the one document for your step. They hold the branch, commit, pull request and `pi-review` rules, the slices, and the repo mechanics that bite. Until the core is built, those documents stand in for issues (Autumn's call, 2026-11-16): cite the step document instead of an issue number.
+
 ## How a change goes
 
 1. **Start from an issue.** If there is none for what you were asked, say so. For anything beyond a trivial fix, ask for or write one first. The design issues live in Lattice; the README links them.

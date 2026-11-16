@@ -50,6 +50,8 @@ The cost of this is that the first real end-to-end run comes late, so integratio
 | **9. The timeline task** | GitHub fetching for pull requests and issues, the tools from `timeline-first-job.md`, the recipe, and one function that both entry points call: the nightly worker and the Arbor generate and backfill routes (decision 61). | Lattice | A real day runs on Workers with a record, from both entry points. You compare the output with the current one for a few days. |
 | **Checkpoint** | | | Version one is complete, and the timeline runs through Lyra. |
 
+How to build each step, slice by slice, with the rules for branches, commits and pull requests, is in [`implementation/`](implementation/README.md). That folder adds no decisions.
+
 ### Where things live (decision 60)
 
 A rule that falls out of decision 12: **generic adapters go in the Lyra repository, and anything specific to Grove goes in Lattice.**
