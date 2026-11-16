@@ -6,13 +6,15 @@ category: features
 
 # Step 1: the core with fakes
 
-Last updated: 2026-11-16. Read [`README.md`](README.md) first. Branch: `feat/step-01-core-with-fakes`. Builds decisions 5, 12, 13, 20, 21, 25, 28 to 33 (the record), 60, 62 to 64, 66, and the first half of 24. This step turns an empty core into a loop that runs end to end against fakes, with the test kit every later step stands on. No Cloudflare, no real model, no protocol.
+Last updated: 2026-11-16. Read [`README.md`](README.md) first. **This step is two pull requests, each cut from an up-to-date `main`, the second only after the first is merged:** **1a**, branch `feat/step-01a-core-foundations`, is slices 1 to 5 (the vocabulary, decoding, the record, the memory adapter, the testkit); **1b**, branch `feat/step-01b-the-loop`, is slices 6 to 8 (the loop, scenarios, conformance cases and wrap-up). Autumn chose the split (2026-11-16) because this is the largest step. Slice numbering runs straight through both PRs. Builds decisions 5, 12, 13, 20, 21, 25, 28 to 33 (the record), 60, 62 to 64, 66, and the first half of 24. This step turns an empty core into a loop that runs end to end against fakes, with the test kit every later step stands on. No Cloudflare, no real model, no protocol.
 
 Read: `docs/overview.md`, `docs/adapters.md`, `docs/run-record.md`, `docs/limits-and-interruptions.md` (to know what is coming, not to build it), `docs/engineering-practices.md` (the layers, the test kit, the catalog sections "Model and streaming", "The loop", "The record and resume"), and the scripts `importcheck.mjs` and `matrixcheck.mjs`.
 
 ## Goal and done when
 
-From `first-slice.md`: **a scripted multi-step run produces a record and exactly one `run_end`, even on error and abort.** Concretely, for this step:
+**1a is done when** slices 1 to 5 are green: the vocabulary and the determinism rule, `decode-reply`, the record with its tolerant loader, the memory adapter with the shared storage contract, and the testkit (fake clock, scripted model, failing storage, scripted tools), with their rows, property and fuzz targets, and `pnpm run ci` passing. No loop yet, and that is expected. 1a's PR says what 1b will build on, and 1b's `Where the work stands` line in `AGENTS.md` says 1a is merged.
+
+**1b is done when** the step's whole goal is true. From `first-slice.md`: **a scripted multi-step run produces a record and exactly one `run_end`, even on error and abort.** Concretely, for this step:
 
 - a run against a scripted fake model, in-memory storage and a fake clock asks the model, runs tools, hands results back, and ends `done` when a `finish` tool is accepted;
 - every run ends with exactly one `run_end`, whatever the model or a tool or the storage does, including when the run is aborted;
@@ -137,6 +139,8 @@ Each slice is a commit or a short run of commits, test-first, green. Do `pnpm fo
 - **Failing storage.** Wraps any `StorageSlot` and fails the *n*th append, so the "a save fails" case is testable. Step 2 adds the crashing variant.
 - **Scripted tools.** Helpers that make tools from data: returns a fixed result, returns an error, throws, takes a long time on the clock, is `safeToRepeat`. Plus `createFinishTool()`, which returns `{ isError: false, content: "finished", done: true }` (step 3 gives `finish` its coverage check).
 - KIT01 to KIT05: the clock advances and cancels correctly; the scripted model replies by conversation position and records requests; delays and failures follow the script; a failing storage fails exactly the chosen append; the leak check reports a pending timer.
+
+> **Split point: slices 1 to 5 are PR 1a. Everything below is PR 1b.** In 1b, start by reading `notes.md` and 1a's PR description for what 1a decided, and by confirming 1a is on `main`.
 
 **Slice 6: the loop.** `core/run.ts` (the loop and `runTask`), `core/events.ts`, `core/execute-tools.ts`. Shape is yours as long as one async function starts a run and returns a value describing how it ended, because step 2 wraps it in a run object that can be stopped, steered and resumed. Add `docs/core-loop.md` (the spec, linked from `overview.md`'s "Where everything is" table) with these planned rows (prefix `LOOP`):
 - LOOP01 happy: a scripted three-turn run (tool, tool, `finish`) ends `done`; the record holds header, user message, three assistant messages, the tool messages, and status entries in order; exactly one `run_start` and one `run_end`, in that order, nothing after.

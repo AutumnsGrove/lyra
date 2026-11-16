@@ -16,8 +16,9 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 |---|---|---|---|---|
 | R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | not started |
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | not started |
-| 1 | [`01-core-with-fakes.md`](01-core-with-fakes.md) | Lyra | the gate | not started |
-| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | step 1 merged | not started |
+| 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate | not started |
+| 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | not started |
+| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | not started |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
@@ -26,7 +27,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
-Update the Status column in the same PR that does the work (`in review` when you open it, and Autumn marks it `merged`). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
+**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and Autumn marks it `merged`). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
 
 Step 0 is Lumen work in Lattice. Steps 1 to 4 use fakes and never touch Lumen, so they can be built while it is in progress. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
 
@@ -35,7 +36,7 @@ Step 0 is Lumen work in Lattice. Steps 1 to 4 use fakes and never touch Lumen, s
 Autumn's global instructions say to judge what the spec did not settle, choose the simplest option consistent with the project, and write it down. These were settled while writing the step documents, so do not ask about them again. Reverse one only with a reason, and record the reversal.
 
 1. **No issues yet.** `AGENTS.md` says every change starts from an issue. Autumn's answer (2026-11-16): that rule applies after the core buildout. Until then each step document is the issue. Commits and PRs cite it: `Step: 2, slice 3` in a commit footer, and the document's path in the PR body. Do not create GitHub issues.
-2. **One PR per step, and you stay with it.** Open the PR when the step's gate is green, address `pi-review` (see below), and stop. A step has numbered slices, and each slice is one or a few commits. If a step's PR passes about 2,000 changed lines of non-test, non-doc code, stop and propose a split at the step's slice boundaries to Autumn rather than opening a very large PR.
+2. **One PR per step (step 1 is two, 1a and 1b), and you stay with it.** Open the PR when the step's gate is green, address `pi-review` (see below), and stop. A step has numbered slices, and each slice is one or a few commits. If a step's PR passes about 2,000 changed lines of non-test, non-doc code, stop and propose a split at the step's slice boundaries to Autumn rather than opening a very large PR.
 3. **Validation is hand-written until it hurts.** No schema library. Step 1 uses small decoder functions for the record, the model's reply, and frames. Step 3 settles tool arguments with a small JSON Schema subset validator, for reasons given there. The allow-list in `scripts/importcheck.mjs` stays empty unless a step doc says otherwise.
 4. **fast-check for property tests and the first fuzz targets.** A `devDependency`, pinned exactly, used with plain Vitest (no connector package). Vitiate is not adopted (decision 103 left it unverified, and `engineering-practices.md` names fast-check as the fallback). A fuzz target is a `*.fuzz.test.ts` that runs a high `numRuns` property over hostile bytes, seeded from the catalog's nasty cases, and prints its seed on failure, which fast-check does by default.
 5. **Time, randomness and ids are injected.** The core never calls `Date.now()`, `new Date()`, `setTimeout`, `setInterval`, or `Math.random()` directly. A `Clock` and an `Ids` source come in through the run's dependencies, and one file (`core/system-clock.ts`) wraps the real ones. Step 1 adds an `importcheck` rule that enforces it. Unguessable ids (decision 85) come from `crypto.getRandomValues`, which is web-standard.

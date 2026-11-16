@@ -6,7 +6,7 @@ category: features
 
 # Step 2: limits, retries, resume
 
-Last updated: 2026-11-16. Read [`README.md`](README.md) first. Branch: `feat/step-02-limits-retries-resume`, cut from a `main` that has step 1 merged. Builds decisions 10, 15, 18 to 27, 58, 90, 91, and the matching parts of 62 to 64. It makes the core safe to leave running: bounded, interruptible, and able to pick up where it stopped.
+Last updated: 2026-11-16. Read [`README.md`](README.md) first. Branch: `feat/step-02-limits-retries-resume`, cut from a `main` that has step 1 merged (both 1a and 1b). Builds decisions 10, 15, 18 to 27, 58, 90, 91, and the matching parts of 62 to 64. It makes the core safe to leave running: bounded, interruptible, and able to pick up where it stopped.
 
 Read: `docs/limits-and-interruptions.md` (the owner of this step's behavior), `docs/run-record.md` (its rows `REC01` to `REC09` are this step's, and are currently listed in `scripts/unbuilt-rows.json`), `docs/adapters.md` (the Waking slot), `docs/engineering-practices.md` (catalog: "The loop", "The record and resume"), `docs/implementation/notes.md` (what step 1 decided), and step 1's code, in particular `core/run.ts`, the record, and the testkit.
 
