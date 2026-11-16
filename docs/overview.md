@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-15. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 94 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-16. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 103 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -142,22 +142,21 @@ Approvals and proposals, the shell and Node, and the interactive consumers come 
 
 ## What is not confirmed
 
-Everything here comes from reading code and docs. Nothing has been run. These were flagged along the way as needing a check when the work starts:
+Most of what used to be listed here was checked against the sources on 2026-11-16 and is now in `decisions.md` (99 to 103). What is left:
 
-- The Workers testing package name and config (one page copy says `@cloudflare/vitest-plugin`, the official guide says `@cloudflare/vitest-pool-workers`).
-- Whether fast-check runs inside Workers, and how mature Vitiate is for coverage-guided fuzzing.
-- Durable Object hibernation details. The 2 MB row limit (decision 90) comes from Cloudflare's limits page and secondary sources, and should be checked against the live page.
-- Whether GitHub access for pull requests and issues goes through Warden.
-- How Lumen gets its provider key in the local dev stack.
+- Whether fast-check runs inside workerd with the Vitest integration, and how mature Vitiate is for coverage-guided fuzzing. Nothing suggests either fails; the first property test in that suite settles the first one.
+- Whether GitHub access for pull requests and issues goes through Warden. A Lattice question.
+- How Lumen gets its provider key in the local dev stack. A Lattice question, with the per-request key as one option.
 - Whether the HawkAgent answer key is large enough, because the evidence for three of its six cases was deleted.
-- npm provenance for releases, and the Node version floor.
 - `just-bash` on Workers, if a virtual shell is ever wanted there.
+
+npm provenance is no longer on this list: it is decided in 99 (trusted publishing over OIDC). The Node floor is 22.19, set in 95, with the local machine already on a newer release, so the floor is only really tested when CI runs on it.
 
 ## Where everything is
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 94 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 103 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |

@@ -23,7 +23,7 @@ the checkpoint (`docs/first-slice.md`).
 Read [`docs/overview.md`](docs/overview.md) first. It is the front door: what Lyra is, how the pieces
 fit, in plain words, with a pointer to each detail.
 
-[`docs/decisions.md`](docs/decisions.md) has all 94 decisions with their reasons. Check it before
+[`docs/decisions.md`](docs/decisions.md) has all 103 decisions with their reasons. Check it before
 reversing something that looks odd.
 
 | Document                                                          | What it holds                                                 |

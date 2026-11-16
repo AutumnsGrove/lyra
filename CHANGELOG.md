@@ -27,6 +27,18 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Changed
 
+- The planning record carries no open questions, and it gained decisions 99 to 103 in the process. The
+  two the first slice listed, the repository's name, layout and release process, and whether the
+  Cloudflare adapter builds on Cloudflare's agent tooling, were already decided (68 to 73, 95, 98), so
+  the `## Open` sections in `first-slice.md`, `adapters.md`, `consumers.md` and `repository.md` now say
+  so instead of reopening them; what stays open on purpose is decision 103.
+- Releases publish over OIDC with npm trusted publishing and `--provenance`, holding no token in the
+  repository (decision 99). A `follow_up` that arrives when nothing is running continues the
+  conversation in the same session (decision 100). The Cloudflare test tooling is named rather than
+  flagged: `@cloudflare/vitest-plugin`, renamed from `@cloudflare/vitest-pool-workers`, running on
+  Miniflare and therefore workerd, with four documented issues that shape that suite (decision 101).
+  The 2 MB Durable Object row limit is confirmed against the live page, which disagrees with its own
+  markdown copies (decision 102).
 - Prettier checks the code and the configuration, but not `docs/`, so the planning record stays as it
   was written, and not `.github/pi-review.json`, which pi-review generates with its own serializer
   (decision 95).

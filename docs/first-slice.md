@@ -64,7 +64,9 @@ So the Lyra repository never imports anything from Lattice, and the check for th
 - **The vine page change (#1687).** The timeline task attaches vines to headings until it lands.
 - **Approvals, proposals, the shell, Node, streaming.** All later, and none of them changes what is built here, because the record and the protocol were designed to take them.
 
-## Open questions
+## Settled before the build
 
-- The new repository's name, layout, and release process.
-- Whether the Cloudflare adapter builds on Cloudflare's current agent tooling or on plain Durable Objects (see `decisions.md`). Step 4 is where it matters, so it should be settled before step 4.
+Two questions were listed here and both were decided in `decisions.md` before this document was last updated. They are recorded settled rather than deleted, so they are not reopened by accident.
+
+- **The new repository's name, layout, and release process.** Decisions 68 (name and home), 69 (one package with subpath exports), 70 (the layout), 71 (publish to npm from the start), 73 (MIT), 95 (how the repository starts) and 98 (the gate's name). The one piece still open at the time, npm provenance, is decision 99: trusted publishing over OIDC, no token in the repository.
+- **Whether the Cloudflare adapter builds on Cloudflare's agent tooling or on plain Durable Objects.** Decision 72: plain Durable Objects, behind Lyra's slots, with Cloudflare's tooling left available to a consumer. Reread against Cloudflare's docs on 2026-11-16 and unchanged: the harness layers are still Beta or Experimental, Lifecycle and the capabilities Lyra would use are stable, and the eviction test helpers exist (decision 101).

@@ -58,7 +58,7 @@ lyra/
 ### 71. Release process (decided: publish to npm from the start)
 - **Versioning:** semver, 0.x until version one is complete and used, with breaking changes allowed in minor versions and written in the changelog.
 - **CI:** one workflow runs `pnpm ci` (decision 66) on every push and pull request, with limited parallelism so it does not saturate a small runner.
-- **Release:** a version tag runs the same gate, builds, and publishes to npm as public. The changelog is written by hand. Whether to publish with npm provenance is to confirm.
+- **Release:** a version tag runs the same gate, builds, and publishes to npm as public. The changelog is written by hand. The tag job publishes over OIDC with npm trusted publishing and `--provenance`, so the repository holds no token at all (decision 99).
 - **The package ships built output,** not source files, unlike the packages in Lattice.
 - **Node and tools:** pnpm for dependencies, Vitest for tests. Pi requires Node 22.19 or newer, which is a reasonable floor to confirm. I would not bring in bun, since the tests that matter run in workerd through Node.
 
@@ -107,6 +107,6 @@ It does not write `CHANGELOG.md`. In Nova the changelog is edited by hand, or by
 4. The vine placement issue (#1687) already exists.
 5. The repository starts with an initial commit (license, README, the docs, and `AGENTS.md` from `agents-guide.md`, decision 93). PR #1 is the `pi-review` install, done by you from the Pi harness (decision 77). The CI gate and the check scripts follow as the next changes, before any feature code, so step 1 begins with `pnpm ci` already passing on an empty core.
 
-## Open
+## Settled (2026-11-16)
 
-- Whether the agent should ever also draft changelog entries. Decided no for now (decision 74).
+Both items that were open here are decided, and the sections above say so: npm provenance became decision 99 (trusted publishing over OIDC, no token in the repository), and drafting changelog entries by an agent was declined in decision 74 (the changelog is edited by hand or by a coding agent following the written procedure, and the agent in CI only writes the release body). The Cloudflare foundation, the other question this document carried, is decision 72.

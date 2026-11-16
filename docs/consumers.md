@@ -65,7 +65,7 @@ The issue is written in the vocabulary of the old plan: a `GroveAgent` class, `s
 - **GroveAgent (decision 55).** Out of date, and not a basis for Lyra.
 - **Named consumers (decision 56).** Wisp, Fireside, and Reverie, all interactive. Lyra serves interactive uses as well as background jobs.
 
-## Still open
+## Closed since (2026-11-16)
 
-- The exact command and event names for proposals (see `protocol.md`).
-- The foundation of the Cloudflare adapter, now between Cloudflare's current agent tooling and plain Durable Objects. See `decisions.md`.
+- **The exact command and event names for proposals.** Decided: a run ends by producing one, which is the `proposal` event, and a person answers with the `decide_proposal` command, which emits `proposal_decided` (decisions 50, 83, 84). A second decision on the same proposal is `conflict`, and an unknown one is `not_found` (decision 85). `protocol.md` holds the frames.
+- **The foundation of the Cloudflare adapter.** Plain Durable Objects (decision 72), confirmed against Cloudflare's docs on 2026-11-16 (decision 101).
