@@ -16,7 +16,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 |---|---|---|---|---|
 | R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | not started |
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | not started |
-| 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate | not started |
+| 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | not started |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | not started |
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | not started |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
@@ -29,7 +29,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 
 **This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and Autumn marks it `merged`). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
 
-Step 0 is Lumen work in Lattice. Steps 1 to 4 use fakes and never touch Lumen, so they can be built while it is in progress. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
+Step 0 is Lumen work in Lattice, and `AGENTS.md` and `first-slice.md` say it blocks step 1, so treat it as a dependency of 1a unless Autumn says otherwise. Steps 1 to 4 do use fakes and never touch Lumen, so she may waive it and let them be built while it is in progress, but that reversal is hers to make and to record in `decisions.md`; an agent must not infer it. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
 
 ## Calls made in advance
 
