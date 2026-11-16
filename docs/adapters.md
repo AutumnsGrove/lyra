@@ -73,7 +73,7 @@ Four small interfaces plus an optional shell, and one real risk: Lumen-shaped id
 - **The wire protocol and transport** (HTTP, JSONL frames) is a thin layer on top of Lyra. Discussed later.
 - **How a person is told that an approval is waiting.** Settled in decision 36: a simple indicator in the viewer reads the list of pending requests, so no notify slot is needed for now.
 
-## Open
+## Settled
 
-- Packaging inside the new repository (one package with separate entry points, or several). Decided with the repository layout.
-- Whether the Cloudflare adapter builds on Cloudflare's agent tooling or on plain Durable Objects. A smaller question, decided later.
+- **Packaging inside the repository.** One package with subpath exports (decision 69): the core, `memory`, `cloudflare`, `openai`, and `testkit`, each with its own allowed imports.
+- **Whether the Cloudflare adapter builds on Cloudflare's agent tooling or on plain Durable Objects.** Plain Durable Objects (decision 72), behind the slots, using SQLite storage, an alarm, and hibernation. Cloudflare's agent tooling stays available to a consumer, and a separate adapter for it can come later. The tooling was reread on 2026-11-16 and the decision holds (decision 101).

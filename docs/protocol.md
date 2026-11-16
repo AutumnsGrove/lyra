@@ -139,7 +139,7 @@ Events that come from a record entry (everything except live deltas) carry the e
 
 - **HTTP:** `POST /v1/commands` takes one command and returns its response. `GET /v1/events` is a server-sent-event stream, with a session filter. `POST /v1/ui_response` answers a request. `GET /v1/state` is `get_state`.
 - **WebSocket:** `GET /v1/ws`, the same frames in both directions, with the same replay on reconnect.
-- On Cloudflare, a Durable Object holds each session, so a WebSocket can hibernate while a run is parked (to confirm against the current hibernation API).
+- On Cloudflare, a Durable Object holds each session, so a WebSocket can hibernate while a run is parked. Confirmed against the current API on 2026-11-16: `ctx.acceptWebSocket(server)` is what allows hibernation (`ws.accept()` does not), messages arrive at `webSocketMessage(ws, message)`, closures at `webSocketClose`, and the client stays connected to Cloudflare while the object is out of memory, so a parked run's socket survives an eviction and the object is reinitialised on the next frame. Two details matter for Lyra. Per-connection state that must survive goes in `serializeAttachment` and comes back from `deserializeAttachment`, capped at 16,384 bytes, which is ample for a session id and a last `seq`. And **a scheduled alarm prevents hibernation**, so a run parked with a wake time is awake until the alarm fires; the plan is unchanged (one alarm per session, decision 72) but the cost model should expect duration billing for that window rather than free hibernation.
 
 ### Access (decision 87), and who may approve (decision 88)
 
@@ -182,6 +182,6 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 
 The remaining rows (framing edge cases, the HTTP and WebSocket mappings, access) are written when each is built.
 
-## Open questions
+## Settled
 
-- The shell-related frames, if any. A `bash` tool call is an ordinary `tool_call` and needs none.
+- The shell-related frames, if any. Answered: a `bash` tool call is an ordinary `tool_call` and needs none.

@@ -75,7 +75,7 @@ Reasons a run can be parked: waiting for an approval, a limit was reached, stopp
 
 ## Not discussed yet
 
-- **Follow-up when nothing is running.** Whether it starts the next turn of the same conversation or is refused.
-- **How the record is read.** The next topic.
-- **Approvals.** A park with the reason "waiting for approval", plus how a person is told.
-- **A permission policy for the shell tool** (decision 16).
+- **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.
+- **How the record is read.** Written since: `run-record.md`.
+- **Approvals.** Decided in 34 to 37, with who may approve in 88 and the wait's reason in 84: a park with the reason `waiting_for_person`, and a viewer that reads the list of pending requests (decision 36).
+- **A permission policy for the shell tool** (decision 16). Decided in 81 and 89, with the details in `shell-tool.md`.
