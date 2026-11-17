@@ -127,22 +127,6 @@ test("KIT03 a delay waits for the clock, and aborts with the run", async () => {
 	await Promise.resolve();
 	expect(settled).toBe(false);
 
-	// Two sleeps due in one advance resolve in deadline order, not in insertion order.
-	const clockOrder = fakeClock();
-	const late = clockOrder.sleep(20);
-	const early = clockOrder.sleep(10);
-	clockOrder.advance(30);
-	await Promise.all([late, early]);
-	expect(clockOrder.pending()).toBe(0);
-
-	// And in the other insertion order too, so neither sort of pair is a surprise.
-	const clockOrder2 = fakeClock();
-	const earlyFirst = clockOrder2.sleep(10);
-	const lateSecond = clockOrder2.sleep(20);
-	clockOrder2.advance(20);
-	await Promise.all([earlyFirst, lateSecond]);
-	expect(clockOrder2.pending()).toBe(0);
-
 	clock.advance(200);
 	const answered = await answering;
 	expect(answered.ok && answered.value.text).toBe("late");
@@ -184,6 +168,26 @@ test("KIT03 failures come back in order before the turn succeeds", async () => {
 
 	const third = await model.complete(request([userTurn]));
 	expect(third.ok && third.value.text).toBe("finally");
+});
+
+test("KIT03 sleeps due in one advance resolve in deadline order, not insertion order", async () => {
+	const clock = fakeClock();
+	const order: string[] = [];
+
+	// The later deadline is registered first, so an `advance` that walks its own
+	// insertion order resolves them backwards and this fails.
+	void clock.sleep(20).then(() => {
+		order.push("20");
+	});
+	void clock.sleep(10).then(() => {
+		order.push("10");
+	});
+
+	clock.advance(30);
+	await Promise.resolve();
+
+	expect(order).toEqual(["10", "20"]);
+	expect(clock.pending()).toBe(0);
 });
 
 test("KIT03 a script with nothing left is a loud non-retryable error, not a loop", async () => {
