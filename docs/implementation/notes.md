@@ -8,6 +8,32 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 5, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
+merged, step 2 is on `feat/step-02-limits-retries-resume` with slices 1 to 5 done, no pull request yet.
+
+- **A failure is identified by the tool's name and the first 200 characters of its text, because a tool
+  result carries no code.** The step document says "the same tool name and the same error code and the
+  same first 200 characters". `ToolOutcome` has no code yet and no row needs one, so the key is the name
+  and the text. When a tool grows a code, the key takes it.
+- **A refused tool call counts as a failure too.** Bad arguments never reach the tool, but the model gets
+  the refusal as the result and will send it again; that is exactly the loop the safeguard exists to
+  stop. LOOP09's script had four identical refusals in a row and now parks, so its cases are interleaved
+  and the reason is written in the test.
+- **With the safeguard off, a model that cannot finish ends `failed` and says why.** The row says it never
+  parks, and it can neither keep going nor report a done-check that never passed, so `failed` with a
+  plain message is the honest ending. Recorded here because the step document left it open.
+- **A repeated tool failure parks after the batch is answered, not in the middle of it.** The current
+  batch still finishes, so the record stays paired and the model sees every result, and only then does
+  the run park. A stricter cut-in is a later choice, not a correctness fix.
+- **The reminder label was written but not readable.** `MessageLabel` allowed `reminder` since slice 1 and
+  the record's reader did not, so the first reminder a run wrote would have made its own record skip a
+  line. STK01 loads that record, and the label is in the generator now.
+- **Three step-1 rows were revised for the safeguard**, in the same commits as the behavior: LOOP08 (a
+  silent reply is reminded, not parked), LOOP09 (its refusals are interleaved so the safeguard does not
+  fire), LOOP15 (its parked case needs a run that really parks). Each keeps its original intent.
+
 ## Step 2, slice 4, 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
