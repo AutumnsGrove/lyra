@@ -96,6 +96,22 @@ cost limit counts reported cost of any source.
 `LIM06` is a resume with larger limits, and lands with resume in slice 6, so the
 planned number waits for it rather than being reused.
 
+## Rows (step 2, slice 3)
+
+Stop, steer and follow-up are the three things a person may do to a run while it
+is running (decisions 19 and 27). All three reach it through a `RunHandle`: the
+signal stops it, and the two texts are queued and read at the moments that keep
+the record paired. A steer is read at the gap after a tool batch is saved and
+before the next request; a follow-up is read when the run would otherwise end.
+
+| ID | Case | Expected |
+|---|---|---|
+| STP01 | Happy: a run is stopped | Aborting before the first request, during the model call, during a tool and between steps each parks as `stopped` with one `run_end`, every call of the batch paired and no timer left waiting; a second abort changes nothing |
+| STP02 | Happy: a steer is read at the gap | A steer that arrives during a model call or a tool is saved as a `user_message` labelled `steer` after the tool results and before the next request, the next request carries it, and the call and result pairing is unbroken |
+| STP03 | Sad: a steer after the run ended | Refused with `conflict`, and nothing is queued or saved |
+| STP04 | Happy: a follow-up is read at the end | A follow-up queued during a run is saved as a `user_message` labelled `follow_up` when the run would end on an accepted `finish` or on the model stopping without one, and the run continues; several are read in arrival order |
+| STP05 | Bad: text over the entry cap | A steer or a follow-up bigger than one entry is `bad_request`, nothing is queued, and the run is unaffected |
+
 ## Not discussed yet
 
 - **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.

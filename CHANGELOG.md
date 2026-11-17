@@ -83,6 +83,11 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- `createRun` returns a handle for a run in flight: `abort()` stops it (a second call does nothing),
+  `steer(text)` redirects it at the next gap between steps, and `followUp(text)` is read where the run
+  would otherwise end. Both texts are queued, never written on arrival, so a tool call and its result
+  are never split; a text too big for one record entry is refused with `bad_request`, and a command after
+  the run ended with `conflict` (decisions 19, 27).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

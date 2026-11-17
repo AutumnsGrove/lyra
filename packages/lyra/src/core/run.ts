@@ -41,6 +41,33 @@ export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
 /** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
 export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
 
+/** The cap an entry has: the record's own, lowered to the storage's when that is smaller. */
+export function entryCapBytes(storage: StorageSlot, requested?: number): number {
+	const own = requested ?? DEFAULT_ENTRY_CAP_BYTES;
+	return storage.maxEntryBytes === undefined ? own : Math.min(own, storage.maxEntryBytes);
+}
+
+/**
+ * A steer or follow-up that is waiting to be written (decisions 19, 27). Its id and
+ * time are decided when it is queued, so its owner can check that the entry will
+ * fit before it promises to send it.
+ */
+export interface QueuedMessage {
+	id: string;
+	ts: number;
+	text: string;
+}
+
+/**
+ * What a run's owner may tell it while it runs. Both texts are read at the moments
+ * that keep the record paired, never on arrival: a steer at the gap before the next
+ * request, a follow-up when the run would otherwise end.
+ */
+export interface RunControl {
+	takeSteers(): QueuedMessage[];
+	takeFollowUps(): QueuedMessage[];
+}
+
 export interface RunConfig {
 	runId: string;
 	task: string;
@@ -57,6 +84,8 @@ export interface RunConfig {
 	modelName?: string;
 	/** What the recipe allows before the run parks (decision 18, LIM01). */
 	limits?: Limits;
+	/** What the run's owner may steer or follow up with while it runs. */
+	control?: RunControl;
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -192,14 +221,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const clock = config.clock;
 	const runId = config.runId;
 	const deadlineMs = config.toolDeadlineMs ?? DEFAULT_TOOL_DEADLINE_MS;
-	const entryCapBytes =
-		config.storage.maxEntryBytes === undefined
-			? (config.entryCapBytes ?? DEFAULT_ENTRY_CAP_BYTES)
-			: Math.min(
-					config.entryCapBytes ?? DEFAULT_ENTRY_CAP_BYTES,
-					config.storage.maxEntryBytes,
-				);
+	const entryCap = entryCapBytes(config.storage, config.entryCapBytes);
 	const signal = config.signal ?? new AbortController().signal;
+	const control = config.control;
 
 	const messages: ConversationMessage[] = [];
 	const tools = new Map<string, Tool>(config.tools.map((tool) => [tool.spec.name, tool]));
@@ -240,7 +264,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	};
 
 	const append = async (entry: RecordEntry): Promise<number> => {
-		const fitted = fitEntry(entry, entryCapBytes);
+		const fitted = fitEntry(entry, entryCap);
 		if (fitted.refused !== undefined) {
 			throw new SaveFailed({ code: "internal", message: fitted.refused });
 		}
@@ -289,6 +313,39 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			text,
 		};
 		return append(entry);
+	};
+
+	/** A steer or a follow-up, written where it can be read without breaking a pairing. */
+	const saveUserMessage = async (
+		label: "steer" | "follow_up",
+		message: QueuedMessage,
+	): Promise<number> => {
+		const entry: UserMessageEntry = {
+			type: "user_message",
+			id: message.id,
+			parent,
+			ts: message.ts,
+			label,
+			text: message.text,
+		};
+		const seq = await append(entry);
+		messages.push({ role: "user", text: message.text });
+		return seq;
+	};
+
+	/**
+	 * Read what the run's owner queued, at a gap. Returns whether anything arrived,
+	 * which is how the loop knows to continue instead of ending.
+	 */
+	const readQueued = async (kind: "steer" | "follow_up"): Promise<boolean> => {
+		if (control === undefined) {
+			return false;
+		}
+		const queued = kind === "steer" ? control.takeSteers() : control.takeFollowUps();
+		for (const message of queued) {
+			await saveUserMessage(kind, message);
+		}
+		return queued.length > 0;
 	};
 
 	const saveToolResult = async (call: ToolCall, outcome: ToolOutcome): Promise<number> => {
@@ -361,6 +418,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			if (stoppedBeforeAsking !== undefined) {
 				return stoppedBeforeAsking;
 			}
+
+			// The gap: the last step's entries are all saved and the next request has not
+			// been made, so a steer is written here without splitting a call from its
+			// result (decision 19, STP02). It is written before the limit is checked, so
+			// a run that parks now still carries it for the resume.
+			await readQueued("steer");
 
 			// Checked before each request, so a limit always lands on a step boundary.
 			const reached = reachedLimit(limits, {
@@ -498,7 +561,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 
 			if (calls.length === 0) {
 				// No tool call and no `finish`: the model has stopped without saying the
-				// job is done. Step 2 replaces this with reminders and a count.
+				// job is done. A follow-up is a person's next word, so it is read before
+				// the run is called stuck. Slice 5 adds the reminders.
 				emit({
 					type: "turn_end",
 					run: runId,
@@ -506,6 +570,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					turn: turns,
 					finishReason: reply.finishReason,
 				});
+				if (await readQueued("follow_up")) {
+					continue;
+				}
 				return {
 					reason: "parked",
 					parkedReason: "stuck",
@@ -562,6 +629,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				finishReason: reply.finishReason,
 			});
 			if (finished) {
+				// The run would end here, so this is where a person's follow-up is read.
+				if (await readQueued("follow_up")) {
+					continue;
+				}
 				return { reason: "done", usage: usageTotal.total(), turns };
 			}
 		}
@@ -579,7 +650,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			label: "task",
 			text: config.input,
 		};
-		const firstFits = utf8Length(encodeEntry(first)) <= entryCapBytes;
+		const firstFits = utf8Length(encodeEntry(first)) <= entryCap;
 
 		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
 
@@ -591,7 +662,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		} else if (!firstFits) {
 			const error: LyraError = {
 				code: "bad_request",
-				message: `the task input is bigger than one record entry can hold (${entryCapBytes} bytes)`,
+				message: `the task input is bigger than one record entry can hold (${entryCap} bytes)`,
 			};
 			emit({ type: "error", run: runId, ts: clock.now(), error });
 			result = { reason: "failed", error, usage: usageTotal.total(), turns };

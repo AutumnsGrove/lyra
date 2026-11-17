@@ -19,6 +19,7 @@ export * from "./core/limits.js";
 export * from "./core/model.js";
 export * from "./core/result.js";
 export * from "./core/run.js";
+export * from "./core/run-handle.js";
 export * from "./core/slots.js";
 export * from "./core/system-clock.js";
 export * from "./core/tool.js";

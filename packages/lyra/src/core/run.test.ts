@@ -269,7 +269,13 @@ test("LOOP05 a tool that outstays its deadline is stopped and reported as an err
 		(clock) => [toolTakingTime("slow", 60_000, clock), createFinishTool()],
 	);
 
-	const result = await drive(slow.clock, slow.run({ toolDeadlineMs: 1_000 }), 500);
+	const running = slow.run({ toolDeadlineMs: 1_000 });
+	await until(() => slow.events.some((event) => event.type === "tool_start"));
+	// Move time by the deadline itself, then let the run finish without advancing
+	// further: the finish call's own deadline must not race the tool's microtask.
+	expect(slow.events.some((event) => event.type === "tool_start")).toBe(true);
+	slow.clock.advance(1_000);
+	const result = await running;
 	expect(result.reason).toBe("done");
 	const record = await readRecord(slow.storage);
 	const first = record.entries.find((entry) => entry.type === "tool_message");
@@ -1010,8 +1016,11 @@ test("LOOP16 a tool that never settles does not hold the run", async () => {
 		],
 	);
 
-	const result = await drive(stuck.clock, stuck.run({ toolDeadlineMs: 1_000 }), 500);
+	const running = stuck.run({ toolDeadlineMs: 1_000 });
+	await until(() => started);
 	expect(started).toBe(true);
+	stuck.clock.advance(1_000);
+	const result = await running;
 	expect(result.reason).toBe("done");
 
 	const record = await readRecord(stuck.storage);

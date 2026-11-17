@@ -8,6 +8,43 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 3, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
+merged, step 2 is on `feat/step-02-limits-retries-resume` with slices 1 to 3 done, no pull request yet.
+
+- **`createRun` is the handle, and `createRuntime` is not built yet.** The step document describes a
+  runtime that owns a registry of active runs, with `start`, `resume` and `wake`. Three of those four are
+  about resuming, so the registry arrives with slice 6, when it has something to do. Slice 3's rows need
+  the handle alone, and `start` is `createRun` for now.
+- **A queued text is measured as a real entry when it is queued.** The handle reserves the id and
+  timestamp, so the cap check is the entry that will be written, not an estimate from the text length.
+  The one unknown is the parent id, so the check measures against a 64-character placeholder: the longest
+  id this core makes is 39 characters (128 bits as hex, decision 85), so a text that passes cannot
+  overflow once the real parent is linked. A steer and a follow-up are both refused with `bad_request`
+  before anything is queued.
+- **A steer is written at the gap even when the run is about to park on a limit.** The limit check comes
+  after the drain, so a steer that arrived before the limit was reached is in the record and a resume
+  replays it, rather than being lost with the handle. The steer does not change what the limit measures.
+- **A follow-up is read before the stuck park.** A person's follow-up is new input, so a model that fell
+  silent and has a follow-up waiting is not stuck. That ordering is what slice 5's reminders must respect:
+  follow-ups first, reminders after.
+- **A steer queued but never read is lost when the run ends.** It lives in the handle, not the record, and
+  a stop or a kill drops it. Writing it on arrival instead would break the call/result pairing, which the
+  step document already chose against. This is the loss the step document asks to be stated.
+- **What the tests were checked against.** The steer and follow-up paths were mutated out (`readQueued`
+  calls removed) and the matching STP02 and STP04 tests failed, so the rows bite rather than passing on
+  their own setup.
+- **The steer and follow-up paths were checked by mutation.** With `readQueued("steer")` removed, both
+  STP02 tests fail; with the follow-up `continue` removed, both STP04 tests fail. The rows bite.
+- **Step 1's two deadline tests were moving the clock too coarsely, and this slice's extra gap `await`
+  exposed it.** `drive()` advances the fake clock on every microtask turn, so a run whose finish tool
+  resolves in a few ticks could see that call's own 1 s deadline expire first, and the run then asked a
+  third request the script did not have. LOOP05 and LOOP16 now advance the clock by the first tool's
+  deadline once and then await the run without advancing, which tests the same behavior without racing
+  the finish call. Not a product change: one more microtask per loop iteration cannot make a real tool
+  miss a deadline that it was nowhere near.
+
 ## Step 2, slice 2, 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
