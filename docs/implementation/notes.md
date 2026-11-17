@@ -12,6 +12,13 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **Uniqueness is per reply, not per run, and that is deliberate.** The review's last observation was that
+  a later turn may supply an id the loop generated earlier (`c1` in turn 0, the model's own `c1` in turn
+  1). Nothing breaks: the record's entry ids are a separate prefix, replay is positional, and pairing is
+  checked against the immediately preceding assistant message, which is what a provider checks. Making ids
+  unique per run would need a set that grows with the run for no case that fails, so it stays per reply
+  and LOOP09 says so.
+
 - **Two rounds of the same bug: ids have to be decided once, and against the whole batch.** The first fix
   normalised an unusable call id where the reply enters the loop, but a *generated* id was only checked
   against the calls already visited, so with the counter handing out `c1` a reply of `["c1", ""]`
