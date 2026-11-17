@@ -12,6 +12,23 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **The conformance survey, and what it changed.** Pi's `packages/agent/test/agent-loop.test.ts` (2,357
+  lines) and Nova's `agent/*_test.go` were read for cases the rows missed. Most of Pi's are about things
+  Lyra does not have on purpose (parallel tool batches, hooks, steering queues, custom message types); the
+  cases that applied became LOOP14 (what every event carries), LOOP15 (nothing left waiting after any
+  ending, and a run with no listener) and LOOP16 (a tool that never settles). The rest were already
+  covered: a cut-off reply (LOOP04), every call of an aborted batch answered (LOOP06), exactly one
+  `run_start` and `run_end` with nothing after (LOOP01, LOOP11).
+- **`seq` is the line's position in the record, so line 0 is the header.** A record-backed event whose
+  `seq` is 1 points at `entries[0]`. Writing LOOP14 caught that mistaking it for an index into `entries`
+  is easy, and step 6's catch-up code has to get it right.
+- **A `tool_call` event carries no `seq`.** It comes from no record entry of its own: the assistant
+  message it belongs to is already announced by `message_end`, and the call has an id. Two events sharing
+  one `seq` would have broken the "only increases" rule the protocol leans on (decision 86).
+- **Not built, and worth saying: a tool result has no duration.** Nova records how long a tool ran and Pi
+  does too; `run-record.md` does not ask for it and no row needs it, so the entry stays as it is. The
+  record allows another field, so it can be added when a viewer wants it.
+
 - **`scenarios/abort.yaml` found a lost stop.** A stop that arrives after a call is announced (`tool_start`)
   and before the tool's own listener is attached never fired, because a listener added afterwards does not
   see an abort that already happened; the tool then slept out its full time and reported success while the

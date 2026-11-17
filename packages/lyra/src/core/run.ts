@@ -330,7 +330,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			// asked again (decision 25).
 			if (reply.finishReason === "length" && reply.toolCalls.length > 0) {
 				for (const call of reply.toolCalls) {
-					emit({ type: "tool_call", run: runId, ts: clock.now(), seq, call });
+					emit({ type: "tool_call", run: runId, ts: clock.now(), call });
 					const cutOff: ToolOutcome = {
 						isError: true,
 						content:
@@ -377,7 +377,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			}
 
 			for (const call of reply.toolCalls) {
-				emit({ type: "tool_call", run: runId, ts: clock.now(), seq, call });
+				emit({ type: "tool_call", run: runId, ts: clock.now(), call });
 			}
 
 			let finished = false;

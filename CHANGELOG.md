@@ -58,6 +58,9 @@ new API and any breaking change, and a patch bump is fixes only.
 - A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
   or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
   record whose header could not be saved.
+- The conformance cases from Nova's Go tests and Pi's loop tests that applied to this loop: every event
+  names the run, carries the clock's time and a `seq` that only increases; no ending leaves a timer
+  waiting; and a tool that never settles is answered by its deadline rather than holding the run.
 - `scenarios/`, six files that script a fake model and say what should happen, and a runner that executes
   them in-process and reports what did not match. Step 6 runs the same files over the protocol (decision
   63), so the files use the protocol's spelling where there is one.

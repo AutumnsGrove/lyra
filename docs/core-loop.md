@@ -101,3 +101,6 @@ The events use the protocol's names and carry the run, the clock's time, and the
 | LOOP11 | Bad: a listener that throws | A listener that throws cannot reach the loop, and nothing is emitted after the single `run_end` |
 | LOOP12 | Property: any script at all | For any script — random calls, failures, cut-off replies, garbage arguments, tools that fail in each way, a stop at a random moment, a save that fails — the run returns, emits exactly one `run_end` last, and the record it saved loads |
 | LOOP13 | Happy: determinism | The same script, the same ids and the same clock write the same record twice, byte for byte |
+| LOOP14 | Happy: what every event carries | Every event names the run, carries the clock's time in order, and any event made from a record entry carries a `seq` that only increases and points at that entry |
+| LOOP15 | Sad: nothing left behind | After a run ends `done`, parked, or failed, the clock has no timer waiting, and a run with no listener at all still runs |
+| LOOP16 | Bad: a tool that ignores the stop | A tool that never settles and ignores its signal does not hold the run: its deadline answers for it and the run goes on |

@@ -855,3 +855,121 @@ test("LOOP12 for any script at all, the run returns with one run_end and a recor
 		{ numRuns: 120 },
 	);
 });
+
+test("LOOP14 every event names the run, carries the clock's time, and a record-backed seq that increases", async () => {
+	const steady = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "the content"), createFinishTool()],
+	);
+	const result = await steady.run();
+	expect(result.reason).toBe("done");
+
+	const events = steady.events;
+	expect(new Set(events.map((event) => event.run))).toEqual(new Set(["run-1"]));
+
+	// The clock's time, in order: a fake clock moves only when a test says so, and
+	// nothing here does, so every event carries the same instant.
+	expect(events.every((event) => event.ts === steady.clock.now())).toBe(true);
+
+	const seqs = events.flatMap((event) => ("seq" in event ? [event.seq] : []));
+	expect(seqs.length).toBeGreaterThan(0);
+	for (const [index, seq] of seqs.entries()) {
+		if (index > 0) {
+			expect(seq).toBeGreaterThan(seqs[index - 1] ?? -1);
+		}
+	}
+
+	// Each seq is the line's position in the saved record, which is what a client
+	// catching up from the record relies on (decision 86). Line 0 is the header, so
+	// the first entry is line 1 and `entries[seq - 1]` is that entry.
+	const record = await readRecord(steady.storage);
+	for (const event of events) {
+		if (!("seq" in event)) {
+			continue;
+		}
+		expect(event.seq).toBeGreaterThan(0);
+		const entry = record.entries[event.seq - 1];
+		expect(entry).toBeDefined();
+		if (event.type === "tool_end") {
+			expect(entry?.type).toBe("tool_message");
+		} else if (event.type === "message_end") {
+			expect(entry?.type).toBe("assistant_message");
+		}
+	}
+});
+
+test("LOOP15 no ending leaves a timer waiting, and a run with no listener still runs", async () => {
+	// A run with no listener at all is a run nobody is watching, which is the
+	// simplest case and still has to work.
+	const clock = fakeClock();
+	const unwatched = await runTask({
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "go",
+		system: "you are a test",
+		tools: [createFinishTool()],
+		model: scriptedModel([{ toolCalls: [{ id: "c1", name: "finish" }] }], { clock }),
+		storage: memoryStorage(),
+		clock,
+		ids: counterIds(),
+	});
+	expect(unwatched.reason).toBe("done");
+	expect(clock.pending()).toBe(0);
+
+	const parked = harness([{ text: "nothing to do" }], () => [createFinishTool()]);
+	expect((await parked.run()).reason).toBe("parked");
+	expect(parked.clock.pending()).toBe(0);
+
+	const broken = harness([{ toolCalls: [], failures: [{}] }], () => [createFinishTool()]);
+	expect((await broken.run()).reason).toBe("failed");
+	expect(broken.clock.pending()).toBe(0);
+
+	const slowTool = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		(clock) => [toolTakingTime("slow", 200, clock), createFinishTool()],
+	);
+	expect((await drive(slowTool.clock, slowTool.run())).reason).toBe("done");
+	expect(slowTool.clock.pending()).toBe(0);
+});
+
+test("LOOP16 a tool that never settles does not hold the run", async () => {
+	let started = false;
+	const stuck = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "never", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [
+			{
+				spec: {
+					name: "never",
+					description: "never answers",
+					parameters: { type: "object" },
+				},
+				execute() {
+					started = true;
+					// No timer, no clock, and it ignores the signal it was given.
+					return new Promise(() => {});
+				},
+			},
+			createFinishTool(),
+		],
+	);
+
+	const result = await drive(stuck.clock, stuck.run({ toolDeadlineMs: 1_000 }), 500);
+	expect(started).toBe(true);
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(stuck.storage);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first).toMatchObject({ toolCallId: "c1", isError: true });
+	expect(first?.type === "tool_message" ? first.content : "").toMatch(/deadline/);
+	expect(stuck.clock.pending()).toBe(0);
+});

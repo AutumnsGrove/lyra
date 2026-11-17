@@ -31,8 +31,12 @@ export type RunEvent =
 	| (EventBase & { type: "turn_start"; turn: number })
 	/** The assistant message, saved. `seq` is that entry's position in the record. */
 	| (EventBase & { type: "message_end"; seq: number; text: string; toolCalls: ToolCall[] })
-	/** A call the model asked for, announced before anything runs. */
-	| (EventBase & { type: "tool_call"; seq: number; call: ToolCall })
+	/**
+	 * A call the model asked for, announced before anything runs. It carries no
+	 * `seq` because no record entry is a call: the assistant message it came from
+	 * is already announced by `message_end`, and the call is named by its id.
+	 */
+	| (EventBase & { type: "tool_call"; call: ToolCall })
 	| (EventBase & { type: "tool_start"; callId: string; name: string })
 	/** The tool's result, saved. */
 	| (EventBase & {
