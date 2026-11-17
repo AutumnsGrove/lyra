@@ -76,6 +76,9 @@ Four small interfaces plus an optional shell, and one real risk: Lumen-shaped id
 ## Settled
 
 - **Packaging inside the repository.** One package with subpath exports (decision 69): the core, `memory`, `cloudflare`, `openai`, and `testkit`, each with its own allowed imports.
+- **The in-memory adapter is built** (step 1a, slice 4), and the storage contract it passes is what the
+  Cloudflare adapter will run in step 4, so the two cannot drift in ordering, `seq`, or what an
+  over-long line does.
 - **Whether the Cloudflare adapter builds on Cloudflare's agent tooling or on plain Durable Objects.** Plain Durable Objects (decision 72), behind the slots, using SQLite storage, an alarm, and hibernation. Cloudflare's agent tooling stays available to a consumer, and a separate adapter for it can come later. The tooling was reread on 2026-11-16 and the decision holds (decision 101).
 
 ## Spec rows: storage

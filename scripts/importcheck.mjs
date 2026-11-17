@@ -44,8 +44,10 @@ const ENTRY_POINTS = [
 		name: "testkit",
 		dir: "src/testkit",
 		// Test support may stand on the contract and on the in-memory adapter, so a
-		// scripted run needs no host.
-		allows: ["src/core", "src/adapters/memory"],
+		// scripted run needs no host. It also reads a record back, which is why the
+		// record's own directory is here: that is part of the core entry point, and
+		// the scenario runner checks what a run saved.
+		allows: ["src/core", "src/record", "src/adapters/memory"],
 	},
 ];
 

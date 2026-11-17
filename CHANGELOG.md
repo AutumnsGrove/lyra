@@ -46,6 +46,32 @@ new API and any breaking change, and a patch bump is fixes only.
   answers by conversation position and can fail on purpose, storage that fails on the nth append, and
   tools made from data (`finish` among them). Every later step's tests are written with it, and it is
   published because Lattice and other projects use it too (decision 69).
+- `runTask`, the loop: ask the model, run a reply's tool calls in order under a deadline, hand the
+  results back, and end in exactly one `run_end`. The record is written as it goes, so an interruption
+  loses no step (decision 20), and the events carry the record's `seq` (decision 86).
+- The loop's endings: a stopped run parks as `stopped` at any of the four points a person can stop it,
+  a reply cut off by the token limit has none of its calls run, a tool that throws or outstays its
+  deadline becomes an error result, and a model or storage failure ends the run `failed` once, with
+  `run_end` still emitted.
+- A stop that lands between a tool being announced and the tool starting is no longer lost: the call sees
+  the already-aborted signal instead of sleeping until its deadline, which `scenarios/abort.yaml` found.
+- A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
+  or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
+  record whose header could not be saved.
+- A tool call the model gave no id, or a repeated id, is given one that no other call in the reply uses,
+  before anything is written, so the assistant turn, its results, the conversation and the record all pair
+  on the same ids. Previously the result was renamed and the turn was not, which a provider rejects and a
+  resume replays.
+- The conformance cases from Nova's Go tests and Pi's loop tests that applied to this loop: every event
+  names the run, carries the clock's time and a `seq` that only increases; no ending leaves a timer
+  waiting; and a tool that never settles is answered by its deadline rather than holding the run.
+- `scenarios/`, six files that script a fake model and say what should happen, and a runner that executes
+  them in-process and reports what did not match. Step 6 runs the same files over the protocol (decision
+  63), so the files use the protocol's spelling where there is one.
+- A hostile reply gets an answer rather than an exception: bad arguments, an empty name, a tool the run
+  does not have (the error names the ones it does), the same call id twice, and a call after `finish`
+  are all error results, and a tool result that tells the model what to do is stored as data and
+  changes nothing.
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
