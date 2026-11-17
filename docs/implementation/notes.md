@@ -12,6 +12,21 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **`scenarios/abort.yaml` found a lost stop.** A stop that arrives after a call is announced (`tool_start`)
+  and before the tool's own listener is attached never fired, because a listener added afterwards does not
+  see an abort that already happened; the tool then slept out its full time and reported success while the
+  run parked. `runOne` now checks the signal after attaching, and the scenario is the regression test.
+- **Scenario fields use the protocol's spelling; events stay camelCase.** The files say `call_id` and
+  `is_error`, because step 6 runs the same files over the wire and a rename would touch every file. A small
+  translation table in the runner maps them onto the in-process events, and `expect_record` accepts either
+  spelling.
+- **The testkit may read the record.** The scenario runner loads what a run saved to check its
+  `expect_record`, so the testkit's allowed imports gained `src/record`: it is part of the core entry point,
+  and the rule is about reaching into adapters, not about the record.
+- **`import.meta.glob` is declared in `packages/lyra/testing/glob.d.ts`, not in `src/`.** The declaration is
+  included by `tsconfig.json` for the typecheck and left out of `tsconfig.build.json`, so the test can see
+  Vite's global while the published types never claim a runtime has it.
+
 - **The property test earned its keep on its first run.** LOOP12 found two gaps the rows had missed: an
   assistant turn the model saved badly (a nameless call, no call id, one id twice) was *written* by the
   loop and then *refused* by the record's loader, so the turn disappeared from history and its results

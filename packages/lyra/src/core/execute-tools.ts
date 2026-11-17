@@ -144,6 +144,12 @@ async function runOne(
 		call.abort();
 	};
 	options.signal.addEventListener("abort", onRunAbort, { once: true });
+	// The stop may have landed between this call being announced and this listener
+	// being attached, and a listener added afterwards never fires for it. The
+	// scenario file for a stop during a tool found exactly that gap.
+	if (options.signal.aborted) {
+		call.abort();
+	}
 
 	// The sleep is cancelled through the same signal, so a call that finishes
 	// first leaves no timer behind (`clock.pending()` is how a test checks).

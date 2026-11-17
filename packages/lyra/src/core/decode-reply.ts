@@ -113,9 +113,13 @@ export function decodeToolCalls(value: unknown): Result<ToolCall[]> {
 	return ok(calls);
 }
 
+export function isFinishReason(value: unknown): value is FinishReason {
+	return FINISH_REASONS.some((reason) => reason === value);
+}
+
 /** A reason Lyra does not model is `other`: the run still needs an answer, not a failure. */
 export function decodeFinishReason(value: unknown): FinishReason {
-	return FINISH_REASONS.find((reason) => reason === value) ?? "other";
+	return isFinishReason(value) ? value : "other";
 }
 
 export function decodeReply(value: unknown): Result<ModelReply> {

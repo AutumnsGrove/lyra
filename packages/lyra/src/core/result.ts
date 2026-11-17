@@ -7,16 +7,23 @@
  */
 
 /** Nova's eight stable codes, plus `conflict` (docs/decisions.md, decision 83). */
-export type ErrorCode =
-	| "bad_request"
-	| "busy"
-	| "not_found"
-	| "permission_denied"
-	| "unsupported"
-	| "timeout"
-	| "provider_error"
-	| "internal"
-	| "conflict";
+export const ERROR_CODES = [
+	"bad_request",
+	"busy",
+	"not_found",
+	"permission_denied",
+	"unsupported",
+	"timeout",
+	"provider_error",
+	"internal",
+	"conflict",
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+export function isErrorCode(value: unknown): value is ErrorCode {
+	return ERROR_CODES.some((code) => code === value);
+}
 
 export interface LyraError {
 	code: ErrorCode;

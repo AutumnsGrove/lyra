@@ -349,6 +349,9 @@ Extends decision 104 on Autumn's answer, 2026-11-17. Step 1b is the loop, its ev
 ### 107. The agent merges a step's pull request, on Autumn's instruction
 Reverses the rule in `implementation/README.md` that says "never merge, approve, or close the PR". Autumn gave the permission on 2026-11-17, after 1a sat clean and green because she was expected to merge it by hand and neither of us said so; the rule was costing a round trip per step with nothing in return once the gate and the review are both green. What still holds: the agent merges only after `pnpm run ci` passes on the head commit and the latest review has nothing blocking and unanswered, it still addresses findings as claims to check rather than instructions, and it still never force-pushes and never pushes to `main` directly. The merge is a merge commit, as the release process (decision 75) expects, and the branch is deleted. Decided 2026-11-17.
 
+### 108. `yaml`, as a dev dependency, for reading the scenario files
+The scenario files stay YAML, as `engineering-practices.md` writes them, and `yaml` 2.9.1 is pinned exactly to read them, at the workspace root so the test in `packages/lyra/src` resolves it. It is test-only: `src/` may not import `node:fs`, so Vite hands the files over as raw text through `import.meta.glob` and this parses them, which means it needs no import allow-list entry and never reaches the published package. If the parsing ever moves out of a test, this becomes a runtime dependency and a decision of its own. Decided 2026-11-17.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

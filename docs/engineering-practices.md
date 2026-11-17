@@ -309,3 +309,22 @@ nothing else, and no production file in the core may import it.
 | KIT04 | Bad: storage that fails | Exactly the chosen append fails, nothing is stored for it, and every other append and read behaves as the wrapped adapter does |
 | KIT05 | Bad: a leaked timer | The clock reports what is still pending, so a test can fail on a timer that was never resolved or cancelled |
 | KIT06 | Happy: the scripted tools | A tool made from data answers as its name says (a result, an error result, a throw), a slow one finishes only when the clock is advanced, and `finish` returns `done` |
+
+## Spec rows: the scenario runner
+
+The files themselves are in `scenarios/` at the repository root, and
+`src/scenarios.test.ts` runs every one of them in-process. Step 6 runs the same
+files over the protocol (decision 63), so a scenario's fields use the protocol's
+spelling where there is one (`call_id`, `is_error`) and the runner translates it
+onto the in-process events.
+
+`expect_events` is matched as a subsequence, so an event added later does not
+break a scenario. `expect_record` entries are subset matches, in order, so a
+scenario says the part of the record it cares about. A mismatch reports the field
+that differed and the value that came.
+
+| ID | Case | Expected |
+|---|---|---|
+| SCN01 | Happy: a scenario runs | Its events match as a subsequence in order, its record entries match in order, and there are no problems |
+| SCN02 | Sad: an expectation does not match | The report names the expectation, the field that differed, and what came instead, and it says how the run ended |
+| SCN03 | Bad: a malformed scenario | The file is refused with `bad_request` and a message naming the field, and a file this build understands decodes with its defaults filled in |

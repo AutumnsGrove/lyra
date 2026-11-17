@@ -53,9 +53,14 @@ new API and any breaking change, and a patch bump is fixes only.
   a reply cut off by the token limit has none of its calls run, a tool that throws or outstays its
   deadline becomes an error result, and a model or storage failure ends the run `failed` once, with
   `run_end` still emitted.
+- A stop that lands between a tool being announced and the tool starting is no longer lost: the call sees
+  the already-aborted signal instead of sleeping until its deadline, which `scenarios/abort.yaml` found.
 - A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
   or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
   record whose header could not be saved.
+- `scenarios/`, six files that script a fake model and say what should happen, and a runner that executes
+  them in-process and reports what did not match. Step 6 runs the same files over the protocol (decision
+  63), so the files use the protocol's spelling where there is one.
 - A hostile reply gets an answer rather than an exception: bad arguments, an empty name, a tool the run
   does not have (the error names the ones it does), the same call id twice, and a call after `finish`
   are all error results, and a tool result that tells the model what to do is stored as data and
