@@ -70,9 +70,11 @@ test("KIT02 the reply is chosen by conversation position, and a re-asked request
 		[
 			{ text: "first answer" },
 			{
+				reasoning: "thinking it through",
 				toolCalls: [
 					{ id: "c1", name: "read", args: { number: 12 } },
 					{ id: "c2", name: "raw", args: "{oops" },
+					{ id: "c3", name: "no_args" },
 				],
 			},
 		],
@@ -97,7 +99,10 @@ test("KIT02 the reply is chosen by conversation position, and a re-asked request
 	expect(second.value.toolCalls).toEqual([
 		{ id: "c1", name: "read", arguments: '{"number":12}' },
 		{ id: "c2", name: "raw", arguments: "{oops" },
+		{ id: "c3", name: "no_args", arguments: "{}" },
 	]);
+	// Reasoning is carried when the script offers it, and left out when it does not.
+	expect(second.value.reasoning).toBe("thinking it through");
 	expect(second.value.finishReason).toBe("tool_calls");
 	expect(second.value.model).toBe("scripted/test");
 
@@ -121,6 +126,22 @@ test("KIT03 a delay waits for the clock, and aborts with the run", async () => {
 	});
 	await Promise.resolve();
 	expect(settled).toBe(false);
+
+	// Two sleeps due in one advance resolve in deadline order, not in insertion order.
+	const clockOrder = fakeClock();
+	const late = clockOrder.sleep(20);
+	const early = clockOrder.sleep(10);
+	clockOrder.advance(30);
+	await Promise.all([late, early]);
+	expect(clockOrder.pending()).toBe(0);
+
+	// And in the other insertion order too, so neither sort of pair is a surprise.
+	const clockOrder2 = fakeClock();
+	const earlyFirst = clockOrder2.sleep(10);
+	const lateSecond = clockOrder2.sleep(20);
+	clockOrder2.advance(20);
+	await Promise.all([earlyFirst, lateSecond]);
+	expect(clockOrder2.pending()).toBe(0);
 
 	clock.advance(200);
 	const answered = await answering;
@@ -211,6 +232,13 @@ test("KIT06 the scripted tools answer as their names say", async () => {
 	expect(await toolReturning("read", "content").execute({}, ctx)).toEqual({
 		isError: false,
 		content: "content",
+	});
+	expect(
+		await toolReturning("read", "content", { details: { issue: 12 } }).execute({}, ctx),
+	).toEqual({
+		isError: false,
+		content: "content",
+		details: { issue: 12 },
 	});
 	expect(await toolReturningError("read", "no such issue").execute({}, ctx)).toEqual({
 		isError: true,

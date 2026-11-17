@@ -1,7 +1,13 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { encodeEntry, encodeHeader, type RecordEntry, type RecordHeader } from "./entries.js";
+import {
+	decodeEntry,
+	encodeEntry,
+	encodeHeader,
+	type RecordEntry,
+	type RecordHeader,
+} from "./entries.js";
 import { loadRecord } from "./load.js";
 import { entriesArbitrary, headerArbitrary } from "./generators.testing.js";
 import { activePath, replayConversation } from "./replay.js";
@@ -34,8 +40,12 @@ function user(parent: RecordEntry | null, text = "summarize the day"): RecordEnt
 	return { type: "user_message", ...base(parent), label: "task", text };
 }
 
-function assistant(parent: RecordEntry | null, calls: [string, string][] = []): RecordEntry {
-	return {
+function assistant(
+	parent: RecordEntry | null,
+	calls: [string, string][] = [],
+	reasoning?: string,
+): RecordEntry {
+	const entry: RecordEntry = {
 		type: "assistant_message",
 		...base(parent),
 		text: "working",
@@ -44,6 +54,10 @@ function assistant(parent: RecordEntry | null, calls: [string, string][] = []): 
 		usage: { inputTokens: 10, outputTokens: 5 },
 		finishReason: calls.length > 0 ? "tool_calls" : "stop",
 	};
+	if (reasoning !== undefined) {
+		entry.reasoning = reasoning;
+	}
+	return entry;
 }
 
 function result(parent: RecordEntry, callId: string, isError = false): RecordEntry {
@@ -78,10 +92,14 @@ test("RCD01 a header and a chain of entries load back equal to what was encoded"
 
 test("RCD02 replay turns the active path into the conversation, in call order", () => {
 	const first = user(null);
-	const second = assistant(first, [
-		["c1", "read_issue"],
-		["c2", "finish"],
-	]);
+	const second = assistant(
+		first,
+		[
+			["c1", "read_issue"],
+			["c2", "finish"],
+		],
+		"both calls, because the second needs the first",
+	);
 	const third = result(second, "c1");
 	// Each result follows the one before it: the record is a straight line, so the
 	// second result's parent is the first result, not the assistant message.
@@ -103,6 +121,7 @@ test("RCD02 replay turns the active path into the conversation, in call order", 
 		{
 			role: "assistant",
 			text: "working",
+			reasoning: "both calls, because the second needs the first",
 			toolCalls: [
 				{ id: "c1", name: "read_issue", arguments: "{}" },
 				{ id: "c2", name: "finish", arguments: "{}" },
@@ -224,6 +243,39 @@ test("RCD05 a record with no header is refused", () => {
 	expect(loadRecord(["{oops", encodeHeader(header())]).ok).toBe(false);
 });
 
+test("RCD05 a header missing a field, or with a field of the wrong shape, is refused", () => {
+	// These are first lines, so the header decoder sees them. A header is where a
+	// record gets its run id and its start time, so a bad one is refused rather than
+	// loaded with a default (docs/run-record.md, RCD05).
+	const damaged: unknown[] = [
+		{ type: "header", v: 1, run: "", task: "t", startedAt: 1, host: "h" },
+		{ type: "header", v: 1, run: "r", startedAt: 1, host: "h" },
+		{ type: "header", v: 1, run: "r", task: "t", host: "h" },
+		{ type: "header", v: 1, run: "r", task: "t", startedAt: 1 },
+		{ type: "header", v: 1, run: "r", task: "t", startedAt: -1, host: "h" },
+		{ type: "header", v: 1, run: "r", task: "t", startedAt: 1, host: "h", recipe: "x" },
+		{
+			type: "header",
+			v: 1,
+			run: "r",
+			task: "t",
+			startedAt: 1,
+			host: "h",
+			recipe: { name: "n" },
+		},
+	];
+
+	for (const line of damaged) {
+		const loaded = loadRecord([JSON.stringify(line)]);
+		expect(loaded.ok).toBe(false);
+	}
+
+	// The same shape on the first line loads, so the refusals above are about the
+	// field and not about the test's builder.
+	const good = loadRecord([JSON.stringify(header())]);
+	expect(good.ok).toBe(true);
+});
+
 test("RCD05 a header of a version this code does not know is refused", () => {
 	const future = loadRecord([JSON.stringify({ ...header(), v: 2 })]);
 	expect(future.ok).toBe(false);
@@ -278,6 +330,7 @@ test("RCD04 every kind refuses a line of the wrong shape, and the record still l
 		{ type: "user_message", id: "a", ts: 1 },
 		{ type: "user_message", id: "a", parent: null, ts: -1 },
 		{ type: "user_message", id: "a", parent: 7, ts: 1 },
+		{ type: "user_message", id: "a", parent: null, ts: 1, label: "task" },
 		{ type: "user_message", id: "a", parent: null, ts: 1, label: "nudge", text: "x" },
 		{ type: "assistant_message", id: "a", parent: null, ts: 1, model: "m" },
 		{ type: "assistant_message", id: "a", parent: null, ts: 1, text: "t" },
@@ -298,6 +351,15 @@ test("RCD04 every kind refuses a line of the wrong shape, and the record still l
 			text: "t",
 			model: "m",
 			usage: 1,
+		},
+		{
+			type: "assistant_message",
+			id: "a",
+			parent: null,
+			ts: 1,
+			text: "t",
+			model: "m",
+			toolCalls: "not a list",
 		},
 		{ type: "tool_message", id: "a", parent: null, ts: 1, isError: false, content: "c" },
 		{ type: "tool_message", id: "a", parent: null, ts: 1, toolCallId: "c1", content: "c" },
@@ -349,4 +411,15 @@ test("RCD04 details that are JSON too deep to trust are refused, not recursed in
 	}
 	expect(loaded.value.entries).toEqual([]);
 	expect(loaded.value.notes[0]?.problem).toMatch(/details/);
+});
+
+test("RCD04 the entry decoder refuses a value that is not an object at all", () => {
+	// The loader never calls it this way, because it has already checked, but the
+	// decoder is public and must answer rather than throw.
+	for (const value of [null, [], "an entry", 7]) {
+		const decoded = decodeEntry(value, "");
+		expect(decoded.ok).toBe(false);
+	}
+	const untyped = decodeEntry({ id: "a", parent: null, ts: 1 }, "{}");
+	expect(untyped.ok).toBe(false);
 });

@@ -12,6 +12,13 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **A review caught a test that could not fail.** The header refusals were passed as line 2 of a record,
+  where the loader calls them "a second header" before any header decoding happens, so the assertions
+  passed whatever the decoder did. They moved to RCD05 as first lines, `startedAt: -1` was added, and the
+  case now bites: breaking the `run` check in `decodeHeader` fails RCD05. It is the guide's own lesson
+  (`assert the positive case first`) in a different disguise: the test proved the loader skipped a line,
+  not that the decoder refused a header.
+
 - **What 1a deliberately does not have.** There is no loop, no scenario runner, no conformance port and no
   `scenarios/` directory, because those are 1b (slices 6 to 8) and 1a is meant to be reviewable on its
   own. What it does have is everything those stand on: the slot types, `decodeReply`, the record, the
