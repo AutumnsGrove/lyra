@@ -77,3 +77,26 @@ Four small interfaces plus an optional shell, and one real risk: Lumen-shaped id
 
 - **Packaging inside the repository.** One package with subpath exports (decision 69): the core, `memory`, `cloudflare`, `openai`, and `testkit`, each with its own allowed imports.
 - **Whether the Cloudflare adapter builds on Cloudflare's agent tooling or on plain Durable Objects.** Plain Durable Objects (decision 72), behind the slots, using SQLite storage, an alarm, and hibernation. Cloudflare's agent tooling stays available to a consumer, and a separate adapter for it can come later. The tooling was reread on 2026-11-16 and the decision holds (decision 101).
+
+## Spec rows: storage
+
+The Storage slot deals in JSON lines, not objects, so the core owns encoding
+and decoding and an adapter only saves and reads bytes in order (decision 12,
+and `implementation/01-core-with-fakes.md`, "Storage deals in lines"). Every
+adapter runs the same cases: the contract lives in
+`packages/lyra/src/testing/storage.contract.testing.ts`, and the in-memory adapter is
+the first to run it.
+
+`seq` is the line's zero-based position, in the order the lines were saved. It
+is the position protocol events will carry in step 6 (decision 86), so it is
+stable and never reused. The line limit is the adapter's own, always below the
+host's hard limit and above the record's 1 MiB entry cap (decision 90); a line
+over it is refused and nothing is stored, so a save never half-happens.
+
+| ID | Case | Expected |
+|---|---|---|
+| STO01 | Happy: append and read | Appends return `seq` counting up from zero, and `read` returns every line in the order it was saved |
+| STO02 | Sad: nothing saved yet | `read` on empty storage returns an empty list, not an error |
+| STO03 | Bad: awkward and oversized lines | A line holding newlines, U+2028 and a very long string round-trips exactly; a line over the adapter's limit is refused and stores nothing |
+| STO04 | Bad: appends at the same time | Appends issued together get distinct, increasing `seq` values in the order they were issued |
+| STO05 | Happy: counter ids | The in-memory id source returns the prefix and an increasing number per prefix, so the same script writes the same record twice |

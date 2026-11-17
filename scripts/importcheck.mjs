@@ -33,6 +33,13 @@ const ENTRY_POINTS = [
 		// contract; adapters depend on it, never the other way around.
 		forbids: ["src/adapters", "src/testkit"],
 	},
+	{
+		name: "memory",
+		dir: "src/adapters/memory",
+		// An adapter fills slots, so it needs the contract and nothing else. Its own
+		// directory is always allowed.
+		allows: ["src/core"],
+	},
 ];
 
 /**
@@ -176,15 +183,36 @@ async function checkSourceFiles() {
 					fail(file, line, `imports ${specifier}, which leaves ${PACKAGE_DIR}`);
 					continue;
 				}
-				if (entry) {
-					for (const forbidden of entry.forbids) {
-						if (target === forbidden || target.startsWith(`${forbidden}${sep}`)) {
-							fail(
-								file,
-								line,
-								`${entry.name} may not import ${forbidden} (${specifier})`,
-							);
-						}
+				// A test may reach across entry points, because nothing here ships it:
+				// a test in an adapter can use the testkit, and the core's tests can too.
+				if (isTest) {
+					continue;
+				}
+				// Imports are written with a `.js` extension (NodeNext), so the suffix is
+				// checked in both forms rather than one.
+				if (target.endsWith(".testing.ts") || target.endsWith(".testing.js")) {
+					fail(file, line, `imports ${target}, which is test support, not a module`);
+					continue;
+				}
+				if (entry === undefined) {
+					continue;
+				}
+				for (const forbidden of entry.forbids ?? []) {
+					if (target === forbidden || target.startsWith(`${forbidden}${sep}`)) {
+						fail(
+							file,
+							line,
+							`${entry.name} may not import ${forbidden} (${specifier})`,
+						);
+					}
+				}
+				if (entry.allows !== undefined) {
+					const permitted = [entry.dir, ...entry.allows];
+					const inside = permitted.some(
+						(prefix) => target === prefix || target.startsWith(`${prefix}${sep}`),
+					);
+					if (!inside) {
+						fail(file, line, `${entry.name} may not import ${target} (${specifier})`);
 					}
 				}
 				continue;

@@ -38,6 +38,10 @@ new API and any breaking change, and a patch bump is fixes only.
   deterministic encoder, a tolerant loader and replay. A damaged line is skipped and noted, an entry
   kind this build does not know is preserved exactly as it was saved, and a record with no usable
   header is refused rather than given an invented run id (decision 31).
+- `@autumnsgrove/lyra/memory`: in-memory storage, secrets, waking and counter ids, for tests and for a
+  run that need not outlive the process. Storage has one shared contract
+  (`src/testing/storage.contract.testing.ts`) that every adapter runs, so the Cloudflare adapter in
+  step 4 is held to the same cases (decision 12).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

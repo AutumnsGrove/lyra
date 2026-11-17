@@ -12,6 +12,19 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **The storage contract is a `.testing.ts` file that registers cases**, so `matrixcheck` now reads
+  test titles from those files too. Without that, the STO rows would look untested while the cases ran
+  in every adapter. The alternative was naming the file `*.test.ts`, which Vitest would then run as a
+  file with no tests.
+- **`importcheck` grew three small rules with the first adapter.** An adapter lists the directories it
+  may import (`allows`, with its own directory always permitted); a test file may reach across entry
+  points, because nothing in it ships; and production code may not import a `.testing.ts` file. That
+  last one is checked for both suffixes, because a relative import is written with `.js` and my first
+  attempt only looked for `.testing.ts`, so the violation passed.
+- **The in-memory storage limit defaults to 1 MiB**, the record's own entry cap (decision 90), rather
+  than to some larger number. A test cannot then accidentally prove that a line saves when the real
+  record could not hold it.
+
 - **The header is not an entry, so the first entry's `parent` is `null`.** Decision 31 says the header's
   parent is null; making the first entry point at the header instead would have added an id the header
   does not need. `activePath` therefore stops at `parent: null`.

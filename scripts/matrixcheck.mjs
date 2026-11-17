@@ -69,7 +69,12 @@ async function specRows() {
 async function testCitations() {
 	const citations = new Map();
 	const pattern = /\b(?:test|it|describe)(?:\.\w+)?\s*\(\s*(["'`])(.*?)\1/gs;
-	const tests = await walk(PACKAGE_DIR, (name) => name.endsWith(".test.ts"));
+	// `*.testing.ts` is test support, but a shared contract there registers test
+	// cases that run in more than one adapter, so its titles are claims too.
+	const tests = await walk(
+		PACKAGE_DIR,
+		(name) => name.endsWith(".test.ts") || name.endsWith(".testing.ts"),
+	);
 	for (const file of tests) {
 		const source = await readFile(file, "utf8");
 		for (const match of source.matchAll(pattern)) {
