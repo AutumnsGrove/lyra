@@ -93,6 +93,16 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 		}
 		seen.add(callId);
 
+		if (call.name === "") {
+			await options.onFinish(
+				{ ...call, id: callId },
+				errorResult(
+					`a tool call with no name was not run; ${available === "" ? "no tools are available" : `the tools are ${available}`}`,
+				),
+			);
+			continue;
+		}
+
 		const tool = byName.get(call.name);
 		if (tool === undefined) {
 			const names =

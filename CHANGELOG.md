@@ -53,6 +53,10 @@ new API and any breaking change, and a patch bump is fixes only.
   a reply cut off by the token limit has none of its calls run, a tool that throws or outstays its
   deadline becomes an error result, and a model or storage failure ends the run `failed` once, with
   `run_end` still emitted.
+- A hostile reply gets an answer rather than an exception: bad arguments, an empty name, a tool the run
+  does not have (the error names the ones it does), the same call id twice, and a call after `finish`
+  are all error results, and a tool result that tells the model what to do is stored as data and
+  changes nothing.
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

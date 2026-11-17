@@ -12,6 +12,13 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **The duplicate-call-id rule is "the first one runs".** A reply with one id twice cannot be paired
+  twice, and refusing both would throw away the call the model got right. The second is answered with an
+  error that says so, so the record has one result per call and the model learns what went wrong.
+- **A tool call after an accepted `finish` is answered, not run, and the loop stops there.** The
+  remaining calls are answered in the order they arrived, so the record stays paired, and the run ends
+  `done` without ever asking the model again.
+
 - **A stop is detected by the signal, not by what the slot returned.** From inside the request, an
   abort and a provider failure look identical: the fake model rejects with "sleep aborted" and a real
   `fetch` rejects with an `AbortError`. So the signal is checked before the error is believed, which is
