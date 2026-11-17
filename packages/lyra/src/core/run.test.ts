@@ -492,7 +492,8 @@ test("LOOP07 a save that fails ends the run failed, once, without throwing", asy
 	// an assistant message and a result per turn, then the closing status. Failing
 	// the first line, a middle one, and the last one covers the three shapes.
 	const cases = [
-		{ failOn: 1, saved: 1, loads: false },
+		// Nothing at all is written when the header itself cannot be saved.
+		{ failOn: 1, saved: 0, loads: false },
 		{ failOn: 4, saved: 4, loads: true },
 		{ failOn: 8, saved: 7, loads: true },
 	];
@@ -507,7 +508,8 @@ test("LOOP07 a save that fails ends the run failed, once, without throwing", asy
 		expect(ends).toHaveLength(1);
 		expect(ends[0]).toMatchObject({ reason: "failed" });
 
-		// Nothing was written past the failure, and what was written still loads.
+		// Nothing was written past the failure, and what was written still loads
+		// (unless nothing could be written at all, which is the first case).
 		const saved = await inner.read();
 		expect(saved.ok).toBe(true);
 		if (saved.ok) {

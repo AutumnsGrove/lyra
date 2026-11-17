@@ -1,6 +1,7 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { decodeToolCalls } from "../core/decode-reply.js";
 import {
 	decodeEntry,
 	encodeEntry,
@@ -422,4 +423,37 @@ test("RCD04 the entry decoder refuses a value that is not an object at all", () 
 	}
 	const untyped = decodeEntry({ id: "a", parent: null, ts: 1 }, "{}");
 	expect(untyped.ok).toBe(false);
+});
+
+test("RCD08 a turn the model saved with a nameless or repeated call still loads and replays", () => {
+	// The loop saves whatever the model said and answers each call separately, so
+	// the record has to keep a turn the strict reply decoder would refuse.
+	const calls = [
+		{ id: "", name: "", arguments: "{}" },
+		{ id: "same", name: "read", arguments: "{oops" },
+		{ id: "same", name: "read", arguments: "{}" },
+	];
+	expect(decodeToolCalls(calls).ok).toBe(false);
+
+	const turn: RecordEntry = {
+		type: "assistant_message",
+		...base(null),
+		text: "working",
+		toolCalls: calls,
+		model: "fake/model",
+		usage: { inputTokens: 1, outputTokens: 2 },
+		finishReason: "tool_calls",
+	};
+	const loaded = loadRecord([encodeHeader(header()), encodeEntry(turn)]);
+
+	expect(loaded.ok).toBe(true);
+	if (!loaded.ok) {
+		return;
+	}
+	expect(loaded.value.entries).toEqual([turn]);
+	expect(loaded.value.notes).toEqual([]);
+
+	const first = replayConversation(loaded.value.entries);
+	expect(first).toHaveLength(1);
+	expect(first[0]).toMatchObject({ role: "assistant", toolCalls: calls });
 });

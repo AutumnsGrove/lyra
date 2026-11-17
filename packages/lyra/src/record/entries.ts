@@ -10,7 +10,7 @@
  * produces the same bytes and a test can compare two records directly.
  */
 
-import { decodeFinishReason, decodeToolCalls, decodeUsage } from "../core/decode-reply.js";
+import { decodeFinishReason, decodeUsage } from "../core/decode-reply.js";
 import { isJsonValue, isPlainObject } from "../core/json.js";
 import type { JsonValue } from "../core/json.js";
 import type { FinishReason, ToolCall, Usage } from "../core/model.js";
@@ -180,6 +180,43 @@ export function encodeEntry(entry: RecordEntry): string {
 	}
 }
 
+/**
+ * The tool calls of a saved assistant turn, read tolerantly.
+ *
+ * `decodeReply` is strict about a call's id and name because it guards an
+ * adapter, where an empty one is a bug. The record is different: it preserves
+ * what the model said, including a call the loop then refused to run, so its
+ * reader accepts empty names, empty ids and repeated ids. Dropping the turn would
+ * lose the history the record exists to keep, and would leave the results that
+ * follow it unpaired (found by LOOP12).
+ */
+function decodeStoredToolCalls(value: unknown): Result<ToolCall[]> {
+	if (value === undefined) {
+		return ok([]);
+	}
+	if (!Array.isArray(value)) {
+		return bad("an assistant_message entry has tool calls that are not a list");
+	}
+	const calls: ToolCall[] = [];
+	for (const [index, call] of value.entries()) {
+		if (!isPlainObject(call)) {
+			return bad(
+				`an assistant_message entry has a toolCalls[${index}] that is not an object`,
+			);
+		}
+		const id = call["id"];
+		const name = call["name"];
+		const args = call["arguments"];
+		if (typeof id !== "string" || typeof name !== "string" || typeof args !== "string") {
+			return bad(
+				`an assistant_message entry has a toolCalls[${index}] that is not an id, a name and its arguments`,
+			);
+		}
+		calls.push({ id, name, arguments: args });
+	}
+	return ok(calls);
+}
+
 function bad(problem: string): Result<never> {
 	return fail("bad_request", problem);
 }
@@ -295,7 +332,7 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			if (!usage.ok) {
 				return usage;
 			}
-			const toolCalls = decodeToolCalls(value["toolCalls"]);
+			const toolCalls = decodeStoredToolCalls(value["toolCalls"]);
 			if (!toolCalls.ok) {
 				return toolCalls;
 			}

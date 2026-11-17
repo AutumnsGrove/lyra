@@ -105,6 +105,7 @@ the format (decision 30).
 | RCD04 | Bad: a damaged or hostile line | A line that is not JSON, not an object, of the wrong shape for its kind, a duplicate id, a parent that is not in the record, or a parent chain that loops each load with a note; an unknown kind is preserved as an opaque entry with its raw line and skipped by replay |
 | RCD05 | Bad: the header | A record with no lines, a first line that is not a header, or a header of a version this code does not know is refused instead of loaded |
 | RCD06 | Property: any valid sequence | For any generated header and chain of entries, loading their encoding returns them unchanged and the active path is a path from the root to the last entry |
+| RCD08 | Bad: a turn the model saved badly | An assistant turn whose call has an empty name or id, or two calls with one id, still loads and still replays, because the record keeps what happened; the strict reading of a reply (the adapter boundary) is what refuses those |
 | RCD07 | Bad: hostile bytes | Any mix of valid lines and hostile ones loads or refuses without throwing, and no valid line is lost |
 
 ## Spec rows

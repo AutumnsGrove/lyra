@@ -131,6 +131,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const tools = new Map<string, Tool>(config.tools.map((tool) => [tool.spec.name, tool]));
 
 	let live = true;
+	/** Set once the header is saved. Nothing is written into a record that never started. */
+	let recordStarted = false;
 	const usageTotal = createUsageTotal();
 	let turns = 0;
 	/** The id of the entry before the next one, which is what `parent` records. */
@@ -160,6 +162,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	};
 
 	const append = async (entry: RecordEntry): Promise<number> => {
+		if (!recordStarted) {
+			// A record with no header is not a record, so nothing is written into one
+			// that never started: a resume would have nothing to read either way.
+			throw new SaveFailed({ code: "internal", message: "the record has no header" });
+		}
 		const seq = await save(encodeEntry(entry));
 		parent = entry.id;
 		return seq;
@@ -436,6 +443,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			host: config.host,
 		});
 		await save(header);
+		recordStarted = true;
 
 		const first: UserMessageEntry = {
 			type: "user_message",
