@@ -12,6 +12,16 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **The property test earned its keep on its first run.** LOOP12 found two gaps the rows had missed: an
+  assistant turn the model saved badly (a nameless call, no call id, one id twice) was *written* by the
+  loop and then *refused* by the record's loader, so the turn disappeared from history and its results
+  were left orphaned; and a run whose header could not be saved still wrote its closing status into a
+  record that had never started. Both are fixed, RCD08 covers the first, and the second is in the same
+  commit because it is the same rule: the record keeps what the run wrote, or nothing.
+- **Two decoders for tool calls, on purpose.** `decodeReply` is strict, because it guards an adapter and
+  an empty id or name is a bug there. The record's reader is tolerant, because it preserves what
+  happened, including a call the loop then refused to run. One is a boundary, the other is history.
+
 - **The duplicate-call-id rule is "the first one runs".** A reply with one id twice cannot be paired
   twice, and refusing both would throw away the call the model got right. The second is answered with an
   error that says so, so the record has one result per call and the model learns what went wrong.

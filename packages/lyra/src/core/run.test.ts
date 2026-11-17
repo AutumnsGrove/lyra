@@ -1,7 +1,9 @@
+import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
+import { activePath } from "../record/replay.js";
 import {
 	createFinishTool,
 	fakeClock,
@@ -15,6 +17,7 @@ import {
 	type ScriptedTurn,
 } from "../testkit/index.js";
 import type { RunEvent } from "./events.js";
+import { loopScriptArbitrary } from "./loop-generators.testing.js";
 import { runTask } from "./run.js";
 import type { Tool } from "./tool.js";
 
@@ -760,4 +763,95 @@ test("LOOP11 a listener that throws cannot reach the loop, and nothing follows r
 	const record = await readRecord(shouting.storage);
 	expect(record.notes).toEqual([]);
 	expect(record.entries.at(-1)).toMatchObject({ type: "status", state: "done" });
+});
+
+test("LOOP12 for any script at all, the run returns with one run_end and a record that loads", async () => {
+	await fc.assert(
+		fc.asyncProperty(loopScriptArbitrary(), async (script) => {
+			const clock = fakeClock();
+			const inner = memoryStorage();
+			const controller = new AbortController();
+			const events: RunEvent[] = [];
+			const model = scriptedModel(script.turns, { clock });
+
+			const tools = script.tools.map(({ name, behavior }) => {
+				switch (behavior) {
+					case "error":
+						return toolReturningError(name, `${name} says no`);
+					case "throw":
+						return toolThatThrows(name, `${name} broke`);
+					case "slow":
+						return toolTakingTime(name, 200, clock);
+					case "ok":
+						return toolReturning(name, `${name} says yes`);
+				}
+			});
+			tools.push(createFinishTool());
+
+			const running = runTask({
+				runId: "run-1",
+				task: "scripted",
+				host: "test",
+				input: "go",
+				system: "you are a test",
+				tools,
+				model,
+				storage:
+					script.failOn === undefined
+						? inner
+						: failingStorage(inner, { failOn: script.failOn }),
+				clock,
+				ids: counterIds(),
+				toolDeadlineMs: 5_000,
+				signal: controller.signal,
+				onEvent: (event) => {
+					events.push(event);
+					if (event.type === "run_end" || events.length === script.abortAfter) {
+						if (event.type !== "run_end" && events.length === script.abortAfter) {
+							controller.abort();
+						}
+					}
+				},
+			});
+
+			const result = await drive(clock, running);
+
+			// One ending, last, whatever happened.
+			const ends = events.filter((event) => event.type === "run_end");
+			expect(ends).toHaveLength(1);
+			expect(events.at(-1)?.type).toBe("run_end");
+			expect(ends[0]).toMatchObject({ reason: result.reason });
+			expect(events[0]?.type).toBe("run_start");
+
+			// What was saved loads, and is a straight chain from the root.
+			const saved = await inner.read();
+			expect(saved.ok).toBe(true);
+			if (!saved.ok) {
+				return;
+			}
+			if (saved.value.length > 0) {
+				const loaded = loadRecord(saved.value);
+				expect(loaded.ok).toBe(true);
+				if (loaded.ok) {
+					expect(activePath(loaded.value.entries)).toEqual(loaded.value.entries);
+					// Every assistant message with calls is followed by one result per call,
+					// unless the run failed and the batch was cut short.
+					if (result.reason !== "failed") {
+						const entries = loaded.value.entries;
+						for (const [index, entry] of entries.entries()) {
+							if (entry.type !== "assistant_message") {
+								continue;
+							}
+							let results = 0;
+							while (entries[index + 1 + results]?.type === "tool_message") {
+								results += 1;
+							}
+							expect(results).toBe(entry.toolCalls.length);
+						}
+					}
+				}
+			}
+		}),
+		{ numRuns: 120 },
+	);
 });
