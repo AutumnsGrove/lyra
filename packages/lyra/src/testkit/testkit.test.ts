@@ -4,9 +4,11 @@ import type { ModelRequest } from "../core/model.js";
 import { memoryStorage } from "../adapters/memory/storage.js";
 import { fakeClock } from "./clock.js";
 import { scriptedModel } from "./model.js";
+import { crashingStorage } from "./crashing-storage.js";
 import { failingStorage } from "./storage.js";
 import {
 	createFinishTool,
+	executionCounter,
 	toolReturning,
 	toolReturningError,
 	toolTakingTime,
@@ -270,4 +272,60 @@ test("KIT06 the scripted tools answer as their names say", async () => {
 
 	expect(toolReturning("safe", "x", { safeToRepeat: true }).safeToRepeat).toBe(true);
 	expect(toolReturning("unsafe", "x").safeToRepeat).toBeUndefined();
+});
+
+test("KIT07 a kill at an append never settles, before or after the line is saved", async () => {
+	const before = memoryStorage();
+	const diesBefore = crashingStorage(before, { at: 2, when: "before" });
+	await diesBefore.append('{"n":1}');
+	let settled = false;
+	void diesBefore.append('{"n":2}').then(
+		() => {
+			settled = true;
+		},
+		() => {
+			settled = true;
+		},
+	);
+	// A third append still works, which proves the wrapper did not throw and the
+	// abandoned promise is the only thing frozen.
+	await diesBefore.append('{"n":3}');
+	await Promise.resolve();
+	expect(settled).toBe(false);
+	expect(before.saved()).toEqual(['{"n":1}', '{"n":3}']);
+
+	const after = memoryStorage();
+	const diesAfter = crashingStorage(after, { at: 2, when: "after" });
+	await diesAfter.append('{"n":1}');
+	let settledAfter = false;
+	void diesAfter.append('{"n":2}').then(
+		() => {
+			settledAfter = true;
+		},
+		() => {
+			settledAfter = true;
+		},
+	);
+	await Promise.resolve();
+	expect(settledAfter).toBe(false);
+	// The line is persisted even though the run never learned about it.
+	expect(after.saved()).toEqual(['{"n":1}', '{"n":2}']);
+});
+
+test("KIT08 a scripted tool records every execution by call id", async () => {
+	const executions = executionCounter();
+	const tool = toolReturning("read", "content", { executions });
+	const signal = new AbortController().signal;
+
+	await tool.execute({}, { signal, runId: "run-1", callId: "c1" });
+	await tool.execute({}, { signal, runId: "run-1", callId: "c1" });
+	await tool.execute({}, { signal, runId: "run-1", callId: "c2" });
+
+	expect(executions.ids()).toEqual(["c1", "c1", "c2"]);
+	expect(executions.count("c1")).toBe(2);
+	expect(executions.total()).toBe(3);
+	// A tool with no counter still runs, which is what every other test uses.
+	expect(
+		await toolReturning("read", "content").execute({}, { signal, runId: "r", callId: "c3" }),
+	).toEqual({ isError: false, content: "content" });
 });

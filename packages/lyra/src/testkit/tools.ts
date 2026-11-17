@@ -10,12 +10,38 @@ import type { Clock } from "../core/clock.js";
 import type { JsonObject, JsonValue } from "../core/json.js";
 import { NO_PARAMETERS, type Tool, type ToolOutcome } from "../core/tool.js";
 
+/**
+ * How many times a tool really ran, keyed by call id (KIT08). A resume must not
+ * repeat a tool that changes something, and this is how a test proves it did not.
+ */
+export interface Executions {
+	/** Called by a scripted tool, once, at the moment it starts. */
+	record(callId: string): void;
+	ids(): string[];
+	count(callId: string): number;
+	total(): number;
+}
+
+export function executionCounter(): Executions {
+	const seen: string[] = [];
+	return {
+		record: (callId) => {
+			seen.push(callId);
+		},
+		ids: () => [...seen],
+		count: (callId) => seen.filter((seenId) => seenId === callId).length,
+		total: () => seen.length,
+	};
+}
+
 export interface ScriptedToolOptions {
 	description?: string;
 	parameters?: JsonObject;
 	/** Whether the run may call it again after an interruption (decision 24). */
 	safeToRepeat?: boolean;
 	details?: JsonValue;
+	/** Records every execution, so a test can count them across a resume. */
+	executions?: Executions;
 }
 
 function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptions = {}): Tool {
@@ -24,7 +50,15 @@ function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptio
 		description: options.description ?? `the ${name} tool, from the testkit`,
 		parameters: options.parameters ?? NO_PARAMETERS,
 	};
-	const made: Tool = { spec, execute };
+	const executions = options.executions;
+	const counted: Tool["execute"] =
+		executions === undefined
+			? execute
+			: async (args, ctx) => {
+					executions.record(ctx.callId);
+					return execute(args, ctx);
+				};
+	const made: Tool = { spec, execute: counted };
 	if (options.safeToRepeat !== undefined) {
 		made.safeToRepeat = options.safeToRepeat;
 	}
