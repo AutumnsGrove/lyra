@@ -232,10 +232,27 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		}
 	};
 
+	/** A stopped run parks rather than failing: a person stopping it is not an error (decision 23). */
+	const stopped = (): RunResult | undefined =>
+		signal.aborted
+			? { reason: "parked", parkedReason: "stopped", usage: usageTotal.total(), turns }
+			: undefined;
+
 	const loop = async (): Promise<RunResult> => {
 		for (;;) {
+			const stoppedBeforeAsking = stopped();
+			if (stoppedBeforeAsking !== undefined) {
+				return stoppedBeforeAsking;
+			}
+
 			const answered = await ask();
 			if (!answered.ok) {
+				// An abort during the request is a person stopping the run, not the
+				// model failing, so the signal is checked before the error is believed.
+				const stoppedWhileAsking = stopped();
+				if (stoppedWhileAsking !== undefined) {
+					return stoppedWhileAsking;
+				}
 				emit({ type: "error", run: runId, ts: clock.now(), error: answered.error });
 				return {
 					reason: "failed",
@@ -445,16 +462,26 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		result = { reason: "failed", error, usage: usageTotal.total(), turns };
 	}
 
-	// The closing status, and the one `run_end`, whatever happened above. A failed
-	// save is the one case where the status cannot be written, so it is best effort.
+	// The closing status, and the one `run_end`, whatever happened above. If the
+	// closing status cannot be written, the record is not finished either, so the
+	// run reports `failed` rather than an ending nobody can resume from.
 	try {
 		await saveStatus(
 			result.reason === "done" ? "done" : result.reason === "parked" ? "parked" : "failed",
 			result.reason === "parked" ? result.parkedReason : undefined,
 		);
-	} catch {
-		// Nothing left to do: the run is ending either way, and this is already the
-		// failure the run reports.
+	} catch (caught) {
+		if (result.reason !== "failed") {
+			const error: LyraError =
+				caught instanceof SaveFailed
+					? {
+							code: caught.error.code,
+							message: `the record could not be finished: ${caught.error.message}`,
+						}
+					: { code: "internal", message: messageOf(caught) };
+			emit({ type: "error", run: runId, ts: clock.now(), error });
+			result = { reason: "failed", error, usage: result.usage, turns: result.turns };
+		}
 	}
 
 	emit(

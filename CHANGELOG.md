@@ -49,6 +49,10 @@ new API and any breaking change, and a patch bump is fixes only.
 - `runTask`, the loop: ask the model, run a reply's tool calls in order under a deadline, hand the
   results back, and end in exactly one `run_end`. The record is written as it goes, so an interruption
   loses no step (decision 20), and the events carry the record's `seq` (decision 86).
+- The loop's endings: a stopped run parks as `stopped` at any of the four points a person can stop it,
+  a reply cut off by the token limit has none of its calls run, a tool that throws or outstays its
+  deadline becomes an error result, and a model or storage failure ends the run `failed` once, with
+  `run_end` still emitted.
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

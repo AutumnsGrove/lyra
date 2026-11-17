@@ -7,7 +7,10 @@ import {
 	fakeClock,
 	scriptedModel,
 	toolReturning,
+	toolReturningError,
+	toolThatThrows,
 	toolTakingTime,
+	failingStorage,
 	type FakeClock,
 	type ScriptedTurn,
 } from "../testkit/index.js";
@@ -234,4 +237,307 @@ test("LOOP13 the same script, ids and clock write the same record twice", async 
 	expect(second.storage.saved()).toEqual(first.storage.saved());
 	expect(second.events).toEqual(first.events);
 	expect(first.storage.saved().length).toBeGreaterThan(1);
+});
+
+test("LOOP04 a reply cut off by the token limit runs none of its calls and asks again", async () => {
+	let readRuns = 0;
+	const cut = harness(
+		[
+			{
+				toolCalls: [{ id: "c1", name: "read", args: { number: 1 } }],
+				finishReason: "length",
+				text: "I was",
+			},
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [
+			{
+				spec: { name: "read", description: "read", parameters: { type: "object" } },
+				async execute() {
+					readRuns += 1;
+					return { isError: false, content: "the content" };
+				},
+			},
+			createFinishTool(),
+		],
+	);
+
+	const result = await cut.run();
+	expect(result.reason).toBe("done");
+	expect(result.turns).toBe(2);
+	// The positive case first: the tool that would have run, did not.
+	expect(readRuns).toBe(0);
+
+	const record = await readRecord(cut.storage);
+	const firstResult = record.entries.find((entry) => entry.type === "tool_message");
+	expect(firstResult).toMatchObject({ type: "tool_message", toolCallId: "c1", isError: true });
+	expect(firstResult?.type === "tool_message" ? firstResult.content : "").toMatch(/cut off/);
+
+	// The model was told, and asked again with that in front of it.
+	expect(cut.model.requests).toHaveLength(2);
+	expect(cut.model.requests[1]?.messages.at(-1)).toMatchObject({
+		role: "tool",
+		toolCallId: "c1",
+		isError: true,
+	});
+});
+
+test("LOOP05 a tool that returns an error becomes a result the model corrects, and the run finishes", async () => {
+	const corrected = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: { repo: "nope" } }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [
+			toolReturningError("read", "no such repo; the repos are lattice and engine"),
+			createFinishTool(),
+		],
+	);
+
+	expect((await corrected.run()).reason).toBe("done");
+	const record = await readRecord(corrected.storage);
+	expect(record.entries.filter((entry) => entry.type === "tool_message")).toMatchObject([
+		{ toolCallId: "c1", isError: true },
+		{ toolCallId: "c2", isError: false },
+	]);
+});
+
+test("LOOP05 a tool that throws becomes an error result rather than a crash", async () => {
+	const thrown = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "boom", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolThatThrows("boom", "the issue does not exist"), createFinishTool()],
+	);
+
+	const result = await thrown.run();
+	expect(result.reason).toBe("done");
+	const record = await readRecord(thrown.storage);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first).toMatchObject({ toolCallId: "c1", isError: true });
+	expect(first?.type === "tool_message" ? first.content : "").toMatch(/the issue does not exist/);
+});
+
+test("LOOP05 a tool that outstays its deadline is stopped and reported as an error", async () => {
+	const slow = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		(clock) => [toolTakingTime("slow", 60_000, clock), createFinishTool()],
+	);
+
+	const result = await drive(slow.clock, slow.run({ toolDeadlineMs: 1_000 }), 500);
+	expect(result.reason).toBe("done");
+	const record = await readRecord(slow.storage);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first).toMatchObject({ toolCallId: "c1", isError: true });
+	expect(first?.type === "tool_message" ? first.content : "").toMatch(/deadline/);
+	expect(slow.clock.pending()).toBe(0);
+});
+
+test("LOOP06 stopped before the first request parks as stopped with a complete record", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	const early = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }], () => [
+		createFinishTool(),
+	]);
+
+	const result = await early.run({ signal: controller.signal });
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+	expect(result.turns).toBe(0);
+	// The model was never asked, which is the positive case for the absence below.
+	expect(early.model.requests).toHaveLength(0);
+
+	const record = await readRecord(early.storage);
+	expect(record.notes).toEqual([]);
+	expect(record.entries.map((entry) => entry.type)).toEqual(["user_message", "status", "status"]);
+	expect(record.entries.at(-1)).toMatchObject({
+		type: "status",
+		state: "parked",
+		reason: "stopped",
+	});
+	const ends = early.events.filter((event) => event.type === "run_end");
+	expect(ends).toHaveLength(1);
+	expect(ends[0]).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+	expect(early.events.at(-1)?.type).toBe("run_end");
+});
+
+test("LOOP06 stopped during the model call parks as stopped", async () => {
+	const controller = new AbortController();
+	const waiting = harness([{ toolCalls: [{ id: "c1", name: "finish" }], delayMs: 5_000 }], () => [
+		createFinishTool(),
+	]);
+
+	const running = waiting.run({ signal: controller.signal });
+	for (let tick = 0; tick < 10; tick += 1) {
+		await Promise.resolve();
+	}
+	// The request is in flight, so this is the case it claims to be.
+	expect(waiting.model.requests).toHaveLength(1);
+	controller.abort();
+
+	const result = await running;
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+	const record = await readRecord(waiting.storage);
+	expect(record.entries.at(-1)).toMatchObject({
+		type: "status",
+		state: "parked",
+		reason: "stopped",
+	});
+	expect(waiting.events.filter((event) => event.type === "run_end")).toHaveLength(1);
+});
+
+test("LOOP06 stopped during a tool answers every call of the batch and parks", async () => {
+	const controller = new AbortController();
+	const tooling = harness(
+		[
+			{
+				toolCalls: [
+					{ id: "c1", name: "slow", args: {} },
+					{ id: "c2", name: "read", args: {} },
+				],
+			},
+		],
+		(clock) => [toolTakingTime("slow", 60_000, clock), toolReturning("read", "content")],
+	);
+
+	const running = tooling.run({ signal: controller.signal });
+	for (let tick = 0; tick < 10; tick += 1) {
+		await Promise.resolve();
+	}
+	controller.abort();
+
+	const result = await running;
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+
+	const record = await readRecord(tooling.storage);
+	const results = record.entries.filter((entry) => entry.type === "tool_message");
+	// Both calls are answered, so the record stays paired: the second never ran.
+	expect(results.map((entry) => (entry.type === "tool_message" ? entry.toolCallId : ""))).toEqual(
+		["c1", "c2"],
+	);
+	expect(results.every((entry) => entry.type === "tool_message" && entry.isError)).toBe(true);
+	expect(tooling.clock.pending()).toBe(0);
+});
+
+test("LOOP06 stopped between steps parks before the next request", async () => {
+	const controller = new AbortController();
+	const between = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "stop_it", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [
+			{
+				spec: {
+					name: "stop_it",
+					description: "stops the run",
+					parameters: { type: "object" },
+				},
+				async execute() {
+					controller.abort();
+					return { isError: false, content: "stopped it" };
+				},
+			},
+			createFinishTool(),
+		],
+	);
+
+	const result = await between.run({ signal: controller.signal });
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+	// The next turn was never asked for: one request, not two.
+	expect(between.model.requests).toHaveLength(1);
+	const record = await readRecord(between.storage);
+	expect(record.entries.at(-1)).toMatchObject({
+		type: "status",
+		state: "parked",
+		reason: "stopped",
+	});
+});
+
+test("LOOP07 a model error ends the run failed once", async () => {
+	const broken = harness(
+		[
+			{
+				toolCalls: [{ id: "c1", name: "finish" }],
+				failures: [{ code: "provider_error", message: "the provider is down" }],
+			},
+		],
+		() => [createFinishTool()],
+	);
+
+	const result = await broken.run();
+	expect(result).toMatchObject({ reason: "failed" });
+	expect(result.reason === "failed" ? result.error?.code : "").toBe("provider_error");
+
+	const record = await readRecord(broken.storage);
+	expect(record.entries.at(-1)).toMatchObject({ type: "status", state: "failed" });
+	const ends = broken.events.filter((event) => event.type === "run_end");
+	expect(ends).toHaveLength(1);
+	expect(ends[0]).toMatchObject({ reason: "failed" });
+	expect(broken.events.some((event) => event.type === "error")).toBe(true);
+	expect(broken.events.at(-1)?.type).toBe("run_end");
+});
+
+test("LOOP07 a save that fails ends the run failed, once, without throwing", async () => {
+	const script: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish" }] },
+	];
+	const makeTools = (): Tool[] => [toolReturning("read", "the content"), createFinishTool()];
+
+	// This two-turn script writes eight lines: header, user, running status, then
+	// an assistant message and a result per turn, then the closing status. Failing
+	// the first line, a middle one, and the last one covers the three shapes.
+	const cases = [
+		{ failOn: 1, saved: 1, loads: false },
+		{ failOn: 4, saved: 4, loads: true },
+		{ failOn: 8, saved: 7, loads: true },
+	];
+
+	for (const { failOn, saved: expectedLines, loads } of cases) {
+		const inner = memoryStorage();
+		const failing = harness(script, makeTools);
+		const result = await failing.run({ storage: failingStorage(inner, { failOn }) });
+
+		expect(result).toMatchObject({ reason: "failed" });
+		const ends = failing.events.filter((event) => event.type === "run_end");
+		expect(ends).toHaveLength(1);
+		expect(ends[0]).toMatchObject({ reason: "failed" });
+
+		// Nothing was written past the failure, and what was written still loads.
+		const saved = await inner.read();
+		expect(saved.ok).toBe(true);
+		if (saved.ok) {
+			expect(saved.value.length).toBe(expectedLines);
+			expect(loadRecord(saved.value).ok).toBe(loads);
+		}
+	}
+});
+
+test("LOOP08 a reply with text and no tool call parks the run as stuck", async () => {
+	const quiet = harness([{ text: "I think that is everything." }], () => [createFinishTool()]);
+
+	const result = await quiet.run();
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stuck" });
+
+	const record = await readRecord(quiet.storage);
+	expect(record.entries.map((entry) => entry.type)).toEqual([
+		"user_message",
+		"status",
+		"assistant_message",
+		"status",
+	]);
+	expect(record.entries.at(-1)).toMatchObject({
+		type: "status",
+		state: "parked",
+		reason: "stuck",
+	});
+	expect(quiet.events.at(-1)).toMatchObject({
+		type: "run_end",
+		reason: "parked",
+		parkedReason: "stuck",
+	});
 });

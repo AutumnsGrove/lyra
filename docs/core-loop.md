@@ -91,4 +91,9 @@ The events use the protocol's names and carry the run, the clock's time, and the
 | LOOP01 | Happy: a three-turn run | Tool, tool, `finish` ends `done`; the record holds the header, the user message, three assistant messages, their results and the status entries in order; exactly one `run_start` comes first and one `run_end` last |
 | LOOP02 | Happy: results in call order | Calls that take different times on the clock are saved and announced in call order, and no deadline timer is left waiting at the end |
 | LOOP03 | Happy: usage | Every reply's usage is reported in a `usage` event and summed in the run's result, with a cost total only when every reply reported one from the same source |
+| LOOP04 | Sad: a reply cut off by the token limit | None of its tool calls run; each is saved as an error result saying the reply was cut off, and the model is asked again |
+| LOOP05 | Sad: a tool that fails | A tool that returns an error, one that throws, and one that runs past its deadline each become an error result the model reads, and the run still finishes |
+| LOOP06 | Sad: a run is stopped | The signal firing before the first request, during the model call, during a tool, and between steps each parks the run as `stopped`, with one `run_end`, a record that loads, and every call of the stopped batch paired |
+| LOOP07 | Sad: the model or the storage fails | A model error ends the run `failed` once; a save that fails at the first, a middle, or the last append also ends it `failed`, `run_end` is emitted once, and nothing throws |
+| LOOP08 | Sad: a reply with no tool call | The run parks as `stuck`, saving the assistant message and the parked status first |
 | LOOP13 | Happy: determinism | The same script, the same ids and the same clock write the same record twice, byte for byte |

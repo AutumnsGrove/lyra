@@ -12,6 +12,15 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **A stop is detected by the signal, not by what the slot returned.** From inside the request, an
+  abort and a provider failure look identical: the fake model rejects with "sleep aborted" and a real
+  `fetch` rejects with an `AbortError`. So the signal is checked before the error is believed, which is
+  also why a run stopped during a model call parks instead of failing (LOOP06).
+- **A closing status that cannot be written turns `done` into `failed`.** The step document says a
+  failed save anywhere ends the run `failed`, and the closing status is a save like any other; reporting
+  `done` with a record that says `running` would leave a resume reading a finished run as interrupted.
+  The record keeps what was written, so the failure is visible rather than papered over.
+
 - **The cost total is dropped, not approximated.** LOOP03 caught the first attempt: the accumulator
   began at zero tokens with no cost, so the first reply's cost was thrown away and the total came out
   at nothing. The rule now is that a total is reported only when every reply reported one from the same

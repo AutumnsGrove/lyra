@@ -73,6 +73,15 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 			);
 			continue;
 		}
+		if (options.signal.aborted) {
+			// A stopped run does not start more work, but every call still gets an
+			// answer, so the record stays paired (LOOP06).
+			await options.onFinish(
+				{ ...call, id: callId },
+				errorResult("the run was stopped before this call ran"),
+			);
+			continue;
+		}
 		if (seen.has(callId)) {
 			await options.onFinish(
 				{ ...call, id: callId },
