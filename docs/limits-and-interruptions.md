@@ -131,6 +131,25 @@ still ends the run `failed`.
 | RTY06 | Happy: the fallback model | After the retries the run moves to the recipe's fallback, writes one `fallback` entry and event naming both models and the reason, and continues on it |
 | RTY07 | Sad: the fallback also fails | It gets the same retry policy and then the run parks `model_unavailable` |
 
+## Rows (step 2, slice 5)
+
+The stuck safeguard is the one protection that is on by default, because a recipe
+has no limits unless it asks for them and a loop that cannot progress spends a
+person's own key (decision 25). A model that stops without finishing is nudged
+twice and then the run parks. A tool that fails the same way three times in a row
+parks it too, where "the same way" is the same tool and the same first 200
+characters of the error text, because a tool result carries no code of its own. A
+success, or a different failure, starts the count again.
+
+| ID | Case | Expected |
+|---|---|---|
+| STK01 | Happy: the model is reminded | A reply with no tool call and no finish is saved, a short `reminder` user message is saved after it, and the model is asked again |
+| STK02 | Sad: the model keeps stopping | After two reminders a model that still does not finish parks `stuck` with detail `stopped_without_finishing`, and the record has exactly two reminders |
+| STK03 | Sad: a tool fails the same way | Three identical failures in a row park the run with detail `repeated_failure` naming the tool |
+| STK04 | Happy: the count resets | A different failure, or a success, starts the count again, so a script that never has three in a row finishes normally |
+| STK05 | Sad: the safeguard is off | No reminder is written and the run never parks; a model that cannot finish ends `failed` and says the safeguard is off |
+| STK06 | Sad: a reply cut off by the token limit | Each cut-off reply is none of its calls run, is asked again, and counts toward the same-failure total; three in a row park the run naming the cut-off reply |
+
 ## Not discussed yet
 
 - **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.

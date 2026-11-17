@@ -83,6 +83,10 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- The stuck safeguard, on by default and configurable per run: a model that stops without finishing
+  is reminded twice and then the run parks `stuck`, and a tool that fails the same way three times in
+  a row parks it too, naming the tool. A cut-off reply counts as a failure of its own kind, and the
+  `reminder` label now loads from a record (decision 25).
 - A retryable model failure is retried three times with growing delays (1 s, 4 s, 16 s, with the
   provider's own `retryAfterMs` as a floor), then the recipe's fallback model if it names one, and
   otherwise the run parks `model_unavailable` instead of failing, so an outage is a pause. A

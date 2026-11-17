@@ -465,29 +465,31 @@ test("LOOP07 a save that fails ends the run failed, once, without throwing", asy
 	}
 });
 
-test("LOOP08 a reply with text and no tool call parks the run as stuck", async () => {
-	const quiet = harness([{ text: "I think that is everything." }], () => [createFinishTool()]);
+test("LOOP08 a reply with text and no tool call is reminded, not parked", async () => {
+	const quiet = harness(
+		[{ text: "I think that is everything." }, { toolCalls: [{ id: "c1", name: "finish" }] }],
+		() => [createFinishTool()],
+	);
 
+	// The safeguard nudges a model that stops without finishing (STK01), so this
+	// run continues instead of parking on the first silence.
 	const result = await quiet.run();
-	expect(result).toMatchObject({ reason: "parked", parkedReason: "stuck" });
+	expect(result).toMatchObject({ reason: "done", turns: 2 });
 
 	const record = await readRecord(quiet.storage);
-	expect(record.entries.map((entry) => entry.type)).toEqual([
-		"user_message",
+	expect(
+		record.entries.map((entry) =>
+			entry.type === "user_message" ? `user:${entry.label}` : entry.type,
+		),
+	).toEqual([
+		"user:task",
 		"status",
 		"assistant_message",
+		"user:reminder",
+		"assistant_message",
+		"tool_message",
 		"status",
 	]);
-	expect(record.entries.at(-1)).toMatchObject({
-		type: "status",
-		state: "parked",
-		reason: "stuck",
-	});
-	expect(quiet.events.at(-1)).toMatchObject({
-		type: "run_end",
-		reason: "parked",
-		parkedReason: "stuck",
-	});
 });
 
 test("LOOP09 arguments that are not a JSON object are refused, and the tool does not run", async () => {
@@ -503,7 +505,9 @@ test("LOOP09 arguments that are not a JSON object are refused, and the tool does
 		createFinishTool(),
 	];
 
-	const invalid = ["{oops", "", "null", "[]", '"a string"', "42"];
+	// Two kinds of refusal, interleaved: the same one three times in a row is the
+	// stuck safeguard's business (STK03), not this row's.
+	const invalid = ["{oops", "null", "", "[]", "42"];
 	const script: ScriptedTurn[] = [
 		{
 			toolCalls: invalid.map((args, index) => ({ id: `bad${index}`, name: "read", args })),
@@ -975,7 +979,10 @@ test("LOOP15 no ending leaves a timer waiting, and a run with no listener still 
 	expect(unwatched.reason).toBe("done");
 	expect(clock.pending()).toBe(0);
 
-	const parked = harness([{ text: "nothing to do" }], () => [createFinishTool()]);
+	const parked = harness(
+		[{ text: "nothing to do" }, { text: "still nothing" }, { text: "nothing at all" }],
+		() => [createFinishTool()],
+	);
 	expect((await parked.run()).reason).toBe("parked");
 	expect(parked.clock.pending()).toBe(0);
 

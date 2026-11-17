@@ -137,7 +137,7 @@ export type RecordEntry =
 
 /** Narrowing by hand, because `Array.includes` keeps the argument as `unknown`. */
 function isLabel(value: unknown): value is MessageLabel {
-	return value === "task" || value === "steer" || value === "follow_up";
+	return value === "task" || value === "steer" || value === "follow_up" || value === "reminder";
 }
 
 function isState(value: unknown): value is RunState {

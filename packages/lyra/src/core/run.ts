@@ -72,6 +72,23 @@ export interface RunControl {
 	takeFollowUps(): QueuedMessage[];
 }
 
+/**
+ * The stuck safeguard (decision 25). It is on by default because a recipe has no
+ * limits unless it asks for them, and a loop that cannot make progress would spend
+ * a person's own key forever. `reminders` is how many nudges a model that stops
+ * without finishing gets; `sameFailure` is how many identical tool failures in a
+ * row stop the run.
+ */
+export interface StuckSettings {
+	enabled?: boolean;
+	reminders?: number;
+	sameFailure?: number;
+}
+
+/** What a model that stopped without finishing is told, at most `reminders` times. */
+const REMINDER_TEXT =
+	"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.";
+
 export interface RunConfig {
 	runId: string;
 	task: string;
@@ -92,6 +109,8 @@ export interface RunConfig {
 	limits?: Limits;
 	/** What the run's owner may steer or follow up with while it runs. */
 	control?: RunControl;
+	/** The stuck safeguard: on by default, because the default has no limits (decision 25). */
+	stuck?: StuckSettings;
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -247,6 +266,17 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let modelName = config.modelName;
 	/** A cost limit the run cannot measure is noted once, not once per reply (LIM05). */
 	let costLimitNoted = false;
+	const stuck = {
+		enabled: config.stuck?.enabled ?? true,
+		reminders: config.stuck?.reminders ?? 2,
+		sameFailure: config.stuck?.sameFailure ?? 3,
+	};
+	let remindersSent = 0;
+	/** The key of the last tool failure, and how many in a row it has happened (STK03). */
+	let lastFailureKey: string | undefined;
+	let failuresInARow = 0;
+	/** Set when the same failure has happened often enough to stop the run (STK03). */
+	let repeatedFailure: string | undefined;
 
 	const emit = (event: RunEvent): void => {
 		if (!live) {
@@ -335,6 +365,25 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			reason,
 		};
 		return append(entry);
+	};
+
+	/** Count a failure, resetting on a different one or on a success (STK03, STK04). */
+	const noteFailure = (name: string, content: string): void => {
+		const key = `${name}\u0000${content.slice(0, 200)}`;
+		if (key === lastFailureKey) {
+			failuresInARow += 1;
+		} else {
+			lastFailureKey = key;
+			failuresInARow = 1;
+		}
+		if (stuck.enabled && failuresInARow >= stuck.sameFailure) {
+			repeatedFailure = name === "" ? "a reply cut off by the token limit" : name;
+		}
+	};
+
+	const noteSuccess = (): void => {
+		lastFailureKey = undefined;
+		failuresInARow = 0;
 	};
 
 	/** A steer or a follow-up, written where it can be read without breaking a pairing. */
@@ -648,6 +697,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					turn: turns,
 					finishReason: reply.finishReason,
 				});
+				// A cut-off reply is a failure of its own kind, asked again and
+				// counted toward the same-failure total (decision 25, STK06).
+				noteFailure("", "the reply was cut off by the token limit");
+				if (repeatedFailure !== undefined) {
+					return {
+						reason: "parked",
+						parkedReason: "stuck",
+						parkedDetail: `repeated_failure: ${repeatedFailure}`,
+						usage: usageTotal.total(),
+						turns,
+					};
+				}
 				continue;
 			}
 
@@ -665,9 +726,42 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				if (await readQueued("follow_up")) {
 					continue;
 				}
+				// The safeguard: a model that stops without finishing is nudged, and
+				// only a model that stays silent after every nudge parks the run.
+				if (stuck.enabled && remindersSent < stuck.reminders) {
+					remindersSent += 1;
+					const reminder: UserMessageEntry = {
+						type: "user_message",
+						id: config.ids.next("e"),
+						parent,
+						ts: clock.now(),
+						label: "reminder",
+						text: REMINDER_TEXT,
+					};
+					await append(reminder);
+					messages.push({ role: "user", text: REMINDER_TEXT });
+					continue;
+				}
+				if (!stuck.enabled) {
+					// The safeguard is off, so there is nothing left to try: the run says
+					// so rather than reporting a done-check that never passed (STK05).
+					const error: LyraError = {
+						code: "internal",
+						message:
+							"the model stopped without finishing, and the stuck safeguard is off",
+					};
+					emit({ type: "error", run: runId, ts: clock.now(), error });
+					return {
+						reason: "failed",
+						error,
+						usage: usageTotal.total(),
+						turns,
+					};
+				}
 				return {
 					reason: "parked",
 					parkedReason: "stuck",
+					parkedDetail: "stopped_without_finishing",
 					usage: usageTotal.total(),
 					turns,
 				};
@@ -707,6 +801,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						isError: outcome.isError,
 						content: outcome.content,
 					});
+					if (outcome.isError) {
+						noteFailure(call.name, outcome.content);
+					} else {
+						noteSuccess();
+					}
 					if (outcome.done === true && !outcome.isError) {
 						finished = true;
 					}
@@ -720,6 +819,17 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				turn: turns,
 				finishReason: reply.finishReason,
 			});
+			if (repeatedFailure !== undefined) {
+				// The same tool failed the same way often enough: park rather than
+				// spend the person's allowance on a loop that cannot progress (STK03).
+				return {
+					reason: "parked",
+					parkedReason: "stuck",
+					parkedDetail: `repeated_failure: ${repeatedFailure}`,
+					usage: usageTotal.total(),
+					turns,
+				};
+			}
 			if (finished) {
 				// The run would end here, so this is where a person's follow-up is read.
 				if (await readQueued("follow_up")) {

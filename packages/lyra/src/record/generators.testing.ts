@@ -16,7 +16,7 @@ import type { MessageLabel, RecordEntry, RecordHeader, RunState } from "./entrie
 
 const text = fc.string({ maxLength: 20 });
 const word = fc.stringMatching(/^[a-z_]{1,10}$/);
-const LABELS: MessageLabel[] = ["task", "steer", "follow_up"];
+const LABELS: MessageLabel[] = ["task", "steer", "follow_up", "reminder"];
 const STATES: RunState[] = ["running", "parked", "done", "failed", "resumed"];
 const FINISH_REASONS: FinishReason[] = ["stop", "length", "tool_calls", "content_filter", "other"];
 
