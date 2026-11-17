@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
-import { loadRecord, type LoadedRecord } from "../record/load.js";
+import { loadRecord } from "../record/load.js";
 import { activePath, replayConversation } from "../record/replay.js";
 import {
 	createFinishTool,
@@ -13,84 +13,15 @@ import {
 	toolThatThrows,
 	toolTakingTime,
 	failingStorage,
-	type FakeClock,
 	type ScriptedTurn,
 } from "../testkit/index.js";
 import type { RunEvent } from "./events.js";
 import { loopScriptArbitrary } from "./loop-generators.testing.js";
+import { drive, readRecord, runHarness as harness, until } from "./run-harness.testing.js";
 import { runTask } from "./run.js";
 import type { Tool } from "./tool.js";
 
 /** The rows are in `docs/core-loop.md`, "The loop (step 1b)". */
-
-function harness(turns: readonly ScriptedTurn[], makeTools: (clock: FakeClock) => Tool[]) {
-	const clock = fakeClock();
-	const ids = counterIds();
-	const storage = memoryStorage();
-	const events: RunEvent[] = [];
-	const model = scriptedModel(turns, { clock });
-	const tools = makeTools(clock);
-
-	const run = async (overrides: Partial<Parameters<typeof runTask>[0]> = {}) =>
-		runTask({
-			runId: "run-1",
-			task: "test-task",
-			host: "test-host",
-			input: "do the thing",
-			system: "you are a test",
-			tools,
-			model,
-			storage,
-			clock,
-			ids,
-			onEvent: (event) => {
-				events.push(event);
-			},
-			...overrides,
-		});
-
-	return { clock, ids, storage, events, model, tools, run };
-}
-
-async function readRecord(storage: { read(): Promise<{ ok: boolean }> }): Promise<LoadedRecord> {
-	const read = (await storage.read()) as { ok: true; value: string[] } | { ok: false };
-	expect(read.ok).toBe(true);
-	if (!read.ok) {
-		throw new Error("the storage read failed");
-	}
-	const loaded = loadRecord(read.value);
-	expect(loaded.ok).toBe(true);
-	if (!loaded.ok) {
-		throw new Error(`the record did not load: ${loaded.error.message}`);
-	}
-	return loaded.value;
-}
-
-/** Let the microtask queue turn until a condition holds, instead of counting ticks. */
-async function until(check: () => boolean, limit = 500): Promise<void> {
-	for (let tick = 0; tick < limit && !check(); tick += 1) {
-		await Promise.resolve();
-	}
-}
-
-/** Let a run that is waiting on the clock get as far as it can, moving time each turn. */
-async function drive<T>(clock: FakeClock, running: Promise<T>, stepMs = 100): Promise<T> {
-	let done = false;
-	void running.then(
-		() => {
-			done = true;
-		},
-		() => {
-			done = true;
-		},
-	);
-	for (let tick = 0; tick < 100 && !done; tick += 1) {
-		await Promise.resolve();
-		clock.advance(stepMs);
-		await Promise.resolve();
-	}
-	return running;
-}
 
 test("LOOP01 tool, tool, finish ends done with a record in order and one run_end", async () => {
 	const threeCalls = harness(
