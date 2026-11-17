@@ -1,14 +1,23 @@
 /**
  * The core entry point.
  *
- * Nothing is built yet, and that is on purpose. This file exists so the gate
- * (`pnpm ci`) has an empty core to pass against before the first line of
- * feature code, as `docs/first-slice.md` step 1 describes. The loop, recipes,
- * tools, limits, and record arrive here test-first.
+ * Everything a host writes against: the slots, the vocabulary, the record, and
+ * the loop. The types here are the whole contract, so an adapter depends on
+ * this entry point and the core depends on nothing (decision 69).
  *
- * Everything in this entry point uses web-standard APIs only. No `node:*`
- * imports, so the same code runs on Cloudflare Workers and on Node
- * (`docs/decisions.md`, decisions 12 and 13).
+ * Everything in here uses web-standard APIs only. No `node:*` imports, so the
+ * same code runs on Cloudflare Workers and on Node (decisions 12 and 13).
  */
 
-export {};
+export * from "./core/clock.js";
+export * from "./core/conversation.js";
+export * from "./core/decode-reply.js";
+export * from "./core/json.js";
+export * from "./core/model.js";
+export * from "./core/result.js";
+export * from "./core/slots.js";
+export * from "./core/system-clock.js";
+export * from "./core/tool.js";
+export * from "./record/entries.js";
+export * from "./record/load.js";
+export * from "./record/replay.js";

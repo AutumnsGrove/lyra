@@ -24,6 +24,28 @@ new API and any breaking change, and a patch bump is fixes only.
   yet, with the step that builds each area (decision 96).
 - The published package `@autumnsgrove/lyra` at `0.0.0`: TypeScript strict, built to `dist`, with
   only the core entry point until an adapter needs another (decisions 69, 95).
+- The core's vocabulary: `Result` with the nine stable error codes, the `Clock` and `Ids` slots, the
+  Model, Storage, Secrets and Waking slot types, and the tool contract. Time, ids and logging are
+  injected everywhere except `core/system-clock.ts`, and `scripts/importcheck.mjs` now fails a
+  production file that reaches for the real clock, a real timer, real randomness or the console.
+- `docs/core-loop.md`, the spec for the core, which grows a section and a row table per slice of
+  step 1.
+- `decodeReply`, the boundary every model adapter feeds: it accepts a well-formed reply, a missing
+  finish reason or usage, and any extra field a provider adds, and refuses a field of the wrong type
+  with `bad_request` naming it. Tool arguments stay raw text, so invalid JSON is the loop's to hand
+  back rather than the decoder's to hide (decision 21).
+- The record's entries (`user_message`, `assistant_message`, `tool_message`, `status`), a
+  deterministic encoder, a tolerant loader and replay. A damaged line is skipped and noted, an entry
+  kind this build does not know is preserved exactly as it was saved, and a record with no usable
+  header is refused rather than given an invented run id (decision 31).
+- `@autumnsgrove/lyra/memory`: in-memory storage, secrets, waking and counter ids, for tests and for a
+  run that need not outlive the process. Storage has one shared contract
+  (`src/testing/storage.contract.testing.ts`) that every adapter runs, so the Cloudflare adapter in
+  step 4 is held to the same cases (decision 12).
+- `@autumnsgrove/lyra/testkit`: a fake clock a test advances instead of waiting, a scripted model that
+  answers by conversation position and can fail on purpose, storage that fails on the nth append, and
+  tools made from data (`finish` among them). Every later step's tests are written with it, and it is
+  published because Lattice and other projects use it too (decision 69).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

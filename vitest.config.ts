@@ -12,7 +12,7 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			include: ["packages/*/src/**/*.ts"],
-			exclude: ["**/*.test.ts", "**/*.fuzz.test.ts", "**/dist/**"],
+			exclude: ["**/*.test.ts", "**/*.fuzz.test.ts", "**/*.testing.ts", "**/dist/**"],
 			reporter: ["text"],
 			thresholds: {
 				lines: 85,

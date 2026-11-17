@@ -33,7 +33,42 @@ const ENTRY_POINTS = [
 		// contract; adapters depend on it, never the other way around.
 		forbids: ["src/adapters", "src/testkit"],
 	},
+	{
+		name: "memory",
+		dir: "src/adapters/memory",
+		// An adapter fills slots, so it needs the contract and nothing else. Its own
+		// directory is always allowed.
+		allows: ["src/core"],
+	},
+	{
+		name: "testkit",
+		dir: "src/testkit",
+		// Test support may stand on the contract and on the in-memory adapter, so a
+		// scripted run needs no host.
+		allows: ["src/core", "src/adapters/memory"],
+	},
 ];
+
+/**
+ * Production code may not reach for the real clock, a real timer, real
+ * randomness, or the console (docs/core-loop.md, "Time and identity are
+ * injected"; docs/implementation/README.md, calls made in advance, 5). Console
+ * is on the list because a log is the easiest way for a secret to leak.
+ *
+ * Comments count, on purpose: a mention is how the next reader learns the rule,
+ * and a file that talks about `setTimeout` is a file about to call it.
+ */
+const BANNED_GLOBALS = [
+	{ pattern: /\bDate\s*\.\s*now\b/g, name: "Date.now" },
+	{ pattern: /\bnew\s+Date\s*\(/g, name: "new Date(" },
+	{ pattern: /\bsetTimeout\b/g, name: "setTimeout" },
+	{ pattern: /\bsetInterval\b/g, name: "setInterval" },
+	{ pattern: /\bMath\s*\.\s*random\b/g, name: "Math.random" },
+	{ pattern: /\bconsole\s*\./g, name: "console." },
+];
+
+/** The only file allowed to touch them, because it is the wrapper around them. */
+const BANNED_GLOBALS_EXEMPT = new Set(["src/core/system-clock.ts"]);
 
 /** Runtime dependencies this package may declare, one decision each. */
 const RUNTIME_DEPENDENCY_ALLOW_LIST = [];
@@ -70,6 +105,11 @@ async function walk(dir) {
 	return files;
 }
 
+/** The 1-based line of a byte offset, for a message a person can act on. */
+function lineAt(source, index) {
+	return source.slice(0, index).split("\n").length;
+}
+
 function importsIn(source) {
 	const specifiers = [];
 	const patterns = [
@@ -81,8 +121,7 @@ function importsIn(source) {
 	for (const pattern of patterns) {
 		for (const match of source.matchAll(pattern)) {
 			const index = match.index ?? 0;
-			const line = source.slice(0, index).split("\n").length;
-			specifiers.push({ specifier: match[1], line });
+			specifiers.push({ specifier: match[1], line: lineAt(source, index) });
 		}
 	}
 	return specifiers;
@@ -125,8 +164,24 @@ async function checkSourceFiles() {
 	for (const file of files) {
 		const packageRelative = relative(join(ROOT, PACKAGE_DIR), file);
 		const entry = entryPointFor(packageRelative);
-		const isTest = /\.(test|fuzz\.test)\.ts$/.test(file);
+		const isTest = /\.(test|fuzz\.test|testing)\.ts$/.test(file);
 		const source = await readFile(file, "utf8");
+
+		// A test may control time, because a test is where time is controlled. A
+		// declaration file emits no code, so declaring `setTimeout` is not calling it,
+		// and the one exemption in production code is the file that wraps the real ones.
+		const portable = packageRelative.split(sep).join("/");
+		if (!isTest && !file.endsWith(".d.ts") && !BANNED_GLOBALS_EXEMPT.has(portable)) {
+			for (const banned of BANNED_GLOBALS) {
+				for (const match of source.matchAll(banned.pattern)) {
+					fail(
+						file,
+						lineAt(source, match.index ?? 0),
+						`uses ${banned.name}: time, ids and logging are injected, so they belong in the caller or in core/system-clock.ts`,
+					);
+				}
+			}
+		}
 
 		for (const { specifier, line } of importsIn(source)) {
 			if (specifier.startsWith(".")) {
@@ -135,15 +190,36 @@ async function checkSourceFiles() {
 					fail(file, line, `imports ${specifier}, which leaves ${PACKAGE_DIR}`);
 					continue;
 				}
-				if (entry) {
-					for (const forbidden of entry.forbids) {
-						if (target === forbidden || target.startsWith(`${forbidden}${sep}`)) {
-							fail(
-								file,
-								line,
-								`${entry.name} may not import ${forbidden} (${specifier})`,
-							);
-						}
+				// A test may reach across entry points, because nothing here ships it:
+				// a test in an adapter can use the testkit, and the core's tests can too.
+				if (isTest) {
+					continue;
+				}
+				// Imports are written with a `.js` extension (NodeNext), so the suffix is
+				// checked in both forms rather than one.
+				if (target.endsWith(".testing.ts") || target.endsWith(".testing.js")) {
+					fail(file, line, `imports ${target}, which is test support, not a module`);
+					continue;
+				}
+				if (entry === undefined) {
+					continue;
+				}
+				for (const forbidden of entry.forbids ?? []) {
+					if (target === forbidden || target.startsWith(`${forbidden}${sep}`)) {
+						fail(
+							file,
+							line,
+							`${entry.name} may not import ${forbidden} (${specifier})`,
+						);
+					}
+				}
+				if (entry.allows !== undefined) {
+					const permitted = [entry.dir, ...entry.allows];
+					const inside = permitted.some(
+						(prefix) => target === prefix || target.startsWith(`${prefix}${sep}`),
+					);
+					if (!inside) {
+						fail(file, line, `${entry.name} may not import ${target} (${specifier})`);
 					}
 				}
 				continue;
