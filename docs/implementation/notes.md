@@ -12,6 +12,11 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **What 1b does not have, on purpose.** No limits, no retries, no resume, no steering: those are step 2,
+  and the run's seams are where they go (one `runTask`, an injected clock, a record already written
+  before each step). No protocol: `src/protocol/` is step 6, and the events already use its names so it is
+  a mapping, not a redesign.
+
 - **The conformance survey, and what it changed.** Pi's `packages/agent/test/agent-loop.test.ts` (2,357
   lines) and Nova's `agent/*_test.go` were read for cases the rows missed. Most of Pi's are about things
   Lyra does not have on purpose (parallel tool batches, hooks, steering queues, custom message types); the
