@@ -36,15 +36,16 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
   dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
   covered 1a and 1b only.
-- **Step 2 is in progress on `feat/step-02-limits-retries-resume`**, one commit so far
-  (`8b3ce75`, the entry cap), pushed, gate green, **no pull request yet**: the PR opens when the step's gate
-  is green, as the rules below say.
+- **Step 2 is in progress on `feat/step-02-limits-retries-resume`**: slice 1, the entry cap, is `8b3ce75`,
+  with the resume-state docs in the commits after it. It is pushed and green, and there is **no pull request
+  yet**: the PR opens when the step's gate is green, as the rules below say.
 - **Next is slice 2 of that document: limits** (`LIM01` to `LIM07`). The design is already written down in
   the step document's "Settled here" section, so it is reading, not deciding. Slices 3 to 7 follow in order.
 - **`scripts/unbuilt-rows.json` has 33 rows left**: `REC05` to `REC09` (step 2) and the 28 protocol rows
   (step 6). `REC01` to `REC04` came out with slice 1, as decision 96 requires.
-- **The branch's last gate**: 123 tests, 3 fuzz/property targets, coverage 97.01% statements and 92.88%
-  branches, budget 31,622 B of 40,960 B, `matrixcheck` 88 rows (55 tested, 33 unbuilt).
+- **The branch's last gate** (on `51514f1`): 123 tests, 3 fuzz/property targets, coverage 97.01% statements,
+  92.88% branches, 99.41% functions and 96.95% lines, budget 31,622 B of 40,960 B, and `matrixcheck` 88
+  rows (55 tested, 33 unbuilt).
 - **Nothing is released.** The package is `0.0.0` and unpublished; step R does that, and Autumn decides when.
 
 
