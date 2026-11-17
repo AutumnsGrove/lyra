@@ -6,7 +6,7 @@ category: features
 
 # The record of a run
 
-Last updated: 2026-11-14. Everything here is decided.
+Last updated: 2026-11-17. Everything here is decided. The entries, the loader, replay and their rows were built in step 1a, slice 3; the size cap and resume rows (REC01 to REC09) are step 2.
 
 ## What the record is
 

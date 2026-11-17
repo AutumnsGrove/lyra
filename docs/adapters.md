@@ -6,7 +6,7 @@ category: features
 
 # Lyra adapters
 
-Last updated: 2026-11-13. Status: slots confirmed (decision 12). Model details confirmed (decisions 14 and 15). The shell slot is confirmed (decision 17).
+Last updated: 2026-11-17. Status: slots confirmed (decision 12). Model details confirmed (decisions 14 and 15). The shell slot is confirmed (decision 17). The Storage slot's cases are written down and the in-memory adapter passes them (step 1a, slice 4).
 
 ## The goal
 

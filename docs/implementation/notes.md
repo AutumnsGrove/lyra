@@ -12,6 +12,11 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **What 1a deliberately does not have.** There is no loop, no scenario runner, no conformance port and no
+  `scenarios/` directory, because those are 1b (slices 6 to 8) and 1a is meant to be reviewable on its
+  own. What it does have is everything those stand on: the slot types, `decodeReply`, the record, the
+  memory adapter, the testkit, and the gate rules that keep them honest.
+
 - **The fake clock resolves nothing without an `advance`, except a zero delay.** `sleep(0)` resolves on
   the next microtask instead of waiting to be advanced, because a script that says `delayMs: 0` should
   not need a clock tick nobody wrote. Everything longer waits for `advance`, which is what makes the

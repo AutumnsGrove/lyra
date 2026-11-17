@@ -16,7 +16,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 |---|---|---|---|---|
 | R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | not started |
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | not started |
-| 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | not started |
+| 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | in review |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | not started |
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | not started |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |

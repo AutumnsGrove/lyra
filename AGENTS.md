@@ -6,7 +6,7 @@ Read `docs/overview.md` first. It says what Lyra is and where each detail lives.
 
 ## Where the work stands
 
-Planning is finished as far as the first slice, and no feature code exists yet. The repository holds the planning record in `docs/`, the gate it will be built under (`pnpm ci`), and an empty core. Step 0 is in Lattice (the Lumen changes, issue #1693) and blocks step 1; the build order is in `docs/first-slice.md`. Nothing is released, so the package is at `0.0.0` and not published.
+Planning is finished as far as the first slice, and step 1a of the build is in review: the vocabulary, the injected clock and ids, `decodeReply`, the record with its tolerant loader and replay, the memory adapter, and the testkit. The loop, the scenario runner and the conformance suite are step 1b, which starts from the merged `main` after 1a lands. Step 0 (the Lumen changes in Lattice, issue #1693) is waived for 1a only (decision 104). The build order is in `docs/first-slice.md`, and the resumable state is the status table in `docs/implementation/README.md`. Nothing is released, so the package is at `0.0.0` and not published.
 
 **Building a step?** Read `docs/implementation/README.md` and then the one document for your step. They hold the branch, commit, pull request and `pi-review` rules, the slices, and the repo mechanics that bite. Until the core is built, those documents stand in for issues (Autumn's call, 2026-11-16): cite the step document instead of an issue number.
 
@@ -51,7 +51,7 @@ One pnpm workspace. One published package, `@autumnsgrove/lyra`, with these entr
 | `scripts/`                    | `importcheck`, `matrixcheck`, `budget` (`release-notes` comes with the release workflow) |
 | `docs/`                       | the specs, with a row table in each, and `decisions.md`                                  |
 
-Only `packages/lyra/src/index.ts` and the scripts exist today. The directories above are the shape the work grows into, and each arrives with the step that needs it: do not create a module or an entry point before its first test.
+`packages/lyra/src/core/`, `src/record/`, `src/adapters/memory/` and `src/testkit/` exist today, with `docs/core-loop.md` as the loop's spec. `src/protocol/` and the Cloudflare and OpenAI adapters arrive with the steps that need them: do not create a module or an entry point before its first test.
 
 Each entry point has its own list of allowed imports, enforced by `scripts/importcheck`.
 

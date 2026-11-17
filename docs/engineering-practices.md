@@ -6,7 +6,7 @@ category: features
 
 # Engineering practices and testing
 
-Last updated: 2026-11-15. Decided (decisions 62 to 66). It is built from Nova's `docs/TESTING.md` (read in full), a few web searches (sources at the end), and your instructions: test-driven, happy, sad and bad paths, good fuzzing, end-to-end tests from the start, good practices from the first commit, and a way to test locally before shipping, with OpenRouter and OpenCode Go.
+Last updated: 2026-11-17. The testkit's rows were built in step 1a, slice 5, and the storage contract in slice 4. Decided (decisions 62 to 66). It is built from Nova's `docs/TESTING.md` (read in full), a few web searches (sources at the end), and your instructions: test-driven, happy, sad and bad paths, good fuzzing, end-to-end tests from the start, good practices from the first commit, and a way to test locally before shipping, with OpenRouter and OpenCode Go.
 
 Nothing here has been run. Tool claims marked "to confirm" must be checked when the repository is set up.
 
