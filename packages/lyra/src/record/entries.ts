@@ -43,7 +43,13 @@ interface EntryBase {
 	ts: number;
 }
 
-export type MessageLabel = "task" | "steer" | "follow_up";
+export type MessageLabel = "task" | "steer" | "follow_up" | "reminder";
+
+/** What was cut to keep an entry under the cap, and how much (decision 90). */
+export interface Truncation {
+	field: "content" | "details" | "text" | "reasoning" | "arguments";
+	droppedBytes: number;
+}
 
 export interface UserMessageEntry extends EntryBase {
 	type: "user_message";
@@ -59,6 +65,8 @@ export interface AssistantMessageEntry extends EntryBase {
 	model: string;
 	usage: Usage;
 	finishReason: FinishReason;
+	/** Set when this entry was cut to fit the cap; the text carries the marker too. */
+	truncated?: Truncation;
 }
 
 export interface ToolMessageEntry extends EntryBase {
@@ -68,6 +76,8 @@ export interface ToolMessageEntry extends EntryBase {
 	content: string;
 	/** For a person reading the record, never for the model. */
 	details?: JsonValue;
+	/** Set when this entry was cut to fit the cap; the content carries the marker too. */
+	truncated?: Truncation;
 }
 
 export type RunState = "running" | "parked" | "done" | "failed" | "resumed";
@@ -153,6 +163,9 @@ export function encodeEntry(entry: RecordEntry): string {
 			if (entry.reasoning !== undefined) {
 				line["reasoning"] = entry.reasoning;
 			}
+			if (entry.truncated !== undefined) {
+				line["truncated"] = entry.truncated;
+			}
 			return JSON.stringify(line);
 		}
 		case "tool_message": {
@@ -165,6 +178,9 @@ export function encodeEntry(entry: RecordEntry): string {
 			};
 			if (entry.details !== undefined) {
 				line["details"] = entry.details;
+			}
+			if (entry.truncated !== undefined) {
+				line["truncated"] = entry.truncated;
 			}
 			return JSON.stringify(line);
 		}
@@ -219,6 +235,36 @@ function decodeStoredToolCalls(value: unknown): Result<ToolCall[]> {
 
 function bad(problem: string): Result<never> {
 	return fail("bad_request", problem);
+}
+
+const TRUNCATED_FIELDS: readonly Truncation["field"][] = [
+	"content",
+	"details",
+	"text",
+	"reasoning",
+	"arguments",
+];
+
+function isTruncatedField(value: unknown): value is Truncation["field"] {
+	return TRUNCATED_FIELDS.some((known) => known === value);
+}
+
+function decodeTruncation(value: unknown): Result<Truncation | undefined> {
+	if (value === undefined) {
+		return ok(undefined);
+	}
+	if (!isPlainObject(value)) {
+		return bad("an entry has a truncated marker that is not an object");
+	}
+	const field = value["field"];
+	const droppedBytes = value["droppedBytes"];
+	if (!isTruncatedField(field)) {
+		return bad("an entry has a truncated marker naming a field this build does not know");
+	}
+	if (!isTimestamp(droppedBytes) || droppedBytes === 0) {
+		return bad("an entry has a truncated marker without a count of bytes dropped");
+	}
+	return ok({ field, droppedBytes });
 }
 
 function isTimestamp(value: unknown): value is number {
@@ -337,28 +383,26 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				return toolCalls;
 			}
 			const finishReason = decodeFinishReason(value["finishReason"]);
-			return ok(
-				reasoning === undefined
-					? {
-							type,
-							...base,
-							text,
-							toolCalls: toolCalls.value,
-							model,
-							usage: usage.value,
-							finishReason,
-						}
-					: {
-							type,
-							...base,
-							text,
-							reasoning,
-							toolCalls: toolCalls.value,
-							model,
-							usage: usage.value,
-							finishReason,
-						},
-			);
+			const truncation = decodeTruncation(value["truncated"]);
+			if (!truncation.ok) {
+				return truncation;
+			}
+			const entry: AssistantMessageEntry = {
+				type,
+				...base,
+				text,
+				toolCalls: toolCalls.value,
+				model,
+				usage: usage.value,
+				finishReason,
+			};
+			if (reasoning !== undefined) {
+				entry.reasoning = reasoning;
+			}
+			if (truncation.value !== undefined) {
+				entry.truncated = truncation.value;
+			}
+			return ok(entry);
 		}
 		case "tool_message": {
 			const toolCallId = value["toolCallId"];
@@ -374,13 +418,21 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			if (typeof content !== "string") {
 				return bad("a tool_message entry has no content");
 			}
-			if (details === undefined) {
-				return ok({ type, ...base, toolCallId, isError, content });
+			const truncation = decodeTruncation(value["truncated"]);
+			if (!truncation.ok) {
+				return truncation;
 			}
-			if (!isJsonValue(details)) {
-				return bad("a tool_message entry has details that are not JSON");
+			const entry: ToolMessageEntry = { type, ...base, toolCallId, isError, content };
+			if (details !== undefined) {
+				if (!isJsonValue(details)) {
+					return bad("a tool_message entry has details that are not JSON");
+				}
+				entry.details = details;
 			}
-			return ok({ type, ...base, toolCallId, isError, content, details });
+			if (truncation.value !== undefined) {
+				entry.truncated = truncation.value;
+			}
+			return ok(entry);
 		}
 		case "status": {
 			const state = value["state"];

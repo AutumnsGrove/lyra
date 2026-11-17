@@ -66,6 +66,13 @@ async function readRecord(storage: { read(): Promise<{ ok: boolean }> }): Promis
 	return loaded.value;
 }
 
+/** Let the microtask queue turn until a condition holds, instead of counting ticks. */
+async function until(check: () => boolean, limit = 500): Promise<void> {
+	for (let tick = 0; tick < limit && !check(); tick += 1) {
+		await Promise.resolve();
+	}
+}
+
 /** Let a run that is waiting on the clock get as far as it can, moving time each turn. */
 async function drive<T>(clock: FakeClock, running: Promise<T>, stepMs = 100): Promise<T> {
 	let done = false;
@@ -374,9 +381,7 @@ test("LOOP06 stopped during the model call parks as stopped", async () => {
 	]);
 
 	const running = waiting.run({ signal: controller.signal });
-	for (let tick = 0; tick < 10; tick += 1) {
-		await Promise.resolve();
-	}
+	await until(() => waiting.model.requests.length === 1);
 	// The request is in flight, so this is the case it claims to be.
 	expect(waiting.model.requests).toHaveLength(1);
 	controller.abort();
@@ -407,9 +412,8 @@ test("LOOP06 stopped during a tool answers every call of the batch and parks", a
 	);
 
 	const running = tooling.run({ signal: controller.signal });
-	for (let tick = 0; tick < 10; tick += 1) {
-		await Promise.resolve();
-	}
+	await until(() => tooling.events.some((event) => event.type === "tool_start"));
+	expect(tooling.events.some((event) => event.type === "tool_start")).toBe(true);
 	controller.abort();
 
 	const result = await running;
@@ -1084,4 +1088,68 @@ test("LOOP16 a tool that never settles does not hold the run", async () => {
 	expect(first).toMatchObject({ toolCallId: "c1", isError: true });
 	expect(first?.type === "tool_message" ? first.content : "").toMatch(/deadline/);
 	expect(stuck.clock.pending()).toBe(0);
+});
+
+test("REC03 a task input bigger than an entry can hold is refused, and nothing is saved", async () => {
+	const tooBig = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }], () => [
+		createFinishTool(),
+	]);
+	const result = await tooBig.run({ input: "x".repeat(5_000), entryCapBytes: 1_024 });
+
+	expect(result).toMatchObject({ reason: "failed" });
+	expect(result.reason === "failed" ? result.error?.code : "").toBe("bad_request");
+	// Nothing at all: not the header, not the message it refused.
+	const saved = await tooBig.storage.read();
+	expect(saved).toEqual({ ok: true, value: [] });
+	expect(tooBig.model.requests).toHaveLength(0);
+	expect(tooBig.events.filter((event) => event.type === "run_end")).toHaveLength(1);
+});
+
+test("REC04 a huge tool result is truncated and the run still finishes", async () => {
+	const huge = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "y".repeat(200_000)), createFinishTool()],
+	);
+
+	const result = await huge.run({ entryCapBytes: 50_000 });
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(huge.storage);
+	expect(record.notes).toEqual([]);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first?.type === "tool_message" ? first.truncated : undefined).toBeDefined();
+	expect(first?.type === "tool_message" ? first.truncated?.field : "").toBe("content");
+	expect(
+		first?.type === "tool_message" ? (first.truncated?.droppedBytes ?? 0) : 0,
+	).toBeGreaterThan(0);
+	// The model was handed the whole thing, though: only what was saved was cut.
+	const asked = huge.model.requests.at(-1)?.messages.find((message) => message.role === "tool");
+	expect(asked?.role === "tool" ? asked.content.length : 0).toBe(200_000);
+});
+
+test("REC04 a storage limit below the record cap lowers it, so the save never fails", async () => {
+	const tiny = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "z".repeat(10_000)), createFinishTool()],
+	);
+	const limited = memoryStorage({ maxLineBytes: 2_000 });
+
+	const result = await tiny.run({ storage: limited });
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(limited);
+	expect(record.notes).toEqual([]);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first?.type === "tool_message" ? first.truncated : undefined).toBeDefined();
+	const saved = await limited.read();
+	expect(saved.ok).toBe(true);
+	if (saved.ok) {
+		expect(saved.value.every((line) => line.length <= 2_000)).toBe(true);
+	}
 });

@@ -10,6 +10,12 @@
 import type { Result } from "./result.js";
 
 export interface StorageSlot {
+	/**
+	 * The adapter's own limit for one saved line, in bytes, when it has one. The
+	 * record's cap is always the smaller of this and its own (decision 90), so a
+	 * truncation the core does is one the adapter will accept.
+	 */
+	readonly maxEntryBytes?: number;
 	/** Append one line. The returned `seq` is its zero-based position. */
 	append(line: string): Promise<Result<{ seq: number }>>;
 	/** Every line, in the order it was saved, exactly as saved. */

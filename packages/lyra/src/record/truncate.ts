@@ -1,0 +1,205 @@
+/**
+ * The entry cap, and truncation to stay under it (docs/run-record.md, decision 90).
+ *
+ * A save that fails for size would fail a run midway, so content that could exceed
+ * the cap is cut before it is written, and the entry says what was cut and how much
+ * (`truncated`), with a marker in the text as well so a person reading the record
+ * sees it too.
+ *
+ * Only content is cut. Ids, types, times and the pairing of a call with its result
+ * are never touched, because a record that no longer loads would be worse than one
+ * that lost a paragraph. The one case that gives up is a structure too big on its
+ * own — thousands of calls in one turn — and it is refused rather than half-saved,
+ * so pairing cannot be quietly broken.
+ */
+
+import {
+	encodeEntry,
+	type AssistantMessageEntry,
+	type RecordEntry,
+	type ToolMessageEntry,
+	type Truncation,
+} from "./entries.js";
+
+const encoder = new TextEncoder();
+
+/** UTF-8 bytes, which is what a storage limit is measured in. */
+export function utf8Length(text: string): number {
+	return encoder.encode(text).length;
+}
+
+function markerFor(droppedBytes: number): string {
+	return `\n…[truncated: ${droppedBytes} bytes dropped]`;
+}
+
+/**
+ * A marker with the widest number it could hold, used while measuring. Anything
+ * measured with it is measured pessimistically, so the real marker always fits.
+ */
+const WIDEST_MARKER = markerFor(Number.MAX_SAFE_INTEGER);
+
+export interface Fitted {
+	entry: RecordEntry;
+	line: string;
+	/** Set when the structure alone is over the cap and nothing can be cut to help. */
+	refused?: string;
+}
+
+type TextField = "content" | "arguments" | "reasoning" | "text";
+
+interface Candidate {
+	field: TextField;
+	read(): string;
+	write(value: string): void;
+}
+
+/** The two kinds with content worth cutting: everything else is small by construction. */
+type Truncatable = AssistantMessageEntry | ToolMessageEntry;
+
+/** The fields of an entry that may be cut, with the entry copied so the caller's is untouched. */
+function textCandidates(entry: Truncatable): Candidate[] {
+	switch (entry.type) {
+		case "tool_message":
+			return [
+				{
+					field: "content",
+					read: () => entry.content,
+					write: (value) => {
+						entry.content = value;
+					},
+				},
+			];
+		case "assistant_message": {
+			const candidates: Candidate[] = entry.toolCalls.map((call) => ({
+				field: "arguments" as const,
+				read: () => call.arguments,
+				write: (value) => {
+					call.arguments = value;
+				},
+			}));
+			candidates.push({
+				field: "reasoning",
+				read: () => entry.reasoning ?? "",
+				write: (value) => {
+					entry.reasoning = value;
+				},
+			});
+			candidates.push({
+				field: "text",
+				read: () => entry.text,
+				write: (value) => {
+					entry.text = value;
+				},
+			});
+			return candidates;
+		}
+		default:
+			return [];
+	}
+}
+
+/** A deep-enough copy that cutting a field cannot reach the caller's entry. */
+function copyForCutting(entry: Truncatable): Truncatable {
+	if (entry.type === "assistant_message") {
+		return { ...entry, toolCalls: entry.toolCalls.map((call) => ({ ...call })) };
+	}
+	return { ...entry };
+}
+
+/** The size the entry would have with a `truncated` marker naming this field. */
+function sizeWithMarker(entry: Truncatable, field: Truncation["field"]): number {
+	return utf8Length(
+		encodeEntry({ ...entry, truncated: { field, droppedBytes: Number.MAX_SAFE_INTEGER } }),
+	);
+}
+
+function sliceAtCodePoint(text: string, length: number): string {
+	// A lone high surrogate would turn into a replacement character when encoded, so
+	// a cut one code unit earlier keeps the text exactly as it was, only shorter.
+	const code = text.charCodeAt(length - 1);
+	if (length > 0 && code >= 0xd800 && code <= 0xdbff) {
+		return text.slice(0, length - 1);
+	}
+	return text.slice(0, length);
+}
+
+export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
+	const line = encodeEntry(entry);
+	if (utf8Length(line) <= maxBytes) {
+		return { entry, line };
+	}
+	if (entry.type !== "assistant_message" && entry.type !== "tool_message") {
+		// A status, a user message or an unknown kind has no content to cut, and a
+		// user message this big is refused before it is ever saved.
+		return { entry, line, refused: `a ${entry.type} entry has no content to cut` };
+	}
+
+	let working = copyForCutting(entry);
+	let dropped = 0;
+
+	// Details are for a person reading the record, never for the model, so they go
+	// whole before any text is cut: nothing a resume replays depends on them.
+	if (working.type === "tool_message" && working.details !== undefined) {
+		dropped += utf8Length(JSON.stringify(working.details));
+		const { details: _details, ...rest } = working;
+		working = { ...rest };
+		if (sizeWithMarker(working, "details") <= maxBytes) {
+			const truncated: Truncatable = {
+				...working,
+				truncated: { field: "details", droppedBytes: dropped },
+			};
+			return { entry: truncated, line: encodeEntry(truncated) };
+		}
+	}
+
+	// The largest field frees the most room, and it is usually the only one cut.
+	const candidates = textCandidates(working).sort(
+		(left, right) => utf8Length(right.read()) - utf8Length(left.read()),
+	);
+
+	for (const candidate of candidates) {
+		const original = candidate.read();
+		if (original === "") {
+			continue;
+		}
+		const originalBytes = utf8Length(original);
+		candidate.write("");
+		if (sizeWithMarker(working, candidate.field) > maxBytes) {
+			continue;
+		}
+
+		// Restore as much of it as fits, measured with the widest marker.
+		const fits = (length: number): boolean => {
+			candidate.write(sliceAtCodePoint(original, length) + WIDEST_MARKER);
+			const size = sizeWithMarker(working, candidate.field);
+			candidate.write("");
+			return size <= maxBytes;
+		};
+		let low = 0;
+		let high = original.length;
+		while (low < high) {
+			const middle = Math.ceil((low + high) / 2);
+			if (fits(middle)) {
+				low = middle;
+			} else {
+				high = middle - 1;
+			}
+		}
+		const kept = sliceAtCodePoint(original, low);
+		const droppedHere = originalBytes - utf8Length(kept);
+		candidate.write(kept + markerFor(droppedHere));
+
+		const truncated: Truncatable = {
+			...working,
+			truncated: { field: candidate.field, droppedBytes: dropped + droppedHere },
+		};
+		return { entry: truncated, line: encodeEntry(truncated) };
+	}
+
+	// Nothing left to cut and it still does not fit: the structure is the problem.
+	return {
+		entry: working,
+		line: encodeEntry(working),
+		refused: "this entry's structure is over the cap on its own",
+	};
+}

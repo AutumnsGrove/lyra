@@ -10,7 +10,20 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 Nothing has been built yet.
 
-## Step 1b, 2026-11-17
+## Step 2, 2026-11-17
+
+- **Lumen is finished in Lattice**, so step 5's Lumen half has its dependency; it still needs a published
+  Lyra, which step R provides.
+- **The cap cuts one field per entry, and says which.** Details go first and whole (they are for a person,
+  never the model), then the largest text field is cut and restored to as much as fits. If a second field
+  has to be cut too, the marker names the text field and `droppedBytes` is the total, because a record
+  losing two fields still has to say what happened in one line.
+- **An entry whose structure alone is over the cap is refused, not saved.** Thousands of calls in one turn
+  cannot be cut without breaking the pairing of calls and results, and a record that no longer loads is
+  worse than a run that fails with a reason. It is the one case in REC04 that gives up, and it says so.
+- **The task input is checked before the header is written.** "Nothing is saved" has to mean nothing: a
+  refused input leaves the storage empty, so a later resume finds no record rather than a header with no
+  message.
 
 - **Uniqueness is per reply, not per run, and that is deliberate.** The review's last observation was that
   a later turn may supply an id the loop generated earlier (`c1` in turn 0, the model's own `c1` in turn

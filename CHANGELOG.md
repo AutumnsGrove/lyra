@@ -58,6 +58,10 @@ new API and any breaking change, and a patch bump is fixes only.
 - A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
   or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
   record whose header could not be saved.
+- Each record entry is capped at 1 MiB (or the storage adapter's own limit when that is lower). Content
+  that would exceed it is cut at a character boundary with a marker in the text and a `truncated` field
+  saying which field and how many bytes, so a save never fails for size; a task input too big is refused
+  with `bad_request` and nothing is written (decision 90).
 - A tool call the model gave no id, or a repeated id, is given one that no other call in the reply uses,
   before anything is written, so the assistant turn, its results, the conversation and the record all pair
   on the same ids. Previously the result was renamed and the turn was not, which a provider rejects and a

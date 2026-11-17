@@ -21,6 +21,7 @@ import type { ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./mod
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool, ToolOutcome } from "./tool.js";
+import { fitEntry, utf8Length } from "../record/truncate.js";
 import {
 	RECORD_VERSION,
 	encodeEntry,
@@ -34,6 +35,9 @@ import {
 
 /** Five minutes, per docs/implementation/01-core-with-fakes.md, "Judgment calls already made". */
 export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
+
+/** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
+export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
 
 export interface RunConfig {
 	runId: string;
@@ -50,6 +54,8 @@ export interface RunConfig {
 	/** The model a recipe names, when it names one. */
 	modelName?: string;
 	toolDeadlineMs?: number;
+	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
+	entryCapBytes?: number;
 	signal?: AbortSignal;
 	onEvent?: RunEventListener;
 }
@@ -161,6 +167,13 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const clock = config.clock;
 	const runId = config.runId;
 	const deadlineMs = config.toolDeadlineMs ?? DEFAULT_TOOL_DEADLINE_MS;
+	const entryCapBytes =
+		config.storage.maxEntryBytes === undefined
+			? (config.entryCapBytes ?? DEFAULT_ENTRY_CAP_BYTES)
+			: Math.min(
+					config.entryCapBytes ?? DEFAULT_ENTRY_CAP_BYTES,
+					config.storage.maxEntryBytes,
+				);
 	const signal = config.signal ?? new AbortController().signal;
 
 	const messages: ConversationMessage[] = [];
@@ -198,12 +211,20 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	};
 
 	const append = async (entry: RecordEntry): Promise<number> => {
+		const fitted = fitEntry(entry, entryCapBytes);
+		if (fitted.refused !== undefined) {
+			throw new SaveFailed({ code: "internal", message: fitted.refused });
+		}
+		return appendLine(entry, fitted.line);
+	};
+
+	const appendLine = async (entry: RecordEntry, line: string): Promise<number> => {
 		if (!recordStarted) {
 			// A record with no header is not a record, so nothing is written into one
 			// that never started: a resume would have nothing to read either way.
 			throw new SaveFailed({ code: "internal", message: "the record has no header" });
 		}
-		const seq = await save(encodeEntry(entry));
+		const seq = await save(line);
 		parent = entry.id;
 		return seq;
 	};
@@ -468,19 +489,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 
 	let result: RunResult;
 	try {
-		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
-
-		const header = encodeHeader({
-			type: "header",
-			v: RECORD_VERSION,
-			run: runId,
-			task: config.task,
-			startedAt: clock.now(),
-			host: config.host,
-		});
-		await save(header);
-		recordStarted = true;
-
+		// A task input is never truncated: half a request would be a different job,
+		// so one that cannot fit is refused and nothing is saved (decision 90).
 		const first: UserMessageEntry = {
 			type: "user_message",
 			id: config.ids.next("e"),
@@ -489,11 +499,35 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			label: "task",
 			text: config.input,
 		};
-		await append(first);
-		messages.push({ role: "user", text: first.text });
-		await saveStatus("running");
+		const firstFits = utf8Length(encodeEntry(first)) <= entryCapBytes;
 
-		result = await loop();
+		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
+
+		if (!firstFits) {
+			const error: LyraError = {
+				code: "bad_request",
+				message: `the task input is bigger than one record entry can hold (${entryCapBytes} bytes)`,
+			};
+			emit({ type: "error", run: runId, ts: clock.now(), error });
+			result = { reason: "failed", error, usage: usageTotal.total(), turns };
+		} else {
+			const header = encodeHeader({
+				type: "header",
+				v: RECORD_VERSION,
+				run: runId,
+				task: config.task,
+				startedAt: clock.now(),
+				host: config.host,
+			});
+			await save(header);
+			recordStarted = true;
+
+			await append(first);
+			messages.push({ role: "user", text: first.text });
+			await saveStatus("running");
+
+			result = await loop();
+		}
 	} catch (caught) {
 		const error: LyraError =
 			caught instanceof SaveFailed
