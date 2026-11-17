@@ -337,6 +337,9 @@ Two questions the first slice carried were answered in `decisions.md` and the do
 
 What is left is deliberate. **Grove-side checks that only Lattice can answer:** whether GitHub access for pull requests and issues goes through Warden, how Lumen gets its provider key in the local dev stack, and whether the HawkAgent answer key is still large enough. **fast-check in workerd** remains unverified; nothing says it fails, and it is plain JavaScript, but the first property test in that suite checks it instead of assuming. **Vitiate** is unverified in the same way, and the fuzz targets are pure functions, so they stay on Node if either disappoints. **Anything written with the code:** the spec rows, as each area is built (decision 62), and the input fields each task defines when it is written. Decided 2026-11-16.
 
+### 104. Step 0 is waived for step 1a
+Autumn waived the step 0 dependency for step 1a on 2026-11-17, and `AGENTS.md` and `first-slice.md` both record step 0 (the Lumen changes in Lattice, issue #1693) as blocking step 1. The waiver is hers to make and this entry is the record of it. Why it is safe: steps 1 to 4 use fakes and never touch Lumen, so the Model slot's contract is built and tested before anything implements it, and `implementation/lattice-briefs.md` repeats that same contract for the Lumen work to land against. What it does not change: step 5's Lumen half still needs step 0 and a published Lyra, so nothing in Lattice starts earlier than it did. The waiver covers 1a; 1b needs Autumn to say so again before it starts from the merged `main`.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

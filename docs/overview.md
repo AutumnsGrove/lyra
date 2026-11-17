@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-16. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 103 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-17. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 105 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -156,10 +156,11 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 103 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 105 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |
+| [`core-loop.md`](core-loop.md) | The core loop, and the vocabulary around it: failure as a value, injected time and ids, and the rows the loop is tested by. |
 | [`approvals.md`](approvals.md) | Approvals, questions, and proposals. |
 | [`context-size.md`](context-size.md) | Compaction. |
 | [`protocol.md`](protocol.md) | The wire, with spec rows. |
