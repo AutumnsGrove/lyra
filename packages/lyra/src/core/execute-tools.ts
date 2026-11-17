@@ -15,14 +15,12 @@
 import type { Clock } from "./clock.js";
 import { isPlainObject } from "./json.js";
 import type { ToolCall } from "./model.js";
-import type { Ids } from "./clock.js";
 import { type Tool, type ToolOutcome } from "./tool.js";
 
 export interface ExecuteToolsOptions {
 	calls: readonly ToolCall[];
 	tools: readonly Tool[];
 	clock: Clock;
-	ids: Ids;
 	signal: AbortSignal;
 	/** How long one call may take, measured on the clock. */
 	deadlineMs: number;
@@ -59,16 +57,13 @@ function errorResult(content: string): ToolOutcome {
 export async function executeTools(options: ExecuteToolsOptions): Promise<void> {
 	const byName = new Map(options.tools.map((tool) => [tool.spec.name, tool]));
 	const available = [...byName.keys()].join(", ");
-	const seen = new Set<string>();
 
 	for (const call of options.calls) {
-		// A reply can hold a call with no id. It cannot be paired, but dropping it
-		// would leave a call the model made with no answer, so it gets a name.
-		const callId = call.id === "" ? options.ids.next("c") : call.id;
-
+		// The calls arrive with unique, non-empty ids: the loop gives the model's
+		// unusable ones a name before anything is written (`normalizeCalls`).
 		if (options.isFinished()) {
 			await options.onFinish(
-				{ ...call, id: callId },
+				call,
 				errorResult("the run already finished, so this call was not run"),
 			);
 			continue;
@@ -76,26 +71,13 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 		if (options.signal.aborted) {
 			// A stopped run does not start more work, but every call still gets an
 			// answer, so the record stays paired (LOOP06).
-			await options.onFinish(
-				{ ...call, id: callId },
-				errorResult("the run was stopped before this call ran"),
-			);
+			await options.onFinish(call, errorResult("the run was stopped before this call ran"));
 			continue;
 		}
-		if (seen.has(callId)) {
-			await options.onFinish(
-				{ ...call, id: callId },
-				errorResult(
-					"this reply used the same tool call id twice, so only the first one ran",
-				),
-			);
-			continue;
-		}
-		seen.add(callId);
 
 		if (call.name === "") {
 			await options.onFinish(
-				{ ...call, id: callId },
+				call,
 				errorResult(
 					`a tool call with no name was not run; ${available === "" ? "no tools are available" : `the tools are ${available}`}`,
 				),
@@ -108,7 +90,7 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 			const names =
 				available === "" ? "no tools are available" : `the tools are ${available}`;
 			await options.onFinish(
-				{ ...call, id: callId },
+				call,
 				errorResult(`there is no tool called "${call.name.slice(0, 60)}"; ${names}`),
 			);
 			continue;
@@ -117,15 +99,15 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 		const args = decodeArguments(call.arguments);
 		if (!args.ok) {
 			await options.onFinish(
-				{ ...call, id: callId },
+				call,
 				errorResult(`the call to ${call.name} was not run because ${args.reason}`),
 			);
 			continue;
 		}
 
-		options.onStart({ ...call, id: callId });
-		const outcome = await runOne(tool, args.value, callId, options);
-		await options.onFinish({ ...call, id: callId }, outcome);
+		options.onStart(call);
+		const outcome = await runOne(tool, args.value, call.id, options);
+		await options.onFinish(call, outcome);
 	}
 }
 

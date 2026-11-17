@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
-import { activePath } from "../record/replay.js";
+import { activePath, replayConversation } from "../record/replay.js";
 import {
 	createFinishTool,
 	fakeClock,
@@ -616,7 +616,7 @@ test("LOOP09 a call with an empty name is refused", async () => {
 	expect(first?.type === "tool_message" ? first.content : "").toMatch(/no name/);
 });
 
-test("LOOP09 two calls with one id: the first runs, the second is refused", async () => {
+test("LOOP09 two calls with one id each get their own, so both run and both pair", async () => {
 	let runs = 0;
 	const duplicated = harness(
 		[
@@ -641,15 +641,90 @@ test("LOOP09 two calls with one id: the first runs, the second is refused", asyn
 	);
 
 	expect((await duplicated.run()).reason).toBe("done");
-	expect(runs).toBe(1);
+	expect(runs).toBe(2);
 
 	const record = await readRecord(duplicated.storage);
+	const assistant = record.entries.find((entry) => entry.type === "assistant_message");
+	const ids =
+		assistant?.type === "assistant_message" ? assistant.toolCalls.map((call) => call.id) : [];
+	expect(ids[0]).toBe("same");
+	expect(ids[1]).toBeDefined();
+	expect(ids[1]).not.toBe("same");
+
+	// The results pair with the ids the assistant turn was saved under.
 	const results = record.entries.flatMap((entry) =>
-		entry.type === "tool_message" ? [entry] : [],
+		entry.type === "tool_message" ? [entry.toolCallId] : [],
 	);
-	expect(results[0]).toMatchObject({ toolCallId: "same", isError: false });
-	expect(results[1]).toMatchObject({ toolCallId: "same", isError: true });
-	expect(results[1]?.content).toMatch(/same tool call id twice/);
+	expect(results.slice(0, 2)).toEqual(ids);
+});
+
+test("LOOP09 a call with no id is given one, and the turn, the result and the conversation agree", async () => {
+	const contextCallIds: string[] = [];
+	const nameless = harness(
+		[
+			{ toolCalls: [{ id: "", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [
+			{
+				spec: { name: "read", description: "read", parameters: { type: "object" } },
+				async execute(_args, ctx) {
+					contextCallIds.push(ctx.callId);
+					return { isError: false, content: "the content" };
+				},
+			},
+			createFinishTool(),
+		],
+	);
+
+	expect((await nameless.run()).reason).toBe("done");
+	const assigned = contextCallIds[0];
+	expect(assigned).toBeDefined();
+	expect(assigned).not.toBe("");
+
+	const record = await readRecord(nameless.storage);
+	const assistant = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(assistant?.type === "assistant_message" ? assistant.toolCalls[0]?.id : "").toBe(
+		assigned,
+	);
+	const result = record.entries.find((entry) => entry.type === "tool_message");
+	expect(result?.type === "tool_message" ? result.toolCallId : "").toBe(assigned);
+
+	// The conversation the model saw next, and the conversation a resume replays,
+	// both pair the result with the same call.
+	const next = nameless.model.requests.at(-1);
+	const toolMessages = next?.messages.flatMap((message) =>
+		message.role === "tool" ? [message.toolCallId] : [],
+	);
+	expect(toolMessages).toEqual([assigned]);
+	const replayed = replayConversation(record.entries);
+	const replayedCalls = replayed.flatMap((message) =>
+		message.role === "assistant" ? message.toolCalls.map((call) => call.id) : [],
+	);
+	expect(replayedCalls.slice(0, 1)).toEqual([assigned]);
+});
+
+test("LOOP09 a cut-off reply whose call has no id is still a record that loads", async () => {
+	const cut = harness(
+		[
+			{ toolCalls: [{ id: "", name: "read", args: {} }], finishReason: "length" },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "the content"), createFinishTool()],
+	);
+
+	expect((await cut.run()).reason).toBe("done");
+	const read = await cut.storage.read();
+	expect(read.ok).toBe(true);
+	if (!read.ok) {
+		return;
+	}
+	const loaded = loadRecord(read.value);
+	expect(loaded.ok).toBe(true);
+	if (loaded.ok) {
+		expect(loaded.value.notes).toEqual([]);
+		expect(loaded.value.entries.some((entry) => entry.type === "tool_message")).toBe(true);
+	}
 });
 
 test("LOOP09 a call after an accepted finish is answered but not run", async () => {
@@ -833,6 +908,10 @@ test("LOOP12 for any script at all, the run returns with one run_end and a recor
 				const loaded = loadRecord(saved.value);
 				expect(loaded.ok).toBe(true);
 				if (loaded.ok) {
+					// A run that saved everything it wrote leaves a record with nothing to note.
+					if (script.failOn === undefined) {
+						expect(loaded.value.notes).toEqual([]);
+					}
 					expect(activePath(loaded.value.entries)).toEqual(loaded.value.entries);
 					// Every assistant message with calls is followed by one result per call,
 					// unless the run failed and the batch was cut short.

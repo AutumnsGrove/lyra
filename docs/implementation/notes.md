@@ -12,6 +12,22 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **The review found the empty-id gap that the notes had claimed was handled.** Ids were normalised in
+  `executeTools`, which runs *after* the assistant message is saved and after the conversation is pushed,
+  so a call with no id was written as `""` in the turn, the conversation and the next request, while its
+  result was saved under a generated id: a provider rejects that pairing, and a resume replays it. The
+  cut-off path was worse, because it skips `executeTools` entirely and wrote a `tool_message` with an
+  empty id, which the record refuses — so the turn and its results silently left replay. Fixed at the one
+  place that can be right: `normalizeCalls` runs where the reply enters the loop, before anything is
+  written, so the turn, the results, the conversation and the record all carry the same ids. `executeTools`
+  no longer invents or de-duplicates anything, and LOOP09 states the rule.
+- **The generator now makes the bad ids too.** It only ever produced `c0_0`-style ids, which is why LOOP12
+  could not have found this; it now generates no id, a repeated id and its own id, and with the fix removed
+  LOOP12 fails on `{"id":"","name":"alpha"}`. The same gap applied to repeated ids, so they are normalised
+  the same way and both calls run rather than the second being refused.
+- **A run that saved everything it wrote leaves a record with nothing to note.** LOOP12 asserts that now,
+  which is what turns "the record loads" into "the record is right".
+
 - **What 1b does not have, on purpose.** No limits, no retries, no resume, no steering: those are step 2,
   and the run's seams are where they go (one `runTask`, an injected clock, a record already written
   before each step). No protocol: `src/protocol/` is step 6, and the events already use its names so it is

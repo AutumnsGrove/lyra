@@ -37,9 +37,15 @@ function turns(): fc.Arbitrary<ScriptedTurn[]> {
 	return fc
 		.array(
 			fc.record({
-				calls: fc.array(fc.record({ name: fc.constantFrom(...NAMES), args }), {
-					maxLength: 3,
-				}),
+				calls: fc.array(
+					fc.record({
+						name: fc.constantFrom(...NAMES),
+						args,
+						// A reply can name a call badly: no id at all, or the same id twice.
+						idStyle: fc.constantFrom("own", "empty", "repeated"),
+					}),
+					{ maxLength: 3 },
+				),
 				finishReason: fc.option(fc.constantFrom(...FINISH_REASONS), { nil: undefined }),
 				delayMs: fc.option(fc.integer({ min: 0, max: 200 }), { nil: undefined }),
 				failures: fc.option(
@@ -60,11 +66,15 @@ function turns(): fc.Arbitrary<ScriptedTurn[]> {
 			raw.map((turn, index) => {
 				const scripted: ScriptedTurn = {
 					text: turn.text,
-					toolCalls: turn.calls.map((call, position): ScriptedToolCall => ({
-						id: `c${index}_${position}`,
-						name: call.name,
-						args: call.args,
-					})),
+					toolCalls: turn.calls.map((call, position): ScriptedToolCall => {
+						const id =
+							call.idStyle === "empty"
+								? ""
+								: call.idStyle === "repeated"
+									? "repeated"
+									: `c${index}_${position}`;
+						return { id, name: call.name, args: call.args };
+					}),
 					usage: { inputTokens: index, outputTokens: index + 1 },
 				};
 				if (turn.finishReason !== undefined) {

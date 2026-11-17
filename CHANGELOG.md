@@ -58,6 +58,9 @@ new API and any breaking change, and a patch bump is fixes only.
 - A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
   or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
   record whose header could not be saved.
+- A tool call the model gave no id, or a repeated id, is given its own before anything is written, so the
+  assistant turn, its result, the conversation and the record all pair on the same id. Previously the
+  result was renamed and the turn was not, which a provider rejects and a resume replays.
 - The conformance cases from Nova's Go tests and Pi's loop tests that applied to this loop: every event
   names the run, carries the clock's time and a `seq` that only increases; no ending leaves a timer
   waiting; and a tool that never settles is answered by its deadline rather than holding the run.

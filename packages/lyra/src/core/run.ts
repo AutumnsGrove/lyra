@@ -65,6 +65,28 @@ export interface RunResult {
 }
 
 /**
+ * A reply's call ids, made usable before anything is written (LOOP09).
+ *
+ * The id is what pairs a call with its result, so an empty one or a repeated one
+ * would make the record and the conversation disagree: a provider rejects a tool
+ * result that matches no call, and the record refuses a tool message with no id.
+ * Both are the model's doing, so the run assigns the id here, once, before the
+ * assistant message is saved and before the batch runs.
+ */
+function normalizeCalls(calls: readonly ToolCall[], ids: Ids): ToolCall[] {
+	const seen = new Set<string>();
+	return calls.map((call) => {
+		if (call.id !== "" && !seen.has(call.id)) {
+			seen.add(call.id);
+			return call;
+		}
+		const fresh = ids.next("c");
+		seen.add(fresh);
+		return { ...call, id: fresh };
+	});
+}
+
+/**
  * A failed save, thrown to leave the loop. It never crosses the module boundary:
  * `runTask` catches it and ends the run with `failed` (errors are data at the
  * edge, and this is the middle).
@@ -269,6 +291,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				};
 			}
 			const reply = answered.reply;
+			const calls = normalizeCalls(reply.toolCalls, config.ids);
 
 			usageTotal.add(reply.usage);
 			emit(
@@ -296,7 +319,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				parent,
 				ts: clock.now(),
 				text: reply.text,
-				toolCalls: reply.toolCalls,
+				toolCalls: calls,
 				model: reply.model,
 				usage: reply.usage,
 				finishReason: reply.finishReason,
@@ -311,25 +334,25 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				ts: clock.now(),
 				seq,
 				text: reply.text,
-				toolCalls: reply.toolCalls,
+				toolCalls: calls,
 			});
 
 			const assistant: ConversationMessage =
 				reply.reasoning === undefined
-					? { role: "assistant", text: reply.text, toolCalls: reply.toolCalls }
+					? { role: "assistant", text: reply.text, toolCalls: calls }
 					: {
 							role: "assistant",
 							text: reply.text,
 							reasoning: reply.reasoning,
-							toolCalls: reply.toolCalls,
+							toolCalls: calls,
 						};
 			messages.push(assistant);
 
 			// A reply cut off by the token limit can hold half-written arguments, so
 			// none of its calls run: each is answered with an error and the model is
 			// asked again (decision 25).
-			if (reply.finishReason === "length" && reply.toolCalls.length > 0) {
-				for (const call of reply.toolCalls) {
+			if (reply.finishReason === "length" && calls.length > 0) {
+				for (const call of calls) {
 					emit({ type: "tool_call", run: runId, ts: clock.now(), call });
 					const cutOff: ToolOutcome = {
 						isError: true,
@@ -358,7 +381,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				continue;
 			}
 
-			if (reply.toolCalls.length === 0) {
+			if (calls.length === 0) {
 				// No tool call and no `finish`: the model has stopped without saying the
 				// job is done. Step 2 replaces this with reminders and a count.
 				emit({
@@ -376,16 +399,15 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				};
 			}
 
-			for (const call of reply.toolCalls) {
+			for (const call of calls) {
 				emit({ type: "tool_call", run: runId, ts: clock.now(), call });
 			}
 
 			let finished = false;
 			await executeTools({
-				calls: reply.toolCalls,
+				calls,
 				tools: config.tools,
 				clock,
-				ids: config.ids,
 				signal,
 				deadlineMs,
 				runId,
