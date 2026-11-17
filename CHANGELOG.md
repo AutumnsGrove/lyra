@@ -46,6 +46,9 @@ new API and any breaking change, and a patch bump is fixes only.
   answers by conversation position and can fail on purpose, storage that fails on the nth append, and
   tools made from data (`finish` among them). Every later step's tests are written with it, and it is
   published because Lattice and other projects use it too (decision 69).
+- `runTask`, the loop: ask the model, run a reply's tool calls in order under a deadline, hand the
+  results back, and end in exactly one `run_end`. The record is written as it goes, so an interruption
+  loses no step (decision 20), and the events carry the record's `seq` (decision 86).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

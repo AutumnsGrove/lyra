@@ -69,3 +69,26 @@ JSON and the loop hands that back as an error result (decision 21).
 | MOD08 | Bad: the model name is the wrong type | Present but not a string is rejected; absent becomes the empty string |
 | MOD09 | Bad: a cost is malformed | A negative or non-numeric amount, a currency other than USD, or a source outside the three known ones is rejected |
 | MOD10 | Bad: any input at all | Any JSON value decodes or is `bad_request`, never throws, and a reply that is accepted always satisfies the type (a fuzz target) |
+
+## The loop (step 1b)
+
+`runTask` asks the model, runs what it asked for, hands the results back, and
+repeats. A reply's tool calls run one after another in call order, each under a
+deadline (five minutes by default) measured on the injected `Clock`, and each
+result is saved the moment it is ready. The assistant message is saved before any
+of its calls run, so an interruption never loses a step (decision 20).
+
+A run ends in exactly one of three ways: `done` when a tool answers with
+`done: true` and no error, `parked` with a reason, or `failed`. Whatever happens,
+there is exactly one `run_end`, and nothing is emitted after it.
+
+The events use the protocol's names and carry the run, the clock's time, and the
+`seq` of the record entry they came from, so step 6 maps them one to one (decision
+86). A listener that throws is isolated (LOOP11).
+
+| ID | Case | Expected |
+|---|---|---|
+| LOOP01 | Happy: a three-turn run | Tool, tool, `finish` ends `done`; the record holds the header, the user message, three assistant messages, their results and the status entries in order; exactly one `run_start` comes first and one `run_end` last |
+| LOOP02 | Happy: results in call order | Calls that take different times on the clock are saved and announced in call order, and no deadline timer is left waiting at the end |
+| LOOP03 | Happy: usage | Every reply's usage is reported in a `usage` event and summed in the run's result, with a cost total only when every reply reported one from the same source |
+| LOOP13 | Happy: determinism | The same script, the same ids and the same clock write the same record twice, byte for byte |

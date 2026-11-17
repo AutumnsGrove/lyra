@@ -10,7 +10,23 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 Nothing has been built yet.
 
-## Step 1a, 2026-11-17
+## Step 1b, 2026-11-17
+
+- **The cost total is dropped, not approximated.** LOOP03 caught the first attempt: the accumulator
+  began at zero tokens with no cost, so the first reply's cost was thrown away and the total came out
+  at nothing. The rule now is that a total is reported only when every reply reported one from the same
+  source, and one reply without a cost makes the answer "unknown" rather than too low (decision 15).
+- **A tool call with no id gets one from `Ids`.** The model can send a call with an empty id, the record
+  needs a non-empty `toolCallId`, and dropping the call would leave a call the model made with no
+  answer. It is saved under a generated id and its content says it was not run, so the record stays
+  paired (LOOP09).
+- **The tool deadline is a sleep on the injected clock, cancelled by aborting the call's controller.**
+  That keeps `clock.pending()` honest, so LOOP02 can assert that a run leaves no timer waiting, which is
+  this project's version of Nova's "no goroutine leak" (LPC06).
+
+- **1a merged as `0e02714`**, and the step is marked `merged` in the status table. The wait was my
+  reading of the guide's "never merge" as absolute while Autumn was waiting on a sign from me; decision
+  107 records the reversal, the conditions that still apply, and why.
 
 - **A review caught a test that could not fail.** The header refusals were passed as line 2 of a record,
   where the loader calls them "a second header" before any header decoding happens, so the assertions

@@ -8,7 +8,7 @@ category: features
 
 A running log. Newest decisions go at the bottom of the decided list. Each entry says what was decided, why, and what it rules out.
 
-Last updated: 2026-11-15.
+Last updated: 2026-11-17.
 
 ## Decided
 
@@ -342,6 +342,12 @@ Autumn waived the step 0 dependency for step 1a on 2026-11-17, and `AGENTS.md` a
 
 ### 105. fast-check, as a dev dependency, for property tests and fuzz targets
 The first property test (the record loader, step 1a slice 3) uses fast-check 4.10.2, pinned exactly, with plain Vitest and no connector package. That follows the call already written into `implementation/README.md`, and it settles the first half of what decision 103 left unverified: Vitiate is not adopted, so a fuzz target is a `*.fuzz.test.ts` running a high-`numRuns` property over hostile bytes, seeded from the failure-mode catalog's nasty cases, with fast-check's own seed printed on failure. It is development-only, so it needs no import allow-list entry and never reaches the published package. Whether it also runs inside workerd is still open, and the first property test in that suite answers it (decision 103). Decided 2026-11-17.
+
+### 106. Step 0 is waived for step 1b as well
+Extends decision 104 on Autumn's answer, 2026-11-17. Step 1b is the loop, its events, the scenario runner in-process and the conformance port, all against the scripted model and in-memory storage, so it has the same relationship to Lumen that 1a had: none. The Lumen work in Lattice (issue #1693) was landing while 1b was built, and this is what let the two proceed at once. What it does not change: steps 5's Lumen half still needs step 0 landed and a published Lyra, and the waiver now stops at 1b, so step 2 asks again.
+
+### 107. The agent merges a step's pull request, on Autumn's instruction
+Reverses the rule in `implementation/README.md` that says "never merge, approve, or close the PR". Autumn gave the permission on 2026-11-17, after 1a sat clean and green because she was expected to merge it by hand and neither of us said so; the rule was costing a round trip per step with nothing in return once the gate and the review are both green. What still holds: the agent merges only after `pnpm run ci` passes on the head commit and the latest review has nothing blocking and unanswered, it still addresses findings as claims to check rather than instructions, and it still never force-pushes and never pushes to `main` directly. The merge is a merge commit, as the release process (decision 75) expects, and the branch is deleted. Decided 2026-11-17.
 
 ## Not discussed yet
 
