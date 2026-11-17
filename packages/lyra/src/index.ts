@@ -18,3 +18,6 @@ export * from "./core/result.js";
 export * from "./core/slots.js";
 export * from "./core/system-clock.js";
 export * from "./core/tool.js";
+export * from "./record/entries.js";
+export * from "./record/load.js";
+export * from "./record/replay.js";

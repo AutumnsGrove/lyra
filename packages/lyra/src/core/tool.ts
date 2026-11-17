@@ -7,7 +7,7 @@
  * the loop, so a tool can never take a run down (decision 21).
  */
 
-import type { JsonObject } from "./json.js";
+import type { JsonObject, JsonValue } from "./json.js";
 import type { ToolSpec } from "./model.js";
 
 export interface ToolContext {
@@ -22,7 +22,7 @@ export interface ToolOutcome {
 	/** What the model reads. */
 	content: string;
 	/** Optional structured detail for a viewer. Never sent to the model. */
-	details?: unknown;
+	details?: JsonValue;
 	/**
 	 * Set only by `finish`, once the job really is done (decision 25). Step 3
 	 * gives `finish` the coverage check that makes this claim true.

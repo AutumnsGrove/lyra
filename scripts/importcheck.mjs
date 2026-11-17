@@ -150,7 +150,7 @@ async function checkSourceFiles() {
 	for (const file of files) {
 		const packageRelative = relative(join(ROOT, PACKAGE_DIR), file);
 		const entry = entryPointFor(packageRelative);
-		const isTest = /\.(test|fuzz\.test)\.ts$/.test(file);
+		const isTest = /\.(test|fuzz\.test|testing)\.ts$/.test(file);
 		const source = await readFile(file, "utf8");
 
 		// A test may control time, because a test is where time is controlled. A

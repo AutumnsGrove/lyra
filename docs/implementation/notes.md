@@ -12,6 +12,20 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **The header is not an entry, so the first entry's `parent` is `null`.** Decision 31 says the header's
+  parent is null; making the first entry point at the header instead would have added an id the header
+  does not need. `activePath` therefore stops at `parent: null`.
+- **Replay walks from the last entry, and a sibling is not on that path.** A test that gave two tool
+  results the same parent caught it: the second result was on a branch and so was not in the
+  conversation. That is the tree shape doing its job (decision 30), and the lesson is that the loop must
+  link each saved entry to the previous one, not to the message it answers.
+- **An unknown entry kind keeps its raw line.** The alternative was a re-encoded copy, which would have
+  quietly rewritten a newer writer's entry into an older shape. `encodeEntry` returns `raw` untouched,
+  so loading and saving a record is lossless even across versions.
+- **`details` goes through a depth-capped JSON check.** It is the only field a tool can put any shape
+  into, it is written to the record, and a 70-level document would otherwise recurse until the stack
+  gave out. Over 64 levels the line is refused with a note, like any other damaged line.
+
 - **`null` is a wrong type, not a missing field.** `decodeReply` reads an absent token count as zero,
   and a `null` one as a `bad_request`. The tidier-looking `value.x ?? 0` quietly made them the same
   thing and MOD05 caught it. The rule that fell out: only `undefined` is missing; anything else

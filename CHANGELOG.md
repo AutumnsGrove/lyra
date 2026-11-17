@@ -34,6 +34,10 @@ new API and any breaking change, and a patch bump is fixes only.
   finish reason or usage, and any extra field a provider adds, and refuses a field of the wrong type
   with `bad_request` naming it. Tool arguments stay raw text, so invalid JSON is the loop's to hand
   back rather than the decoder's to hide (decision 21).
+- The record's entries (`user_message`, `assistant_message`, `tool_message`, `status`), a
+  deterministic encoder, a tolerant loader and replay. A damaged line is skipped and noted, an entry
+  kind this build does not know is preserved exactly as it was saved, and a record with no usable
+  header is refused rather than given an invented run id (decision 31).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

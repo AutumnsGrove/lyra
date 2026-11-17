@@ -82,6 +82,31 @@ Some models return their reasoning text along with the answer. It is stored when
 - **A proposal entry** and a decision entry (decision 50). The record already allows new entry kinds.
 - **The viewer.** Built later, on top.
 
+## The rows the record is built against (step 1a, slice 3)
+
+The loader is the one place a record made by anything at all is read, so it is
+tolerant by design: a line it cannot use is skipped and noted, never fatal, and
+a kind it does not know is kept exactly as it was saved so a newer writer's
+entry survives an older reader. A record with no usable header is not a record
+and is refused, because inventing a run id would make a resume pretend to be a
+run it is not.
+
+The record that `load` returns keeps entries in the order they were saved. The
+*active path* is the chain from the last entry back through its parents to the
+root, and it is the conversation the model sees on replay; it is a straight line
+today and is a tree in shape, so a branch can be added later without changing
+the format (decision 30).
+
+| ID | Case | Expected |
+|---|---|---|
+| RCD01 | Happy: encode then load | A header and a chain of entries encode to lines and load back equal to what went in, with no notes |
+| RCD02 | Happy: replay | The active path becomes the conversation: user, assistant with its tool calls, each result in call order, and status entries left out |
+| RCD03 | Sad: a truncated last line | The line is skipped and noted, and everything before it still loads |
+| RCD04 | Bad: a damaged or hostile line | A line that is not JSON, not an object, of the wrong shape for its kind, a duplicate id, a parent that is not in the record, or a parent chain that loops each load with a note; an unknown kind is preserved as an opaque entry with its raw line and skipped by replay |
+| RCD05 | Bad: the header | A record with no lines, a first line that is not a header, or a header of a version this code does not know is refused instead of loaded |
+| RCD06 | Property: any valid sequence | For any generated header and chain of entries, loading their encoding returns them unchanged and the active path is a path from the root to the last entry |
+| RCD07 | Bad: hostile bytes | Any mix of valid lines and hostile ones loads or refuses without throwing, and no valid line is lost |
+
 ## Spec rows
 
 | ID | Case | Expected |

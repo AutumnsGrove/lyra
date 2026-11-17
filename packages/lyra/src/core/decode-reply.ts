@@ -9,6 +9,7 @@
  * a `bad_request` naming the field that was wrong.
  */
 
+import { isPlainObject } from "./json.js";
 import type { FinishReason, ModelReply, ToolCall, Usage } from "./model.js";
 import { fail, ok, type Result } from "./result.js";
 
@@ -19,11 +20,6 @@ const FINISH_REASONS: readonly FinishReason[] = [
 	"content_filter",
 	"other",
 ];
-
-/** A plain object, so a list, a null and a primitive are told apart from a record. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function bad(problem: string): Result<never> {
 	return fail("bad_request", `the model reply ${problem}`);
@@ -41,7 +37,7 @@ export function decodeUsage(value: unknown): Result<Usage> {
 	if (value === undefined) {
 		return ok({ inputTokens: 0, outputTokens: 0 });
 	}
-	if (!isRecord(value)) {
+	if (!isPlainObject(value)) {
 		return bad("has usage that is not an object");
 	}
 	const inputTokens = value["inputTokens"] === undefined ? 0 : value["inputTokens"];
@@ -57,7 +53,7 @@ export function decodeUsage(value: unknown): Result<Usage> {
 	if (rawCost === undefined) {
 		return ok({ inputTokens, outputTokens });
 	}
-	if (!isRecord(rawCost)) {
+	if (!isPlainObject(rawCost)) {
 		return bad("has a usage.cost that is not an object");
 	}
 	const amount = rawCost["amount"];
@@ -93,7 +89,7 @@ export function decodeToolCalls(value: unknown): Result<ToolCall[]> {
 	const calls: ToolCall[] = [];
 	const ids = new Set<string>();
 	for (const [index, call] of value.entries()) {
-		if (!isRecord(call)) {
+		if (!isPlainObject(call)) {
 			return bad(`has a toolCalls[${index}] that is not an object`);
 		}
 		const id = call["id"];
@@ -118,12 +114,12 @@ export function decodeToolCalls(value: unknown): Result<ToolCall[]> {
 }
 
 /** A reason Lyra does not model is `other`: the run still needs an answer, not a failure. */
-function decodeFinishReason(value: unknown): FinishReason {
+export function decodeFinishReason(value: unknown): FinishReason {
 	return FINISH_REASONS.find((reason) => reason === value) ?? "other";
 }
 
 export function decodeReply(value: unknown): Result<ModelReply> {
-	if (!isRecord(value)) {
+	if (!isPlainObject(value)) {
 		return bad("is not an object");
 	}
 
