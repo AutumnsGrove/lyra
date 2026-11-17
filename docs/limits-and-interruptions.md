@@ -6,7 +6,7 @@ category: features
 
 # Limits, interruptions, and failures
 
-Last updated: 2026-11-14. Everything here is decided.
+Last updated: 2026-11-17. Everything here is decided.
 
 ## What a run is
 
@@ -72,6 +72,29 @@ Reasons a run can be parked: waiting for an approval, a limit was reached, stopp
 - A reply that was cut off by the token limit never runs its half-written tool arguments. It counts as a failure and the model is asked again. This needs Lumen to report a finish reason (`lumen-changes.md`, item 2).
 
 **E. A failing model call is retried 3 times with staggered, increasing delays, then the run parks as "model unavailable".** The exact delays are configuration, chosen when building. Lumen's router does no fallback to another model when tools are present, so these retries, and an optional fallback model named in the task's recipe (decision 58), are the only protection for agent calls (see `lumen-changes.md`). If the fallback also fails, or none is named, the core parks the run.
+
+## Rows (step 2, slice 2)
+
+Each limit is optional, and there are none by default (decision 18). The check
+happens before each model request, so reaching one parks the run at a step
+boundary with everything done so far kept, ready to resume with a larger
+allowance (decision 22). When two limits are reached at once, the first in
+`steps`, `tokens`, `time`, `cost` order is the one the record names. Tokens are
+input plus output summed over the replies that arrived; time is active time on
+the injected clock since the `running` status, so a parked run costs nothing; a
+cost limit counts reported cost of any source.
+
+| ID | Case | Expected |
+|---|---|---|
+| LIM01 | Sad: each limit parks the run | A step, token, time and cost limit each park the run with reason `limit`, a status `detail` naming which one, one `run_end`, and a loadable record that keeps the work done so far |
+| LIM02 | Happy: the step limit exactly reached | A run that finishes on its last allowed turn is `done`; one that needs another turn parks with detail `steps`; one that needs fewer turns finishes untouched |
+| LIM03 | Bad: a limit that is not a positive number | Zero, negative, fractional, infinite and non-numeric limits are `bad_request` when the run is created, and nothing is saved |
+| LIM04 | Happy: the time limit | Time is measured on the injected clock from the `running` status, so a model call and a tool each count toward it, a limit just over the elapsed time lets the run continue, and no real time passes |
+| LIM05 | Sad: a cost limit with no reported cost | A reply that reports no cost writes one `note` entry (`limit_unenforceable`), the limit stops being enforced for the run, and the run carries on to its natural end |
+| LIM07 | Property: the usage total | For any script, the tokens and cost summed over the replies that arrived equal the run's reported total, even when a later model call fails |
+
+`LIM06` is a resume with larger limits, and lands with resume in slice 6, so the
+planned number waits for it rather than being reused.
 
 ## Not discussed yet
 

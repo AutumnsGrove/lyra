@@ -49,8 +49,9 @@ function toMessage(entry: RecordEntry): ConversationMessage | undefined {
 				isError: entry.isError,
 			};
 		case "status":
+		case "note":
 		case "unknown":
-			// A status is progress, not a turn, and an unknown kind is not ours to read.
+			// A status is progress, a note is for a person, and an unknown kind is not ours to read.
 			return undefined;
 	}
 }

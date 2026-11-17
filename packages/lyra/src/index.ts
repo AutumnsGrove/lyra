@@ -15,6 +15,7 @@ export * from "./core/decode-reply.js";
 export * from "./core/events.js";
 export * from "./core/execute-tools.js";
 export * from "./core/json.js";
+export * from "./core/limits.js";
 export * from "./core/model.js";
 export * from "./core/result.js";
 export * from "./core/run.js";

@@ -76,6 +76,13 @@ new API and any breaking change, and a patch bump is fixes only.
   does not have (the error names the ones it does), the same call id twice, and a call after `finish`
   are all error results, and a tool result that tells the model what to do is stored as data and
   changes nothing.
+- The record's entries are capped at 1 MiB by default (lowered to a storage adapter's own limit when
+  that is smaller): content is cut to fit, with a marker and a `truncated` field, so no input of any
+  size makes a save fail, and a task input over the cap is refused with nothing written (decision 90).
+- A run can be bounded by steps, tokens, active time and cost, all optional and none by default. Reaching
+  one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
+  limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
+  pretending it works (decisions 15, 18, 22).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

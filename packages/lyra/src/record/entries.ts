@@ -87,6 +87,19 @@ export interface StatusEntry extends EntryBase {
 	state: RunState;
 	/** Why it parked: `stopped`, `stuck`, and the reasons later steps add. */
 	reason?: string;
+	/** Which part of that reason: a limit's `steps`, `tokens`, `time` or `cost`. */
+	detail?: string;
+}
+
+/**
+ * Something worth saying that is not a turn, such as a limit the run cannot
+ * enforce (LIM05). `kind` says what it is, so a reader skips one it does not know
+ * and a later note does not need a format change.
+ */
+export interface NoteEntry extends EntryBase {
+	type: "note";
+	kind: string;
+	text: string;
 }
 
 /**
@@ -100,7 +113,12 @@ export interface UnknownEntry extends EntryBase {
 }
 
 export type RecordEntry =
-	UserMessageEntry | AssistantMessageEntry | ToolMessageEntry | StatusEntry | UnknownEntry;
+	| UserMessageEntry
+	| AssistantMessageEntry
+	| ToolMessageEntry
+	| StatusEntry
+	| NoteEntry
+	| UnknownEntry;
 
 /** Narrowing by hand, because `Array.includes` keeps the argument as `unknown`. */
 function isLabel(value: unknown): value is MessageLabel {
@@ -189,8 +207,18 @@ export function encodeEntry(entry: RecordEntry): string {
 			if (entry.reason !== undefined) {
 				line["reason"] = entry.reason;
 			}
+			if (entry.detail !== undefined) {
+				line["detail"] = entry.detail;
+			}
 			return JSON.stringify(line);
 		}
+		case "note":
+			return JSON.stringify({
+				type: entry.type,
+				...base,
+				kind: entry.kind,
+				text: entry.text,
+			});
 		case "unknown":
 			return entry.raw;
 	}
@@ -437,15 +465,35 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 		case "status": {
 			const state = value["state"];
 			const reason = value["reason"];
+			const detail = value["detail"];
 			if (!isState(state)) {
 				return bad("a status entry has a state this build does not know");
 			}
 			if (reason !== undefined && !isName(reason)) {
 				return bad("a status entry has a reason that is not text");
 			}
-			return ok(
-				reason === undefined ? { type, ...base, state } : { type, ...base, state, reason },
-			);
+			if (detail !== undefined && !isName(detail)) {
+				return bad("a status entry has a detail that is not text");
+			}
+			const entry: StatusEntry = { type, ...base, state };
+			if (reason !== undefined) {
+				entry.reason = reason;
+			}
+			if (detail !== undefined) {
+				entry.detail = detail;
+			}
+			return ok(entry);
+		}
+		case "note": {
+			const kind = value["kind"];
+			const text = value["text"];
+			if (!isName(kind)) {
+				return bad("a note entry has no kind");
+			}
+			if (typeof text !== "string") {
+				return bad("a note entry has no text");
+			}
+			return ok({ type, ...base, kind, text });
 		}
 		default:
 			return ok({ type: "unknown", ...base, raw });

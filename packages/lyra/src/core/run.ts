@@ -17,6 +17,7 @@ import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
+import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import type { ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
@@ -27,6 +28,7 @@ import {
 	encodeEntry,
 	encodeHeader,
 	type AssistantMessageEntry,
+	type NoteEntry,
 	type RecordEntry,
 	type StatusEntry,
 	type ToolMessageEntry,
@@ -53,6 +55,8 @@ export interface RunConfig {
 	ids: Ids;
 	/** The model a recipe names, when it names one. */
 	modelName?: string;
+	/** What the recipe allows before the run parks (decision 18, LIM01). */
+	limits?: Limits;
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -63,6 +67,8 @@ export interface RunConfig {
 export interface RunResult {
 	reason: RunEndReason;
 	parkedReason?: ParkedReason;
+	/** Which part of the reason stopped it, such as a limit's `steps` or `tokens`. */
+	parkedDetail?: string;
 	/** Summed over every reply. Cost is only carried when every reply reported one. */
 	usage: Usage;
 	/** How many times the model was asked. */
@@ -124,17 +130,28 @@ function messageOf(error: unknown): string {
  * Tokens always add up. A cost total only means something when every reply
  * reported one, from the same kind of billing (decision 15), so one reply without
  * a cost drops the total for the run instead of reporting a number that is too low.
+ *
+ * A cost *limit* is different: it compares against every amount reported, whatever
+ * its source, and it is unenforceable as soon as one reply reports none, because
+ * the total is then understated (LIM05).
  */
 function createUsageTotal() {
 	let inputTokens = 0;
 	let outputTokens = 0;
 	let cost: Usage["cost"] | undefined;
 	let costKnown = true;
+	let spent = 0;
+	let everyCostReported = true;
 
 	return {
 		add(next: Usage): void {
 			inputTokens += next.inputTokens;
 			outputTokens += next.outputTokens;
+			if (next.cost === undefined) {
+				everyCostReported = false;
+			} else {
+				spent += next.cost.amount;
+			}
 			if (!costKnown) {
 				return;
 			}
@@ -159,6 +176,14 @@ function createUsageTotal() {
 				sum.cost = cost;
 			}
 			return sum;
+		},
+
+		tokens(): number {
+			return inputTokens + outputTokens;
+		},
+
+		costSpent(): { amount: number; known: boolean } {
+			return { amount: spent, known: everyCostReported };
 		},
 	};
 }
@@ -186,6 +211,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let turns = 0;
 	/** The id of the entry before the next one, which is what `parent` records. */
 	let parent: string | null = null;
+	/** The clock time the run's latest `running` status was saved, for the time limit. */
+	let activeSince = clock.now();
+	/** A cost limit the run cannot measure is noted once, not once per reply (LIM05). */
+	let costLimitNoted = false;
 
 	const emit = (event: RunEvent): void => {
 		if (!live) {
@@ -229,7 +258,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		return seq;
 	};
 
-	const saveStatus = async (state: StatusEntry["state"], reason?: string): Promise<number> => {
+	const saveStatus = async (
+		state: StatusEntry["state"],
+		reason?: string,
+		detail?: string,
+	): Promise<number> => {
 		const entry: StatusEntry = {
 			type: "status",
 			id: config.ids.next("e"),
@@ -240,6 +273,21 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (reason !== undefined) {
 			entry.reason = reason;
 		}
+		if (detail !== undefined) {
+			entry.detail = detail;
+		}
+		return append(entry);
+	};
+
+	const saveNote = async (kind: string, text: string): Promise<number> => {
+		const entry: NoteEntry = {
+			type: "note",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			kind,
+			text,
+		};
 		return append(entry);
 	};
 
@@ -302,11 +350,33 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			? { reason: "parked", parkedReason: "stopped", usage: usageTotal.total(), turns }
 			: undefined;
 
+	// A bad limit fails here rather than parking a run that cannot start (LIM03).
+	const checkedLimits = config.limits === undefined ? undefined : validateLimits(config.limits);
+	const limits =
+		checkedLimits !== undefined && checkedLimits.ok ? checkedLimits.value : undefined;
+
 	const loop = async (): Promise<RunResult> => {
 		for (;;) {
 			const stoppedBeforeAsking = stopped();
 			if (stoppedBeforeAsking !== undefined) {
 				return stoppedBeforeAsking;
+			}
+
+			// Checked before each request, so a limit always lands on a step boundary.
+			const reached = reachedLimit(limits, {
+				turns,
+				tokens: usageTotal.tokens(),
+				cost: usageTotal.costSpent(),
+				activeMs: clock.now() - activeSince,
+			});
+			if (reached !== undefined) {
+				return {
+					reason: "parked",
+					parkedReason: "limit",
+					parkedDetail: reached,
+					usage: usageTotal.total(),
+					turns,
+				};
 			}
 
 			const answered = await ask();
@@ -382,6 +452,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							toolCalls: calls,
 						};
 			messages.push(assistant);
+
+			// A cost limit it cannot measure is not a limit, so the run says so once
+			// and carries on without enforcing it (decision 15, LIM05).
+			if (limits?.cost !== undefined && !costLimitNoted && !usageTotal.costSpent().known) {
+				costLimitNoted = true;
+				await saveNote(
+					"limit_unenforceable",
+					"a cost limit is set, but a reply reported no cost, so the limit cannot be enforced for this run",
+				);
+			}
 
 			// A reply cut off by the token limit can hold half-written arguments, so
 			// none of its calls run: each is answered with an error and the model is
@@ -503,7 +583,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 
 		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
 
-		if (!firstFits) {
+		const refused =
+			checkedLimits !== undefined && !checkedLimits.ok ? checkedLimits.error : undefined;
+		if (refused !== undefined) {
+			emit({ type: "error", run: runId, ts: clock.now(), error: refused });
+			result = { reason: "failed", error: refused, usage: usageTotal.total(), turns };
+		} else if (!firstFits) {
 			const error: LyraError = {
 				code: "bad_request",
 				message: `the task input is bigger than one record entry can hold (${entryCapBytes} bytes)`,
@@ -525,6 +610,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			await append(first);
 			messages.push({ role: "user", text: first.text });
 			await saveStatus("running");
+			activeSince = clock.now();
 
 			result = await loop();
 		}
@@ -547,6 +633,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		await saveStatus(
 			result.reason === "done" ? "done" : result.reason === "parked" ? "parked" : "failed",
 			result.reason === "parked" ? result.parkedReason : undefined,
+			result.reason === "parked" ? result.parkedDetail : undefined,
 		);
 	} catch (caught) {
 		if (result.reason !== "failed") {
@@ -570,6 +657,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					ts: clock.now(),
 					reason: result.reason,
 					parkedReason: result.parkedReason,
+					...(result.parkedDetail === undefined ? {} : { detail: result.parkedDetail }),
 				}
 			: { type: "run_end", run: runId, ts: clock.now(), reason: result.reason },
 	);

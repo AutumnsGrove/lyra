@@ -92,7 +92,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status",
+	kind: "user" | "assistant" | "tool" | "status" | "note",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -138,19 +138,25 @@ function entryArbitrary(
 				.record({
 					state: fc.constantFrom(...STATES),
 					reason: fc.option(word, { nil: undefined }),
+					detail: fc.option(word, { nil: undefined }),
 				})
-				.map(({ reason, ...rest }) =>
-					reason === undefined
-						? { type: "status" as const, ...base, ...rest }
-						: { type: "status" as const, ...base, ...rest, reason },
-				);
+				.map(({ reason, detail, ...rest }) => {
+					const withReason = reason === undefined ? rest : { ...rest, reason };
+					return detail === undefined
+						? { type: "status" as const, ...base, ...withReason }
+						: { type: "status" as const, ...base, ...withReason, detail };
+				});
+		case "note":
+			return fc
+				.record({ kind: word, text })
+				.map((rest) => ({ type: "note" as const, ...base, ...rest }));
 	}
 }
 
 /** A whole valid record chain, in the order it would be saved. */
 export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 	return fc
-		.array(fc.constantFrom("user", "assistant", "tool", "status"), { maxLength: 5 })
+		.array(fc.constantFrom("user", "assistant", "tool", "status", "note"), { maxLength: 5 })
 		.chain((kinds) =>
 			kinds.length === 0
 				? fc.constant<RecordEntry[]>([])

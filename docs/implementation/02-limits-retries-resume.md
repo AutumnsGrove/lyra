@@ -8,10 +8,11 @@ category: features
 
 Last updated: 2026-11-16. Read [`README.md`](README.md) first. Branch: `feat/step-02-limits-retries-resume`, cut from a `main` that has step 1 merged (both 1a and 1b). Builds decisions 10, 15, 18 to 27, 58, 90, 91, and the matching parts of 62 to 64. It makes the core safe to leave running: bounded, interruptible, and able to pick up where it stopped.
 
-**Where the step stands (2026-11-17):** slice 1, the entry cap, is committed on
-`feat/step-02-limits-retries-resume` (`8b3ce75`) with `REC01` to `REC04` tested and removed from
-`scripts/unbuilt-rows.json`. Slices 2 to 7 are not started; the next is slice 2, limits. The branch has no
-pull request yet.
+**Where the step stands (2026-11-17):** slices 1 and 2 are committed on
+`feat/step-02-limits-retries-resume` with `REC01` to `REC04` and `LIM01` to `LIM05` and `LIM07` tested (slice 1
+removed its rows from `scripts/unbuilt-rows.json`; the limit rows are new in `limits-and-interruptions.md`).
+`LIM06`, a resume with larger limits, waits for slice 6. Slices 3 to 7 are not started; the next is slice 3,
+stop, steer and follow-up. The branch has no pull request yet.
 
 Read: `docs/limits-and-interruptions.md` (the owner of this step's behavior), `docs/run-record.md` (its rows `REC01` to `REC09` are this step's, and are currently listed in `scripts/unbuilt-rows.json`), `docs/adapters.md` (the Waking slot), `docs/engineering-practices.md` (catalog: "The loop", "The record and resume"), `docs/implementation/notes.md` (what step 1 decided), and step 1's code, in particular `core/run.ts`, the record, and the testkit.
 

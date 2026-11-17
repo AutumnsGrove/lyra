@@ -8,7 +8,32 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
-Nothing has been built yet.
+## Step 2, slice 2, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
+merged, step 2 is on `feat/step-02-limits-retries-resume` with slices 1 and 2 done, no pull request yet.
+
+- **The limit check is before the request, not inside it.** A limit therefore always lands on a step
+  boundary, which is what makes "everything done so far is kept" true without cutting a step in half. A
+  tool that runs long can carry a run past its time limit and the park happens at the next gap; that is
+  the doc's rule ("checked before each model request") and not an accident.
+- **A cost limit it cannot measure is switched off, not guessed at.** One reply without a cost makes the
+  running total understated, so the run notes `limit_unenforceable` once and stops enforcing cost for the
+  rest of the run (LIM05). Mixing cost sources is fine for the limit, unlike the reported total, which
+  still needs one source (decision 15): the note's accumulation counts every amount reported.
+- **When two limits are reached at once, the order in `LIMIT_DETAILS` decides** (`steps`, `tokens`, `time`,
+  `cost`). Fixed rather than incidental, so the same state always writes the same detail.
+- **`LIM06` is deliberately skipped and waits for resume.** The planned row was "a resume with larger
+  limits continues", and resume is slice 6, so the number is left for it rather than reused for
+  something else. `LIM04` covers active time within one run now and gains its across-resume half there.
+- **A note is a new record entry kind**, `{ kind, text }`, so the cost note is data rather than a text
+  marker, and later notes do not need a format change. Replay skips it, and a reader that does not know
+  the kind skips it too. `run-record.md`'s entry table says so.
+- **A bad limit fails before the header is written.** `bad_request`, one `run_start`, one `error`, one
+  `run_end`, and storage is empty: "fails fast rather than parking a run before it starts" is only true
+  if there is no record that looks like a run.
+- **The harness moved to `run-harness.testing.ts`** in its own commit. Step 2's slices each get a test
+  file (limits, stop, retries, stuck, resume) and they all build a run the same way.
 
 ## Step 2, slice 1, 2026-11-17
 
