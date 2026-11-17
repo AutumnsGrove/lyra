@@ -12,6 +12,17 @@ Nothing has been built yet.
 
 ## Step 1b, 2026-11-17
 
+- **Two rounds of the same bug: ids have to be decided once, and against the whole batch.** The first fix
+  normalised an unusable call id where the reply enters the loop, but a *generated* id was only checked
+  against the calls already visited, so with the counter handing out `c1` a reply of `["c1", ""]`
+  normalised to `["c1", "c1"]`. `normalizeCalls` now reserves every id the reply already uses before it
+  generates any, and the counter is advanced past them. LOOP09 has the deterministic case; relying on the
+  property test alone would have missed it, because the generator's ids lived in a namespace the counter
+  never produces, which is the same blind spot that hid the original bug.
+- **`normalizeCalls` is the single place an id is decided**, and `executeTools` now assumes unique non-empty
+  ids rather than inventing them. A future caller of `executeTools` outside the loop would break that
+  assumption, and the function says so where it is documented.
+
 - **The review found the empty-id gap that the notes had claimed was handled.** Ids were normalised in
   `executeTools`, which runs *after* the assistant message is saved and after the conversation is pushed,
   so a call with no id was written as `""` in the turn, the conversation and the next request, while its

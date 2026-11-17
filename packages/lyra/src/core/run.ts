@@ -74,13 +74,27 @@ export interface RunResult {
  * assistant message is saved and before the batch runs.
  */
 function normalizeCalls(calls: readonly ToolCall[], ids: Ids): ToolCall[] {
+	// Every id the reply already uses, including ones further along the batch: a
+	// generated id must not collide with a call that has not been reached yet, or
+	// the duplicate is simply recreated in a different place.
+	const used = new Set<string>();
+	for (const call of calls) {
+		if (call.id !== "") {
+			used.add(call.id);
+		}
+	}
 	const seen = new Set<string>();
+
 	return calls.map((call) => {
 		if (call.id !== "" && !seen.has(call.id)) {
 			seen.add(call.id);
 			return call;
 		}
-		const fresh = ids.next("c");
+		let fresh = ids.next("c");
+		while (used.has(fresh)) {
+			fresh = ids.next("c");
+		}
+		used.add(fresh);
 		seen.add(fresh);
 		return { ...call, id: fresh };
 	});

@@ -704,6 +704,39 @@ test("LOOP09 a call with no id is given one, and the turn, the result and the co
 	expect(replayedCalls.slice(0, 1)).toEqual([assigned]);
 });
 
+test("LOOP09 a given id never collides with one a later call already uses", async () => {
+	// The counter hands out `c1` first, which is exactly the id the reply already
+	// uses for its first call. A generated id has to look at the whole batch, not
+	// just the calls before it.
+	const colliding = harness(
+		[
+			{
+				toolCalls: [
+					{ id: "c1", name: "read", args: {} },
+					{ id: "", name: "read", args: {} },
+				],
+			},
+			{ toolCalls: [{ id: "c3", name: "finish" }] },
+		],
+		() => [toolReturning("read", "the content"), createFinishTool()],
+	);
+
+	expect((await colliding.run()).reason).toBe("done");
+	const record = await readRecord(colliding.storage);
+	const assistant = record.entries.find((entry) => entry.type === "assistant_message");
+	const ids =
+		assistant?.type === "assistant_message" ? assistant.toolCalls.map((call) => call.id) : [];
+	expect(ids).toHaveLength(2);
+	expect(ids[0]).toBe("c1");
+	expect(ids[1]).not.toBe("c1");
+	expect(new Set(ids).size).toBe(2);
+
+	const results = record.entries.flatMap((entry) =>
+		entry.type === "tool_message" ? [entry.toolCallId] : [],
+	);
+	expect(results.slice(0, 2)).toEqual(ids);
+});
+
 test("LOOP09 a cut-off reply whose call has no id is still a record that loads", async () => {
 	const cut = harness(
 		[

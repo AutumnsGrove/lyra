@@ -67,12 +67,14 @@ function turns(): fc.Arbitrary<ScriptedTurn[]> {
 				const scripted: ScriptedTurn = {
 					text: turn.text,
 					toolCalls: turn.calls.map((call, position): ScriptedToolCall => {
+						// "own" ids are in the same namespace a counter produces (`c1`, `c2`),
+						// so a generated id can collide with one of them and LOOP12 sees it.
 						const id =
 							call.idStyle === "empty"
 								? ""
 								: call.idStyle === "repeated"
 									? "repeated"
-									: `c${index}_${position}`;
+									: `c${1 + index * 3 + position}`;
 						return { id, name: call.name, args: call.args };
 					}),
 					usage: { inputTokens: index, outputTokens: index + 1 },
