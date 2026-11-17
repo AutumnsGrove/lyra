@@ -150,6 +150,20 @@ success, or a different failure, starts the count again.
 | STK05 | Sad: the safeguard is off | No reminder is written and the run never parks; a model that cannot finish ends `failed` and says the safeguard is off |
 | STK06 | Sad: a reply cut off by the token limit | Each cut-off reply is none of its calls run, is asked again, and counts toward the same-failure total; three in a row park the run naming the cut-off reply |
 
+## Rows (step 2, slice 6)
+
+A resume reads the record and continues it, so a kill must never lose a turn or
+repeat a call that changes something (decision 20). The record cannot say whether
+a cut-off tool ran, so its unanswered calls are reported rather than assumed
+(decision 24). What a record already spent counts toward the limits, so a run does
+not get a fresh allowance each time it is interrupted (`LIM06`).
+
+| ID | Case | Expected |
+|---|---|---|
+| RSM01 | Happy: killed at every write | Killed at every append, before and after it, on a three-tool script whose tools are safe to repeat, the resume ends `done` and its conversation and results are the uninterrupted run's, once unknown-outcome results are set aside |
+| RSM02 | Sad: a tool that changes something | An unsafe call killed anywhere runs at most once across the original and the resume, and where its result was lost the model is told the outcome is unknown |
+| RSM04 | Bad: a record that cannot be used | A record that does not exist is `not_found`, one with no usable header fails the resume with `internal` and never throws, and a damaged last line is noted and skipped so the run continues |
+
 ## Not discussed yet
 
 - **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.

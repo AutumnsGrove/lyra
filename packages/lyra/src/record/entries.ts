@@ -19,11 +19,21 @@ import { fail, ok, type Result } from "../core/result.js";
 /** The format this code writes. A record of any other version is refused, not guessed at. */
 export const RECORD_VERSION = 1;
 
+/** One tool as the header pinned it: its name, and the hash of its name and arguments. */
+export interface ToolStamp {
+	name: string;
+	hash: string;
+}
+
 /** What a run started with, so a resume after a deploy can check it (decision 91). */
 export interface RecipeStamp {
 	name: string;
 	version: number;
 	toolSetHash: string;
+	/** Added in step 2 (REC06): a reworded prompt alone does not stop a run. */
+	instructionsHash?: string;
+	/** Added in step 2: one hash per tool, so a change can name the tools it touched. */
+	tools?: readonly ToolStamp[];
 }
 
 export interface RecordHeader {
@@ -78,6 +88,12 @@ export interface ToolMessageEntry extends EntryBase {
 	content: string;
 	/** For a person reading the record, never for the model. */
 	details?: JsonValue;
+	/**
+	 * The done-check passed on this call (decision 25). The record keeps it so a
+	 * resume after a kill can tell an accepted finish from any other result, instead
+	 * of asking the model for a turn it already gave.
+	 */
+	done?: true;
 	/** Set when this entry was cut to fit the cap; the content carries the marker too. */
 	truncated?: Truncation;
 }
@@ -160,11 +176,21 @@ export function encodeHeader(header: RecordHeader): string {
 		host: header.host,
 	};
 	if (header.recipe !== undefined) {
-		line["recipe"] = {
+		const recipe: Record<string, unknown> = {
 			name: header.recipe.name,
 			version: header.recipe.version,
 			toolSetHash: header.recipe.toolSetHash,
 		};
+		if (header.recipe.instructionsHash !== undefined) {
+			recipe["instructionsHash"] = header.recipe.instructionsHash;
+		}
+		if (header.recipe.tools !== undefined) {
+			recipe["tools"] = header.recipe.tools.map((tool) => ({
+				name: tool.name,
+				hash: tool.hash,
+			}));
+		}
+		line["recipe"] = recipe;
 	}
 	return JSON.stringify(line);
 }
@@ -214,6 +240,9 @@ export function encodeEntry(entry: RecordEntry): string {
 			};
 			if (entry.details !== undefined) {
 				line["details"] = entry.details;
+			}
+			if (entry.done === true) {
+				line["done"] = true;
 			}
 			if (entry.truncated !== undefined) {
 				line["truncated"] = entry.truncated;
@@ -366,15 +395,37 @@ export function decodeHeader(value: unknown): Result<RecordHeader> {
 	if (typeof name !== "string" || !isTimestamp(version) || !isName(toolSetHash)) {
 		return bad("the record header's recipe is not a name, a version and a tool-set hash");
 	}
-	return ok({
-		type: "header",
-		v: RECORD_VERSION,
-		run,
-		task,
-		startedAt,
-		host,
-		recipe: { name, version, toolSetHash },
-	});
+	const instructionsHash = rawRecipe["instructionsHash"];
+	if (instructionsHash !== undefined && !isName(instructionsHash)) {
+		return bad("the record header's recipe has an instructions hash that is not text");
+	}
+	const rawTools = rawRecipe["tools"];
+	let tools: ToolStamp[] | undefined;
+	if (rawTools !== undefined) {
+		if (!Array.isArray(rawTools)) {
+			return bad("the record header's recipe has a tool list that is not a list");
+		}
+		tools = [];
+		for (const rawTool of rawTools) {
+			if (!isPlainObject(rawTool)) {
+				return bad("the record header's recipe has a tool that is not an object");
+			}
+			const toolName = rawTool["name"];
+			const toolHash = rawTool["hash"];
+			if (typeof toolName !== "string" || !isName(toolHash)) {
+				return bad("the record header's recipe has a tool without a name and a hash");
+			}
+			tools.push({ name: toolName, hash: toolHash });
+		}
+	}
+	const recipe: RecipeStamp = { name, version, toolSetHash };
+	if (instructionsHash !== undefined) {
+		recipe.instructionsHash = instructionsHash;
+	}
+	if (tools !== undefined) {
+		recipe.tools = tools;
+	}
+	return ok({ type: "header", v: RECORD_VERSION, run, task, startedAt, host, recipe });
 }
 
 /**
@@ -487,6 +538,9 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				return truncation;
 			}
 			const entry: ToolMessageEntry = { type, ...base, toolCallId, isError, content };
+			if (value["done"] === true) {
+				entry.done = true;
+			}
 			if (details !== undefined) {
 				if (!isJsonValue(details)) {
 					return bad("a tool_message entry has details that are not JSON");

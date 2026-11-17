@@ -352,6 +352,9 @@ Reverses the rule in `implementation/README.md` that says "never merge, approve,
 ### 108. `yaml`, as a dev dependency, for reading the scenario files
 The scenario files stay YAML, as `engineering-practices.md` writes them, and `yaml` 2.9.1 is pinned exactly to read them, at the workspace root so the test in `packages/lyra/src` resolves it. It is test-only: `src/` may not import `node:fs`, so Vite hands the files over as raw text through `import.meta.glob` and this parses them, which means it needs no import allow-list entry and never reaches the published package. If the parsing ever moves out of a test, this becomes a runtime dependency and a decision of its own. Decided 2026-11-17.
 
+### 109. The package's size ceiling is 52 KiB
+Raised from 40 KiB on 2026-11-17, at step 2 slice 6, when the gzipped package reached 41.6 KiB and the gate failed. The growth is the work that was asked for and nothing else: limits, the run handle with stop/steer/follow-up, retries with a fallback, the stuck safeguard, and resume reading a record back. Splitting modules does not help, because the budget sums everything under `dist/`, and cutting scope would drop behavior the step document promises. 52 KiB leaves room for the rest of step 2 and gives step 3 (recipes, tools and argument validation) a real constraint to design against. It is still two orders of magnitude under a Worker's limit, and the gate still fails on growth, so the next raise needs a reason of its own. Decided 2026-11-17.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

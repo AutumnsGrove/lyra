@@ -18,6 +18,7 @@ import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { readResumeSeed, type ResumeSeed } from "./resume.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
@@ -111,6 +112,12 @@ export interface RunConfig {
 	control?: RunControl;
 	/** The stuck safeguard: on by default, because the default has no limits (decision 25). */
 	stuck?: StuckSettings;
+	/**
+	 * Continue a record instead of starting one (decision 20). `by` decides what may
+	 * be continued: an accident resumes on its own, everything else waits for a
+	 * person (decision 23).
+	 */
+	resume?: { lines: readonly string[]; by: "wake" | "person" };
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -242,6 +249,22 @@ function createUsageTotal() {
 	};
 }
 
+/**
+ * A parked reason as this build knows it. A record written by a newer Lyra may name
+ * one that is not here, and guessing would overrule a person's decision, so an
+ * unknown reason is reported as `stuck` with the raw reason kept in the detail.
+ */
+const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
+	"stopped",
+	"stuck",
+	"limit",
+	"model_unavailable",
+];
+
+function parkedReasonOf(reason: string | undefined): ParkedReason {
+	return KNOWN_PARKED_REASONS.find((known) => known === reason) ?? "stuck";
+}
+
 export async function runTask(config: RunConfig): Promise<RunResult> {
 	const clock = config.clock;
 	const runId = config.runId;
@@ -260,8 +283,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let turns = 0;
 	/** The id of the entry before the next one, which is what `parent` records. */
 	let parent: string | null = null;
-	/** The clock time the run's latest `running` status was saved, for the time limit. */
+	/** The clock time the run's latest `running` or `resumed` status was saved. */
 	let activeSince = clock.now();
+	/** Active milliseconds already spent before this segment began (LIM04, LIM06). */
+	let closedActiveMs = 0;
 	/** The model the next request names: the recipe's, or the fallback once it moves. */
 	let modelName = config.modelName;
 	/** A cost limit the run cannot measure is noted once, not once per reply (LIM05). */
@@ -432,6 +457,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (outcome.details !== undefined) {
 			entry.details = outcome.details;
 		}
+		if (outcome.done === true) {
+			entry.done = true;
+		}
 		const seq = await append(entry);
 		messages.push({
 			role: "tool",
@@ -508,6 +536,119 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		}
 	};
 
+	/** Set when a tool's answer says the done-check passed (decision 25). */
+	let finishedRun = false;
+
+	/** Run one reply's calls, which is the same work on the first try and after a resume. */
+	const runBatch = async (calls: readonly ToolCall[]): Promise<void> => {
+		await executeTools({
+			calls,
+			tools: config.tools,
+			clock,
+			signal,
+			deadlineMs,
+			runId,
+			isFinished: () => finishedRun,
+			onStart: (call) => {
+				emit({
+					type: "tool_start",
+					run: runId,
+					ts: clock.now(),
+					callId: call.id,
+					name: call.name,
+				});
+			},
+			onFinish: async (call, outcome) => {
+				const resultSeq = await saveToolResult(call, outcome);
+				emit({
+					type: "tool_end",
+					run: runId,
+					ts: clock.now(),
+					seq: resultSeq,
+					callId: call.id,
+					name: call.name,
+					isError: outcome.isError,
+					content: outcome.content,
+				});
+				if (outcome.isError) {
+					noteFailure(call.name, outcome.content);
+				} else {
+					noteSuccess();
+				}
+				if (outcome.done === true && !outcome.isError) {
+					finishedRun = true;
+				}
+			},
+		});
+	};
+
+	/**
+	 * Answer the calls the record has no result for, which is where a kill leaves a
+	 * run. A call that is safe to repeat runs now; one that is not is answered with
+	 * an unknown outcome and never repeated, because the record cannot tell a tool
+	 * that never started from one that changed something and then died (decision 24).
+	 */
+	const answerUnanswered = async (seed: ResumeSeed): Promise<void> => {
+		for (const call of seed.unansweredCalls) {
+			const tool = tools.get(call.name);
+			if (tool !== undefined && tool.safeToRepeat === true) {
+				await runBatch([call]);
+				continue;
+			}
+			emit({ type: "tool_call", run: runId, ts: clock.now(), call });
+			const unknown: ToolOutcome = {
+				isError: true,
+				content:
+					"outcome unknown: this call may or may not have run; check before repeating",
+			};
+			const resultSeq = await saveToolResult(call, unknown);
+			emit({
+				type: "tool_end",
+				run: runId,
+				ts: clock.now(),
+				seq: resultSeq,
+				callId: call.id,
+				name: call.name,
+				isError: true,
+				content: unknown.content,
+			});
+		}
+	};
+
+	/**
+	 * The ending the record already holds, when a resume has nothing to do. A wake
+	 * continues only a run that was `running`, so an accident resumes on its own and
+	 * everything else waits for a person (decision 23).
+	 */
+	const recordedOutcome = (seed: ResumeSeed, by: "wake" | "person"): RunResult | undefined => {
+		const status = seed.status;
+		if (status === undefined) {
+			return undefined;
+		}
+		const total = usageTotal.total();
+		if (status.state === "done") {
+			return { reason: "done", usage: total, turns };
+		}
+		if (status.state === "failed") {
+			return {
+				reason: "failed",
+				error: { code: "internal", message: "the record says the run failed" },
+				usage: total,
+				turns,
+			};
+		}
+		if (status.state === "parked" && by === "wake") {
+			return {
+				reason: "parked",
+				parkedReason: parkedReasonOf(status.reason),
+				...(status.detail === undefined ? {} : { parkedDetail: status.detail }),
+				usage: total,
+				turns,
+			};
+		}
+		return undefined;
+	};
+
 	/** A stopped run parks rather than failing: a person stopping it is not an error (decision 23). */
 	const stopped = (): RunResult | undefined =>
 		signal.aborted
@@ -537,7 +678,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				turns,
 				tokens: usageTotal.tokens(),
 				cost: usageTotal.costSpent(),
-				activeMs: clock.now() - activeSince,
+				activeMs: closedActiveMs + (clock.now() - activeSince),
 			});
 			if (reached !== undefined) {
 				return {
@@ -771,46 +912,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				emit({ type: "tool_call", run: runId, ts: clock.now(), call });
 			}
 
-			let finished = false;
-			await executeTools({
-				calls,
-				tools: config.tools,
-				clock,
-				signal,
-				deadlineMs,
-				runId,
-				isFinished: () => finished,
-				onStart: (call) => {
-					emit({
-						type: "tool_start",
-						run: runId,
-						ts: clock.now(),
-						callId: call.id,
-						name: call.name,
-					});
-				},
-				onFinish: async (call, outcome) => {
-					const resultSeq = await saveToolResult(call, outcome);
-					emit({
-						type: "tool_end",
-						run: runId,
-						ts: clock.now(),
-						seq: resultSeq,
-						callId: call.id,
-						name: call.name,
-						isError: outcome.isError,
-						content: outcome.content,
-					});
-					if (outcome.isError) {
-						noteFailure(call.name, outcome.content);
-					} else {
-						noteSuccess();
-					}
-					if (outcome.done === true && !outcome.isError) {
-						finished = true;
-					}
-				},
-			});
+			await runBatch(calls);
 
 			emit({
 				type: "turn_end",
@@ -830,7 +932,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					turns,
 				};
 			}
-			if (finished) {
+			if (finishedRun) {
 				// The run would end here, so this is where a person's follow-up is read.
 				if (await readQueued("follow_up")) {
 					continue;
@@ -861,6 +963,64 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (refused !== undefined) {
 			emit({ type: "error", run: runId, ts: clock.now(), error: refused });
 			result = { reason: "failed", error: refused, usage: usageTotal.total(), turns };
+		} else if (config.resume !== undefined) {
+			const seeded = readResumeSeed(config.resume.lines);
+			if (!seeded.ok) {
+				const error: LyraError = {
+					code: "internal",
+					message: `the record could not be read: ${seeded.error.message}`,
+				};
+				emit({ type: "error", run: runId, ts: clock.now(), error });
+				result = { reason: "failed", error, usage: usageTotal.total(), turns };
+			} else if (seeded.value.record.header.run !== runId) {
+				const error: LyraError = {
+					code: "internal",
+					message: "the record belongs to another run",
+				};
+				emit({ type: "error", run: runId, ts: clock.now(), error });
+				result = { reason: "failed", error, usage: usageTotal.total(), turns };
+			} else {
+				const seed = seeded.value;
+				// The record is already there, so writes are allowed from this point.
+				recordStarted = true;
+				// What the record already spent counts from the first line, so a limit
+				// means the same thing on both sides of an interruption (LIM06).
+				for (const usage of seed.usages) {
+					usageTotal.add(usage);
+				}
+				messages.push(...seed.messages);
+				if (seed.messages.length === 0) {
+					// The kill landed after the header and before the task message, so the
+					// resume writes the job the caller is asking for.
+					await append(first);
+					messages.push({ role: "user", text: first.text });
+				}
+				turns = seed.turns;
+				parent = seed.parent;
+				closedActiveMs = seed.activeMs;
+
+				const recorded = recordedOutcome(seed, config.resume.by);
+				if (recorded !== undefined) {
+					// Nothing is written: the record already says how this run ended, or
+					// that it waits for a person.
+					result = recorded;
+				} else if (seed.finished) {
+					// A kill landed between an accepted finish and the closing status. The
+					// record already knows the done-check passed, so the run ends done
+					// rather than asking the model for a turn it already gave.
+					recordStarted = true;
+					result = { reason: "done", usage: usageTotal.total(), turns };
+				} else {
+					await saveStatus("resumed");
+					activeSince = clock.now();
+					await answerUnanswered(seed);
+					// A repeated safe call may itself have passed the done-check (a
+					// finish is safe to repeat for exactly this reason).
+					result = finishedRun
+						? { reason: "done", usage: usageTotal.total(), turns }
+						: await loop();
+				}
+			}
 		} else if (!firstFits) {
 			const error: LyraError = {
 				code: "bad_request",

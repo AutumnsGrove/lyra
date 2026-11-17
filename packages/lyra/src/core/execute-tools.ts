@@ -144,7 +144,14 @@ async function runOne(
 		);
 
 	const ran = Promise.resolve()
-		.then(() => tool.execute(args, { signal: call.signal, runId: options.runId, callId }))
+		.then(() =>
+			tool.execute(args, {
+				signal: call.signal,
+				runId: options.runId,
+				callId,
+				callKey: `${options.runId}:${callId}`,
+			}),
+		)
 		.then(
 			(outcome) => ({ kind: "outcome" as const, outcome }),
 			(error: unknown) => ({ kind: "threw" as const, error }),

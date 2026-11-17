@@ -83,6 +83,11 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- `runTask` can resume a record: the conversation, the turns, the usage and the active time of a run
+  are read back from what it saved, the last turn's unanswered calls are answered instead of assumed
+  (a call that is safe to repeat runs again; one that is not is reported as an unknown outcome), and a
+  record whose tool result passed the done-check ends `done` without asking for another turn (decisions
+  20, 24). The package's size ceiling moves from 40 to 52 KiB (decision 109).
 - The stuck safeguard, on by default and configurable per run: a model that stops without finishing
   is reminded twice and then the run parks `stuck`, and a tool that fails the same way three times in
   a row parks it too, naming the tool. A cut-off reply counts as a failure of its own kind, and the

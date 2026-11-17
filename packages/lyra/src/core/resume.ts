@@ -1,0 +1,128 @@
+/**
+ * Reading a run back out of its record (decisions 20, 23, 24).
+ *
+ * A resume is not a new run: it continues the conversation the record replayed,
+ * with the turns and tokens already spent counted, so a limit means the same thing
+ * across an interruption. Everything here is derived from the record and nothing is
+ * guessed: a record with no usable header is refused rather than given an invented
+ * run id, and an entry kind this build does not know is part of the chain but not
+ * the conversation.
+ *
+ * The record cannot say whether a killed tool ran, so the last assistant turn's
+ * calls that have no result after it are reported rather than assumed
+ * (`unansweredCalls`), and the loop decides what may be repeated (decision 24).
+ * A result can be missing even when a later call's result was saved, because a
+ * batch saves each answer as it arrives, which is why this looks at the whole tail
+ * and not only at the last entry.
+ */
+
+import type { AssistantMessageEntry, RecordEntry, StatusEntry } from "../record/entries.js";
+import { loadRecord, type LoadedRecord } from "../record/load.js";
+import { activePath, replayConversation } from "../record/replay.js";
+import type { ConversationMessage } from "./conversation.js";
+import type { ToolCall, Usage } from "./model.js";
+import { ok, type Result } from "./result.js";
+
+export interface ResumeSeed {
+	record: LoadedRecord;
+	/** The conversation to continue, exactly as the model last saw it. */
+	messages: ConversationMessage[];
+	/** The id of the last entry, which is what the next entry's `parent` is. */
+	parent: string | null;
+	/** Model turns already taken. */
+	turns: number;
+	/** What each reply reported, oldest first, so the totals survive a resume. */
+	usages: Usage[];
+	/** Active milliseconds already spent in closed segments of the run. */
+	activeMs: number;
+	/** The last status on the path. */
+	status: StatusEntry | undefined;
+	/** The last message-shaped entry on the path, which decides what happens next. */
+	last: RecordEntry | undefined;
+	/** Tool names the record already holds a call for, on the path. */
+	usedTools: ReadonlySet<string>;
+	/** Calls of the last assistant turn that have no result saved after it. */
+	unansweredCalls: ToolCall[];
+	/** The last tool result on the path passed the done-check (decision 25). */
+	finished: boolean;
+}
+
+export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
+	const loaded = loadRecord([...lines]);
+	if (!loaded.ok) {
+		return loaded;
+	}
+	const path = activePath(loaded.value.entries);
+
+	let turns = 0;
+	const usages: Usage[] = [];
+	let activeMs = 0;
+	let openSegment: number | undefined;
+	let status: StatusEntry | undefined;
+	let last: RecordEntry | undefined;
+	let assistant: { entry: AssistantMessageEntry; index: number } | undefined;
+	let lastTool: RecordEntry | undefined;
+	const usedTools = new Set<string>();
+
+	for (const [index, entry] of path.entries()) {
+		switch (entry.type) {
+			case "status":
+				status = entry;
+				if (entry.state === "running" || entry.state === "resumed") {
+					openSegment = entry.ts;
+				} else if (openSegment !== undefined) {
+					// A parked, done or failed segment is time the run did not spend working.
+					activeMs += Math.max(0, entry.ts - openSegment);
+					openSegment = undefined;
+				}
+				break;
+			case "assistant_message":
+				turns += 1;
+				usages.push(entry.usage);
+				for (const call of entry.toolCalls) {
+					usedTools.add(call.name);
+				}
+				assistant = { entry, index };
+				last = entry;
+				break;
+			case "user_message":
+			case "tool_message":
+				if (entry.type === "tool_message") {
+					lastTool = entry;
+				}
+				last = entry;
+				break;
+			case "fallback":
+			case "note":
+			case "unknown":
+				break;
+		}
+	}
+
+	const answeredAfter = new Set<string>();
+	if (assistant !== undefined) {
+		for (const [index, entry] of path.entries()) {
+			if (index > assistant.index && entry.type === "tool_message") {
+				answeredAfter.add(entry.toolCallId);
+			}
+		}
+	}
+	const unansweredCalls =
+		assistant === undefined
+			? []
+			: assistant.entry.toolCalls.filter((call) => !answeredAfter.has(call.id));
+
+	return ok({
+		record: loaded.value,
+		messages: replayConversation(loaded.value.entries),
+		parent: loaded.value.entries.at(-1)?.id ?? null,
+		turns,
+		usages,
+		activeMs,
+		status,
+		last,
+		usedTools,
+		unansweredCalls,
+		finished: lastTool?.type === "tool_message" && lastTool.done === true,
+	});
+}

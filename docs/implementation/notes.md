@@ -8,6 +8,35 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 6 (part one), 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** Step 2 is on
+`feat/step-02-limits-retries-resume`; slice 6 is half done: resume of a running record and the crash
+harness are in, and the recipe pin, the runtime and the wake are next.
+
+- **The record has to keep the done-check's answer, so a tool result gained `done: true`.** A kill
+  between an accepted `finish` and the closing `done` status leaves a record whose last entry is a
+  successful tool result, and nothing in the format said whether that result finished the job. Without it
+  a resume would ask the model for a turn it already gave, which is the one thing RSM01 rules out. The
+  entry is optional, so an older record still loads.
+- **A resume writes the task message when only the header landed.** A kill before the second append leaves
+  a header with no message; the resume has the job in its own config, so it writes it and continues. The
+  record then matches an uninterrupted run's from the first message. `run.ts` has to mark the record as
+  started before that write, which is exactly the bug this caught.
+- **`readResumeSeed` looks at the whole tail, not the last entry.** A batch saves each result as it
+  arrives, so a kill can leave a result for the second call and none for the first; the unanswered set is
+  computed against the last assistant turn and every result after it.
+- **The `RSM01` comparison is the conversation and results, not the status lines.** Where the kill lands
+  decides which status entries exist (a run killed before `running` has none), so comparing statuses
+  would test the kill point rather than the resume. The projection drops statuses and unknown-outcome
+  results, which is what the step document allows; the row says so.
+- **Kill points that are not "cut off mid-call" are tested too.** For a kill before the assistant turn is
+  saved there is nothing unanswered, and the resume simply makes the call for the first time; the
+  at-most-once rule is about calls the record knows about, so RSM02 separates the two cases.
+- **The size ceiling was raised to 52 KiB (decision 109).** The gate failed at 41.6 KiB with the step's
+  own work in it, splitting modules does not help because `budget` sums `dist/`, and the growth is not
+  padding. This is the one deliberate raise, and the commit says so.
+
 ## Step 2, slice 5, 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is

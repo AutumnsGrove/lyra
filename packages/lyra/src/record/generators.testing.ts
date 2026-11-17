@@ -134,12 +134,15 @@ function entryArbitrary(
 					isError: fc.boolean(),
 					content: text,
 					details: fc.option(jsonValueArbitrary(), { nil: undefined }),
+					done: fc.option(fc.constant(true), { nil: undefined }),
 				})
-				.map(({ details, ...rest }) =>
-					details === undefined
-						? { type: "tool_message" as const, ...base, ...rest }
-						: { type: "tool_message" as const, ...base, ...rest, details },
-				);
+				.map(({ details, done, ...rest }) => ({
+					type: "tool_message" as const,
+					...base,
+					...rest,
+					...(details === undefined ? {} : { details }),
+					...(done === true ? { done: true as const } : {}),
+				}));
 		case "status":
 			return fc
 				.record({
