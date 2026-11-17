@@ -92,7 +92,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status" | "note",
+	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -114,12 +114,19 @@ function entryArbitrary(
 					model: word,
 					usage: usageArbitrary(),
 					finishReason: fc.constantFrom(...FINISH_REASONS),
+					retries: fc.option(fc.nat({ max: 3 }), { nil: undefined }),
 				})
-				.map(({ reasoning, ...rest }) =>
-					reasoning === undefined
-						? { type: "assistant_message" as const, ...base, ...rest }
-						: { type: "assistant_message" as const, ...base, ...rest, reasoning },
-				);
+				.map(({ reasoning, retries, ...rest }) => {
+					const entry = { type: "assistant_message" as const, ...base, ...rest };
+					if (reasoning !== undefined) {
+						return {
+							...entry,
+							reasoning,
+							...(retries === undefined ? {} : { retries }),
+						};
+					}
+					return retries === undefined ? entry : { ...entry, retries };
+				});
 		case "tool":
 			return fc
 				.record({
@@ -150,13 +157,19 @@ function entryArbitrary(
 			return fc
 				.record({ kind: word, text })
 				.map((rest) => ({ type: "note" as const, ...base, ...rest }));
+		case "fallback":
+			return fc
+				.record({ from: word, to: word, reason: text })
+				.map((rest) => ({ type: "fallback" as const, ...base, ...rest }));
 	}
 }
 
 /** A whole valid record chain, in the order it would be saved. */
 export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 	return fc
-		.array(fc.constantFrom("user", "assistant", "tool", "status", "note"), { maxLength: 5 })
+		.array(fc.constantFrom("user", "assistant", "tool", "status", "note", "fallback"), {
+			maxLength: 5,
+		})
 		.chain((kinds) =>
 			kinds.length === 0
 				? fc.constant<RecordEntry[]>([])

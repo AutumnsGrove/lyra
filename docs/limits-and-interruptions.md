@@ -112,6 +112,25 @@ before the next request; a follow-up is read when the run would otherwise end.
 | STP04 | Happy: a follow-up is read at the end | A follow-up queued during a run is saved as a `user_message` labelled `follow_up` when the run would end on an accepted `finish` or on the model stopping without one, and the run continues; several are read in arrival order |
 | STP05 | Bad: text over the entry cap | A steer or a follow-up bigger than one entry is `bad_request`, nothing is queued, and the run is unaffected |
 
+## Rows (step 2, slice 4)
+
+A retryable model failure is tried again up to three times with growing delays
+(decision 26), and each wait is a floor under the error's own `retryAfterMs`. What
+is left after the retries is a fallback model if the recipe names one (decision
+58), and otherwise a park as `model_unavailable`, because an outage is a pause
+rather than a broken run. A non-retryable error is a bug, not an outage, so it
+still ends the run `failed`.
+
+| ID | Case | Expected |
+|---|---|---|
+| RTY01 | Happy: a retry succeeds | A retryable failure is tried again after the first delay and the turn finishes; the assistant entry records `retries: 1`, one `retry` event is emitted, and a retry is one step, not two |
+| RTY02 | Sad: the retries are exhausted | After three retries with delays of 1 s, 4 s and 16 s the run parks `model_unavailable`, the status detail names the last error, and no timer is left waiting |
+| RTY03 | Sad: the error is not retryable | Asked once, no retry event, no wait, and the run ends `failed` with that error |
+| RTY04 | Happy: the provider says when to come back | The wait is the larger of the default delay and `retryAfterMs`, and the fake clock moves by it |
+| RTY05 | Sad: a stop during the backoff | The wait is cancelled, the turn is not tried again, and the run parks `stopped` |
+| RTY06 | Happy: the fallback model | After the retries the run moves to the recipe's fallback, writes one `fallback` entry and event naming both models and the reason, and continues on it |
+| RTY07 | Sad: the fallback also fails | It gets the same retry policy and then the run parks `model_unavailable` |
+
 ## Not discussed yet
 
 - **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.

@@ -83,6 +83,10 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- A retryable model failure is retried three times with growing delays (1 s, 4 s, 16 s, with the
+  provider's own `retryAfterMs` as a floor), then the recipe's fallback model if it names one, and
+  otherwise the run parks `model_unavailable` instead of failing, so an outage is a pause. A
+  non-retryable error still ends the run `failed` (decisions 26, 58).
 - `createRun` returns a handle for a run in flight: `abort()` stops it (a second call does nothing),
   `steer(text)` redirects it at the next gap between steps, and `followUp(text)` is read where the run
   would otherwise end. Both texts are queued, never written on arrival, so a tool call and its result

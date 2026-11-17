@@ -16,8 +16,8 @@ import type { LyraError } from "./result.js";
 
 export type RunEndReason = "done" | "parked" | "failed";
 
-/** Why a run parked. A recipe change, approvals and model loss join in later slices (decision 84). */
-export type ParkedReason = "stopped" | "stuck" | "limit";
+/** Why a run parked. Approvals join in a later slice (decision 84). */
+export type ParkedReason = "stopped" | "stuck" | "limit" | "model_unavailable";
 
 interface EventBase {
 	/** The run this event belongs to. Constant for every event of a run. */
@@ -55,6 +55,13 @@ export type RunEvent =
 			cost?: Usage["cost"];
 	  })
 	| (EventBase & { type: "error"; error: LyraError })
+	/**
+	 * A retryable model failure, and how long the run will wait before trying that
+	 * turn again (decision 26).
+	 */
+	| (EventBase & { type: "retry"; attempt: number; delayMs: number; error: LyraError })
+	/** The run moved to another model after the first failed its retries (decision 58). */
+	| (EventBase & { type: "fallback"; from: string; to: string; reason: string })
 	| (EventBase & {
 			type: "run_end";
 			reason: RunEndReason;

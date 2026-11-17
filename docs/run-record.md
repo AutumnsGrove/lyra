@@ -33,6 +33,7 @@ Every entry has four fields: `type`, `id`, `parent`, and `ts` (the time). The he
 | message from the assistant | The model's text and its tool requests, plus the model, tokens, cost and its source, finish reason, time taken, and retries | Right after the model replies, before any tool runs |
 | message from a tool | The result: ok or error, what the model sees, and optional details for people | Right after the tool finishes |
 | status | running, parked (with its reason, and the detail that names which part of it), resumed, done, or failed | On every change |
+| fallback | The model the run moved to, the one that failed, and why (decision 58) | When the run moves |
 | note | Something worth saying that is not a turn, with a `kind` a reader skips if it does not know it. The first is `limit_unenforceable`, for a cost limit with no reported cost (decision 15) | When it happens |
 
 Other entry kinds are allowed. A reader skips kinds it does not know. A half-written or damaged last line is skipped and noted, never fatal (Nova does the same).

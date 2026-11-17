@@ -18,7 +18,7 @@ import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
-import type { ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
+import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool, ToolOutcome } from "./tool.js";
@@ -28,6 +28,7 @@ import {
 	encodeEntry,
 	encodeHeader,
 	type AssistantMessageEntry,
+	type FallbackEntry,
 	type NoteEntry,
 	type RecordEntry,
 	type StatusEntry,
@@ -40,6 +41,9 @@ export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
 
 /** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
 export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
+
+/** Three retries with growing delays, per decision 26; a healthy run never waits. */
+const RETRY_DELAYS_MS: readonly number[] = [1_000, 4_000, 16_000];
 
 /** The cap an entry has: the record's own, lowered to the storage's when that is smaller. */
 export function entryCapBytes(storage: StorageSlot, requested?: number): number {
@@ -82,6 +86,8 @@ export interface RunConfig {
 	ids: Ids;
 	/** The model a recipe names, when it names one. */
 	modelName?: string;
+	/** The model to move to when the first fails its retries (decision 58). */
+	fallbackModel?: string;
 	/** What the recipe allows before the run parks (decision 18, LIM01). */
 	limits?: Limits;
 	/** What the run's owner may steer or follow up with while it runs. */
@@ -237,6 +243,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let parent: string | null = null;
 	/** The clock time the run's latest `running` status was saved, for the time limit. */
 	let activeSince = clock.now();
+	/** The model the next request names: the recipe's, or the fallback once it moves. */
+	let modelName = config.modelName;
 	/** A cost limit the run cannot measure is noted once, not once per reply (LIM05). */
 	let costLimitNoted = false;
 
@@ -315,6 +323,20 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		return append(entry);
 	};
 
+	/** The record says which model took over and why, once per run (decision 58). */
+	const saveFallback = async (from: string, to: string, reason: string): Promise<number> => {
+		const entry: FallbackEntry = {
+			type: "fallback",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			from,
+			to,
+			reason,
+		};
+		return append(entry);
+	};
+
 	/** A steer or a follow-up, written where it can be read without breaking a pairing. */
 	const saveUserMessage = async (
 		label: "steer" | "follow_up",
@@ -371,33 +393,69 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		return seq;
 	};
 
-	type Answered = { ok: true; reply: ModelReply } | { ok: false; error: LyraError };
+	type Attempt = { ok: true; reply: ModelReply } | { ok: false; error: ModelError };
+	type Answered = Attempt & {
+		/** How many times this turn was tried again, which the record keeps (decision 26). */
+		retries: number;
+	};
 
 	/** Ask the model once. A slot that throws is a failed run, not a crash. */
-	const ask = async (): Promise<Answered> => {
+	const askOnce = async (): Promise<Attempt> => {
 		const request: ModelRequest = {
 			system: config.system,
 			messages: [...messages],
 			tools: config.tools.map((tool) => tool.spec),
 			signal,
 		};
-		if (config.modelName !== undefined) {
-			request.model = config.modelName;
+		if (modelName !== undefined) {
+			request.model = modelName;
 		}
-		turns += 1;
-		emit({ type: "turn_start", run: runId, ts: clock.now(), turn: turns });
 
 		try {
 			const answered = await config.model.complete(request);
 			if (!answered.ok) {
-				return {
-					ok: false,
-					error: { code: answered.error.code, message: answered.error.message },
-				};
+				return { ok: false, error: answered.error };
 			}
 			return { ok: true, reply: answered.value };
 		} catch (error) {
-			return { ok: false, error: { code: "internal", message: messageOf(error) } };
+			// A slot that throws is not worth retrying: it is a bug here, not an outage.
+			return {
+				ok: false,
+				error: { code: "internal", message: messageOf(error), retryable: false },
+			};
+		}
+	};
+
+	/**
+	 * Ask the model, trying again on a retryable failure (decision 26). The delays
+	 * grow, and the error's own `retryAfterMs` is a floor under them, because a
+	 * provider that says when to come back knows better. A stop cancels the wait.
+	 */
+	const ask = async (): Promise<Answered> => {
+		let retries = 0;
+		for (;;) {
+			const answered = await askOnce();
+			const delay = answered.ok ? undefined : RETRY_DELAYS_MS[retries];
+			if (answered.ok || !answered.error.retryable || delay === undefined) {
+				return { ...answered, retries };
+			}
+			const waitMs = Math.max(delay, answered.error.retryAfterMs ?? 0);
+			emit({
+				type: "retry",
+				run: runId,
+				ts: clock.now(),
+				attempt: retries + 1,
+				delayMs: waitMs,
+				error: answered.error,
+			});
+			retries += 1;
+			try {
+				await clock.sleep(waitMs, signal);
+			} catch {
+				// Stopped while waiting: the caller checks the signal before believing
+				// this error, so the run parks `stopped` rather than failing.
+				return { ...answered, retries };
+			}
 		}
 	};
 
@@ -442,6 +500,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				};
 			}
 
+			// A turn is one step, however many times it is retried.
+			turns += 1;
+			emit({ type: "turn_start", run: runId, ts: clock.now(), turn: turns });
+
 			const answered = await ask();
 			if (!answered.ok) {
 				// An abort during the request is a person stopping the run, not the
@@ -451,9 +513,36 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					return stoppedWhileAsking;
 				}
 				emit({ type: "error", run: runId, ts: clock.now(), error: answered.error });
+				// A non-retryable error is a bug rather than an outage, so it still
+				// ends the run `failed`; only an exhausted retryable one parks.
+				if (!answered.error.retryable) {
+					return {
+						reason: "failed",
+						error: answered.error,
+						usage: usageTotal.total(),
+						turns,
+					};
+				}
+				const fallback = config.fallbackModel;
+				if (fallback !== undefined && modelName !== fallback) {
+					const reason = `${answered.error.code}: ${answered.error.message.slice(0, 200)}`;
+					const from = modelName ?? "default";
+					await saveFallback(from, fallback, reason);
+					emit({
+						type: "fallback",
+						run: runId,
+						ts: clock.now(),
+						from,
+						to: fallback,
+						reason,
+					});
+					modelName = fallback;
+					continue;
+				}
 				return {
-					reason: "failed",
-					error: answered.error,
+					reason: "parked",
+					parkedReason: "model_unavailable",
+					parkedDetail: `${answered.error.code}: ${answered.error.message.slice(0, 200)}`,
 					usage: usageTotal.total(),
 					turns,
 				};
@@ -492,6 +581,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				usage: reply.usage,
 				finishReason: reply.finishReason,
 			};
+			if (answered.retries > 0) {
+				entry.retries = answered.retries;
+			}
 			if (reply.reasoning !== undefined) {
 				entry.reasoning = reply.reasoning;
 			}

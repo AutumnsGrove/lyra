@@ -8,6 +8,32 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 4, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is
+merged, step 2 is on `feat/step-02-limits-retries-resume` with slices 1 to 4 done, no pull request yet.
+
+- **A step is a turn, however many attempts it takes.** `turns` counts a model turn once, and the retries
+  live on the assistant entry (`retries`) and in `retry` events, so a step limit counts what a person
+  thinks of as steps. The retry loop sits inside one `ask`, not inside the step loop.
+- **Only a retryable error can reach the fallback.** A non-retryable one is a bug (a bad request, a bad
+  key) rather than an outage, so it still ends the run `failed` as step 1 did, and RTY03 keeps that
+  separate from the outage path. The fallback follows the retries, gets the same retry policy, and the
+  run stays on it, which is what decision 58 left open.
+- **A recipe that names no model gets `from: "default"`** in the fallback entry, because the record's
+  fields are names and there is no provider name to put there. A later step that always has a model name
+  can drop the placeholder.
+- **Three step-1 scripts had to change, and the changes say something.** LOOP07's model error became
+  non-retryable, because its row is about a failure that ends the run, not an outage. LOOP15's "broken"
+  run was the same. LOOP12's generator now makes only non-retryable failures: a random retryable one would
+  need 16 s of fake time for a third attempt, and its property harness only drives 10 s. The RTY rows own
+  the retry timing, on a clock they move by hand.
+- **LOOP15 timing out was the good kind of failure.** A scripted failure defaults to retryable, so a test
+  that awaited a failing run with no listener slept out three backoffs on the fake clock forever. It is
+  now explicit about being non-retryable, which is what that row was always testing.
+- **`retries` is optional in the record** rather than always present and zero, so an old record and a
+  record from a run that never retried encode the same way.
+
 ## Step 2, slice 3, 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is

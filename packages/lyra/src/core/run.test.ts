@@ -406,7 +406,9 @@ test("LOOP07 a model error ends the run failed once", async () => {
 		[
 			{
 				toolCalls: [{ id: "c1", name: "finish" }],
-				failures: [{ code: "provider_error", message: "the provider is down" }],
+				failures: [
+					{ code: "provider_error", message: "the provider is down", retryable: false },
+				],
 			},
 		],
 		() => [createFinishTool()],
@@ -977,7 +979,9 @@ test("LOOP15 no ending leaves a timer waiting, and a run with no listener still 
 	expect((await parked.run()).reason).toBe("parked");
 	expect(parked.clock.pending()).toBe(0);
 
-	const broken = harness([{ toolCalls: [], failures: [{}] }], () => [createFinishTool()]);
+	const broken = harness([{ toolCalls: [], failures: [{ retryable: false }] }], () => [
+		createFinishTool(),
+	]);
 	expect((await broken.run()).reason).toBe("failed");
 	expect(broken.clock.pending()).toBe(0);
 

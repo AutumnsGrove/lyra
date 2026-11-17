@@ -65,6 +65,8 @@ export interface AssistantMessageEntry extends EntryBase {
 	model: string;
 	usage: Usage;
 	finishReason: FinishReason;
+	/** How many times this turn was tried again after a retryable model failure (decision 26). */
+	retries?: number;
 	/** Set when this entry was cut to fit the cap; the text carries the marker too. */
 	truncated?: Truncation;
 }
@@ -89,6 +91,18 @@ export interface StatusEntry extends EntryBase {
 	reason?: string;
 	/** Which part of that reason: a limit's `steps`, `tokens`, `time` or `cost`. */
 	detail?: string;
+}
+
+/**
+ * The run moved to another model because the first failed after its retries
+ * (decision 58). Written where it happened, so the record says which model made
+ * which turn.
+ */
+export interface FallbackEntry extends EntryBase {
+	type: "fallback";
+	from: string;
+	to: string;
+	reason: string;
 }
 
 /**
@@ -117,6 +131,7 @@ export type RecordEntry =
 	| AssistantMessageEntry
 	| ToolMessageEntry
 	| StatusEntry
+	| FallbackEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -181,6 +196,9 @@ export function encodeEntry(entry: RecordEntry): string {
 			if (entry.reasoning !== undefined) {
 				line["reasoning"] = entry.reasoning;
 			}
+			if (entry.retries !== undefined) {
+				line["retries"] = entry.retries;
+			}
 			if (entry.truncated !== undefined) {
 				line["truncated"] = entry.truncated;
 			}
@@ -218,6 +236,14 @@ export function encodeEntry(entry: RecordEntry): string {
 				...base,
 				kind: entry.kind,
 				text: entry.text,
+			});
+		case "fallback":
+			return JSON.stringify({
+				type: entry.type,
+				...base,
+				from: entry.from,
+				to: entry.to,
+				reason: entry.reason,
 			});
 		case "unknown":
 			return entry.raw;
@@ -415,6 +441,13 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			if (!truncation.ok) {
 				return truncation;
 			}
+			const retries = value["retries"];
+			if (
+				retries !== undefined &&
+				(typeof retries !== "number" || !Number.isSafeInteger(retries) || retries < 0)
+			) {
+				return bad("an assistant_message entry has retries that are not a count");
+			}
 			const entry: AssistantMessageEntry = {
 				type,
 				...base,
@@ -426,6 +459,9 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			};
 			if (reasoning !== undefined) {
 				entry.reasoning = reasoning;
+			}
+			if (retries !== undefined) {
+				entry.retries = retries;
 			}
 			if (truncation.value !== undefined) {
 				entry.truncated = truncation.value;
@@ -494,6 +530,18 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				return bad("a note entry has no text");
 			}
 			return ok({ type, ...base, kind, text });
+		}
+		case "fallback": {
+			const from = value["from"];
+			const to = value["to"];
+			const reason = value["reason"];
+			if (!isName(from) || !isName(to)) {
+				return bad("a fallback entry does not name both models");
+			}
+			if (typeof reason !== "string") {
+				return bad("a fallback entry has no reason");
+			}
+			return ok({ type, ...base, from, to, reason });
 		}
 		default:
 			return ok({ type: "unknown", ...base, raw });
