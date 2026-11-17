@@ -13,17 +13,21 @@ Features are "powered by Lyra".
 
 ## Status
 
-**Planning.** The design is settled as far as the first slice, and nothing is built yet. This
-repository holds the planning record the design was written in, the gate it will be built under, and
-an empty core waiting for its first failing test. Version one, and the timeline job running on it, is
-the checkpoint (`docs/first-slice.md`).
+**Building.** Step 1 of the first slice is complete and merged: the core runs end to end against fakes,
+with the record, the memory adapter, the testkit and the scenario files. Step 2, limits, retries and
+resume, is in progress. Version one, and the timeline job running on it, is the checkpoint
+(`docs/first-slice.md`).
+
+A new session should read [`AGENTS.md`](AGENTS.md), then "Where the last session stopped" in
+[`docs/implementation/README.md`](docs/implementation/README.md), then `docs/implementation/notes.md`.
+Those three say exactly what is done, what is next, and what was chosen along the way.
 
 ## Where the design lives
 
 Read [`docs/overview.md`](docs/overview.md) first. It is the front door: what Lyra is, how the pieces
 fit, in plain words, with a pointer to each detail.
 
-[`docs/decisions.md`](docs/decisions.md) has all 103 decisions with their reasons. Check it before
+[`docs/decisions.md`](docs/decisions.md) has all 108 decisions with their reasons. Check it before
 reversing something that looks odd.
 
 | Document                                                          | What it holds                                                 |
@@ -54,8 +58,8 @@ pnpm test       # the fast loop
 pnpm run ci     # the full gate: the definition of done
 ```
 
-There is nothing to run yet. The first real command, `pnpm lyra start`, arrives with the protocol in
-step 6. [`AGENTS.md`](AGENTS.md) has the rules for changing anything here, and `.github/workflows/ci.yml`
+There is no command to run yet: the first one, `pnpm lyra start`, arrives with the protocol in step 6.
+Until then the library is used from TypeScript, and `scenarios/` is how a run is tried by hand. [`AGENTS.md`](AGENTS.md) has the rules for changing anything here, and `.github/workflows/ci.yml`
 runs the same gate.
 
 ## Repository layout
@@ -82,7 +86,7 @@ The plan lived in Lattice while it was being written, and moved here once the sc
 #1695 in [AutumnsGrove/Lattice](https://github.com/AutumnsGrove/Lattice)). The issues stay there:
 
 - [#1605](https://github.com/AutumnsGrove/Lattice/issues/1605): the design issue, with a design-update comment
-- [#1693](https://github.com/AutumnsGrove/Lattice/issues/1693): the Lumen changes that block step 0
+- [#1693](https://github.com/AutumnsGrove/Lattice/issues/1693): the Lumen changes for the Model slot, landed 2026-11-17
 - [#1687](https://github.com/AutumnsGrove/Lattice/issues/1687): the timeline vine page change, separate from Lyra
 - [#1684](https://github.com/AutumnsGrove/Lattice/issues/1684): HawkAgent, the second consumer
 

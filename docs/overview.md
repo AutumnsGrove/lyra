@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-17. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 105 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-17. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 108 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -156,7 +156,7 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 105 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 108 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |

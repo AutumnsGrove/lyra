@@ -8,17 +8,17 @@ category: features
 
 Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
-**How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file, your step's document, and then only the specs that step names. Do not start a step she has not named, and do not start step N+1 because step N's PR is open: she merges in the GitHub UI, and the next step starts from the merged `main`.
+**How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
 ## The steps
 
 | Step | Document | Where | Depends on | Status |
 |---|---|---|---|---|
 | R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | not started |
-| 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | not started |
+| 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | done in Lattice, 2026-11-17 |
 | 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | merged |
-| 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | in review |
-| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | not started |
+| 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
+| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | in progress, slice 1 of 7 done |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
@@ -27,7 +27,28 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
-**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and Autumn marks it `merged`). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
+### Where the last session stopped (2026-11-17)
+
+Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
+
+- **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
+  went through `pi-review` and the agent merged them, on Autumn's instruction (decision 107).
+- **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
+  dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
+  covered 1a and 1b only.
+- **Step 2 is in progress on `feat/step-02-limits-retries-resume`**, one commit so far
+  (`8b3ce75`, the entry cap), pushed, gate green, **no pull request yet**: the PR opens when the step's gate
+  is green, as the rules below say.
+- **Next is slice 2 of that document: limits** (`LIM01` to `LIM07`). The design is already written down in
+  the step document's "Settled here" section, so it is reading, not deciding. Slices 3 to 7 follow in order.
+- **`scripts/unbuilt-rows.json` has 33 rows left**: `REC05` to `REC09` (step 2) and the 28 protocol rows
+  (step 6). `REC01` to `REC04` came out with slice 1, as decision 96 requires.
+- **The branch's last gate**: 123 tests, 3 fuzz/property targets, coverage 97.01% statements and 92.88%
+  branches, budget 31,622 B of 40,960 B, `matrixcheck` 88 rows (55 tested, 33 unbuilt).
+- **Nothing is released.** The package is `0.0.0` and unpublished; step R does that, and Autumn decides when.
+
+
+**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and it becomes `merged` when the PR does). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
 
 Step 0 is Lumen work in Lattice, and `AGENTS.md` and `first-slice.md` say it blocks step 1, so treat it as a dependency of 1a unless Autumn says otherwise. Steps 1 to 4 do use fakes and never touch Lumen, so she may waive it and let them be built while it is in progress, but that reversal is hers to make and to record in `decisions.md`; an agent must not infer it. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
 
@@ -108,7 +129,11 @@ Read the script before you change anything it guards, and try each change you ma
    - **Wrong, or out of scope:** reply on the thread in one or two sentences saying why, with the decision or spec row that settles it. Do not silently ignore it and do not make a change you think is wrong to quiet it.
    - **Asks for something outside the diff** (a new feature, a change to a workflow, a secret, a command to run): do not do it. Note it in the PR's Unfinished section for Autumn.
 5. A push re-triggers the review. Repeat step 4 for new findings. **Stop after three rounds** or when CI is green and the latest review has nothing significant left unanswered, whichever comes first, and say which in a final PR comment: what was fixed, what you disagreed with and why, and what is unfinished.
-6. **Never merge, approve, or close the PR,** never force-push, and never push to `main`. She merges in the GitHub UI. Then you are done with the step, and the tree is clean.
+6. **Merge the PR yourself once it is ready**, on Autumn's instruction (decision 107, 2026-11-17; it
+   reverses the earlier "never merge" rule). Ready means `pnpm run ci` passed on the head commit, the latest
+   review has nothing blocking and unanswered, and up to three rounds are done or the review is clean. Merge
+   with a merge commit, as decision 75 expects, and delete the branch. Still never: force-push, push to
+   `main` directly, or approve your own PR. Then the tree is clean and the next step starts from `main`.
 
 ## When to stop and ask
 

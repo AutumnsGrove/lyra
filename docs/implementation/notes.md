@@ -10,7 +10,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 Nothing has been built yet.
 
-## Step 2, 2026-11-17
+## Step 2, slice 1, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** In short: step 1 is merged,
+step 2 is on `feat/step-02-limits-retries-resume` at `8b3ce75` with only slice 1 done, no pull request yet, and
+slice 2 (limits, `LIM01` to `LIM07`) is next, with its design already in the step document.
+
+- **`MessageLabel` already allows `reminder`.** Slice 5 needs it for the stuck safeguard's nudge, and it is a
+  union member with no writer yet, so a reader of the record may find one before anything writes one. It is
+  here rather than removed so slice 5 does not have to change the format twice.
 
 - **Lumen is finished in Lattice**, so step 5's Lumen half has its dependency; it still needs a published
   Lyra, which step R provides.
