@@ -12,6 +12,18 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **`null` is a wrong type, not a missing field.** `decodeReply` reads an absent token count as zero,
+  and a `null` one as a `bad_request`. The tidier-looking `value.x ?? 0` quietly made them the same
+  thing and MOD05 caught it. The rule that fell out: only `undefined` is missing; anything else
+  present has to be the right type, because a provider that sends `null` is telling us something we
+  do not model, and a count that became zero would hide it.
+- **fast-check 4.10.2, pinned, at the workspace root.** The property and fuzz targets import it from
+  `packages/lyra/src`, which resolves through the root `node_modules`; `importcheck` accepts it because
+  the root's `devDependencies` count as test-only tooling and no production file may import it
+  (decision 105).
+
+## Step 1a, 2026-11-17
+
 - **Step 0 is waived for 1a**, on Autumn's answer to the question in this session. Recorded as decision 104, because the reversal is hers and the record should say so.
 - **The web platform is declared, not imported.** `tsconfig.json` builds with `lib: ["ES2023"]` and `types: []`, so `AbortSignal`, `crypto`, `setTimeout` and `TextEncoder` do not exist at all. Rather than add `DOM` to `lib` (which would also let `document` and `window` typecheck in code that has to run on Workers), `src/platform.d.ts` declares exactly the surface the core may use, with only the members it calls. Adding to that file is now a deliberate act, and a missing name fails the typecheck. Step 5 will need an answer for `fetch` in the adapters: either the same file grows, or `lib` gains `DOM` for the whole package.
 - **The banned-globals rule counts comments.** `importcheck` scans the raw source, so a comment that mentions `setTimeout` fails the build. That is stricter than it needs to be, and it is on purpose: the message is what teaches the rule, and a file discussing a timer is usually a file about to set one. A declaration file is skipped, because declaring a global emits no code.

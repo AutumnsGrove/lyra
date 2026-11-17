@@ -11,6 +11,7 @@
 
 export * from "./core/clock.js";
 export * from "./core/conversation.js";
+export * from "./core/decode-reply.js";
 export * from "./core/json.js";
 export * from "./core/model.js";
 export * from "./core/result.js";
