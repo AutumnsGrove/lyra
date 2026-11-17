@@ -42,6 +42,10 @@ new API and any breaking change, and a patch bump is fixes only.
   run that need not outlive the process. Storage has one shared contract
   (`src/testing/storage.contract.testing.ts`) that every adapter runs, so the Cloudflare adapter in
   step 4 is held to the same cases (decision 12).
+- `@autumnsgrove/lyra/testkit`: a fake clock a test advances instead of waiting, a scripted model that
+  answers by conversation position and can fail on purpose, storage that fails on the nth append, and
+  tools made from data (`finish` among them). Every later step's tests are written with it, and it is
+  published because Lattice and other projects use it too (decision 69).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

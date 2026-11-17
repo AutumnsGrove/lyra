@@ -289,3 +289,23 @@ Every step in `first-slice.md` already ends with a "done when" test. This docume
 - [Cloudflare changelog: Durable Object eviction test helpers](https://developers.cloudflare.com/changelog/post/2026-06-25-durable-object-eviction-test-helpers/)
 - [fast-check with Vitest](https://fast-check.dev/docs/tutorials/setting-up-your-test-environment/property-based-testing-with-vitest/)
 - [Jazzer.js to Vitiate migration guide](https://vitiate.js.org/guides/migrating-from-jazzerjs/)
+
+## Spec rows: the testkit
+
+Every later step stands on the testkit: the fake clock a test drives instead of
+waiting, the scripted model a run is fed, the storage that fails on the nth
+write, and the tools a script names. It is published as `./testkit` because
+Lattice and other projects use it too, and it gets the same strict treatment as
+the core (it counts toward the coverage floor as well).
+
+It is test support, so it may import the core and the memory adapter and
+nothing else, and no production file in the core may import it.
+
+| ID | Case | Expected |
+|---|---|---|
+| KIT01 | Happy: the fake clock | Time moves only when a test advances it, a sleep resolves when time passes its deadline and not before, an aborted sleep rejects, and a resolved sleep leaves nothing pending |
+| KIT02 | Happy: the scripted model | The reply comes from the turn matching the number of assistant messages already in the request, so a re-asked request gets the same answer, and every request is recorded |
+| KIT03 | Sad: delays, failures and the end of the script | A delay waits on the fake clock and aborts with the run, a turn's failures are returned in order before it succeeds, and a script with no turn left returns a loud non-retryable error instead of looping |
+| KIT04 | Bad: storage that fails | Exactly the chosen append fails, nothing is stored for it, and every other append and read behaves as the wrapped adapter does |
+| KIT05 | Bad: a leaked timer | The clock reports what is still pending, so a test can fail on a timer that was never resolved or cancelled |
+| KIT06 | Happy: the scripted tools | A tool made from data answers as its name says (a result, an error result, a throw), a slow one finishes only when the clock is advanced, and `finish` returns `done` |

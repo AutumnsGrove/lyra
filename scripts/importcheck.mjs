@@ -40,6 +40,13 @@ const ENTRY_POINTS = [
 		// directory is always allowed.
 		allows: ["src/core"],
 	},
+	{
+		name: "testkit",
+		dir: "src/testkit",
+		// Test support may stand on the contract and on the in-memory adapter, so a
+		// scripted run needs no host.
+		allows: ["src/core", "src/adapters/memory"],
+	},
 ];
 
 /**

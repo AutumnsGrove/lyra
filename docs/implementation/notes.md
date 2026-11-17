@@ -12,6 +12,22 @@ Nothing has been built yet.
 
 ## Step 1a, 2026-11-17
 
+- **The fake clock resolves nothing without an `advance`, except a zero delay.** `sleep(0)` resolves on
+  the next microtask instead of waiting to be advanced, because a script that says `delayMs: 0` should
+  not need a clock tick nobody wrote. Everything longer waits for `advance`, which is what makes the
+  deadline rows in step 1b (a tool that outsays its deadline) a matter of moving the clock rather than
+  waiting 5 minutes.
+- **The scripted model lets an abort reject, rather than answering with an error result.** A real
+  adapter's `fetch` rejects when the signal fires, so the fake does the same, and the loop is written
+  to survive a slot that throws on abort (LOOP06). If it answered `{ ok: false }` instead, the abort
+  path would look calmer than reality.
+- **`failingStorage` never calls the wrapped adapter on the failing append.** That is what makes "a
+  save fails" mean what decision 20 says: nothing is written, so there is no half-record to reason
+  about.
+- **Two testkit exports were cut before they landed**: a read-only storage and an "empty read" helper,
+  both unused, both out of step 1a's scope. The rule is the project's own: do not add a module or an
+  entry point before its first test needs it.
+
 - **The storage contract is a `.testing.ts` file that registers cases**, so `matrixcheck` now reads
   test titles from those files too. Without that, the STO rows would look untested while the cases ran
   in every adapter. The alternative was naming the file `*.test.ts`, which Vitest would then run as a
