@@ -18,7 +18,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | done in Lattice, 2026-11-17 |
 | 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | merged |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
-| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | in review |
+| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
@@ -36,16 +36,19 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
   dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
   covered 1a and 1b only.
-- **Step 2 is complete on `feat/step-02-limits-retries-resume`**, all seven slices, with its pull request
-  open for review. It added the entry cap, limits, stop/steer/follow-up, retries with a fallback, the
-  stuck safeguard, resume with the recipe pin and the runtime, and waking. **Next is step 3**, from a
-  `main` that has step 2 merged: recipes and tools, including the small JSON Schema validator.
+- **Step 2 is merged**, as pull request #6 and the merge commit `d278c82`, after two review rounds (the
+  first found a stale finish flag and an uncounted truncated field, both fixed test-first). It added the
+  entry cap, limits, stop/steer/follow-up, retries with a fallback, the stuck safeguard, resume with the
+  recipe pin and the runtime, and waking.
+- **Next is step 3**, [`03-recipes-and-tools.md`](03-recipes-and-tools.md), from this `main`: recipes and
+  tools, including the small JSON Schema validator for tool arguments. It is the step that grows
+  `RunDefinition` from what step 2 needed into the full recipe.
 - **`scripts/unbuilt-rows.json` has 33 rows left**: `REC05` to `REC09` (step 2) and the 28 protocol rows
   (step 6). `REC01` to `REC04` came out with slice 1, as decision 96 requires.
-- **The branch's last gate** (on `08d26a8`): 183 tests, 3 fuzz/property targets, coverage 96.43%
-  statements and 91.72% branches, budget 47,080 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28
-  unbuilt). The ceiling was raised from 40 to 52 KiB at slice 6 (decision 109) because the step's own
-  work passed 40, and nothing in it is padding.
+- **`main`'s gate** (on `d278c82`): 185 tests, 3 fuzz/property targets, coverage 96.56% statements
+  and 91.79% branches, budget 47,278 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28 unbuilt). The
+  ceiling was raised from 40 to 52 KiB during step 2 (decision 109) because the step's own work passed
+  40, and nothing in it is padding.
 - **Nothing is released.** The package is `0.0.0` and unpublished; step R does that, and Autumn decides when.
 
 
