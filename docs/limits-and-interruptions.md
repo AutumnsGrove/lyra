@@ -162,6 +162,7 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 | RSM02 | Sad: a tool that changes something | An unsafe call killed anywhere runs at most once across the original and the resume, and where its result was lost the model is told the outcome is unknown |
 | RSM03 | Happy: who may resume what | A wake leaves a person's stop alone and writes nothing, a person continues it; a wake on a run this process is driving joins that run instead of starting a rival; and two alarms for the same dead run resume it once, with one `resumed` status |
 | RSM04 | Bad: a record that cannot be used | A record that does not exist is `not_found`, one with no usable header fails the resume with `internal` and never throws, and a damaged last line is noted and skipped so the run continues |
+| RSM05 | Property: any script, killed anywhere | For any generated script of safe calls, any append and either side of it, the resume ends `done`, the record loads, each segment that ends has exactly one `run_end` and nothing after it, and the conversation equals the uninterrupted run's |
 | RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
 
 ## Not discussed yet

@@ -1055,15 +1055,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					usageTotal.add(usage);
 				}
 				messages.push(...seed.messages);
-				if (seed.messages.length === 0) {
-					// The kill landed after the header and before the task message, so the
-					// resume writes the job the caller is asking for.
-					await append(first);
-					messages.push({ role: "user", text: first.text });
-				}
 				turns = seed.turns;
 				parent = seed.parent;
 				closedActiveMs = seed.activeMs;
+				if (seed.messages.length === 0) {
+					// The kill landed after the header and before the task message, so the
+					// resume writes the job the caller is asking for. This comes after the
+					// seed sets `parent`, or the write would leave the message orphaned.
+					await append(first);
+					messages.push({ role: "user", text: first.text });
+				}
 
 				const recorded = recordedOutcome(seed, config.resume.by);
 				const current =

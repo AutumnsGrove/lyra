@@ -1,7 +1,9 @@
+import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage, type MemoryStorage } from "../adapters/memory/index.js";
 import { loadRecord } from "../record/load.js";
+import { replayConversation } from "../record/replay.js";
 import type { RecordEntry } from "../record/entries.js";
 import {
 	crashingStorage,
@@ -79,6 +81,7 @@ async function dieAt(
 async function resume(
 	harness: CrashHarness,
 	lines: string[],
+	onEvent?: RunConfig["onEvent"],
 ): Promise<Awaited<ReturnType<typeof runTask>>> {
 	return runTask({
 		...harness.setup,
@@ -86,6 +89,7 @@ async function resume(
 		model: scriptedModel(harness.turns, { clock: harness.clock }),
 		storage: harness.inner,
 		resume: { lines, by: "person" },
+		...(onEvent === undefined ? {} : { onEvent }),
 	});
 }
 
@@ -262,4 +266,63 @@ test("RSM04 a broken record fails the resume with a reason and never throws", as
 	const damaged = [...good.lines.slice(0, -1), '{"type":"status","id":"e1"'];
 	const afterDamage = await resume(good.harness, damaged);
 	expect(afterDamage.reason).toBe("done");
+});
+
+/** A short script of safe calls ending in a finish, which is what a resume may repeat. */
+const resumableScript = fc.array(fc.constantFrom("read", "look"), { maxLength: 3 }).map((names) => [
+	...names.map((name, index) => ({
+		toolCalls: [{ id: `c${index}`, name, args: {} }],
+	})),
+	{ toolCalls: [{ id: `c${names.length}`, name: "finish" }] },
+]);
+
+test("RSM05 property: killed anywhere, any script, the resume matches the whole run", async () => {
+	await fc.assert(
+		fc.asyncProperty(resumableScript, async (turns) => {
+			const makeTools = (): Tool[] => [readTool("read"), readTool("look"), safeFinish()];
+
+			const whole = crashHarness(turns, makeTools);
+			const uninterrupted = await runTask({
+				...whole.setup,
+				model: scriptedModel(turns, { clock: whole.clock }),
+				storage: whole.inner,
+			});
+			expect(uninterrupted.reason).toBe("done");
+			const readWhole = await whole.inner.read();
+			expect(readWhole.ok).toBe(true);
+			const wholeLines = readWhole.ok ? readWhole.value : [];
+			const conversation = JSON.stringify(replayConversation(entriesOf(wholeLines)));
+
+			for (let at = 2; at <= wholeLines.length; at += 1) {
+				for (const when of ["before", "after"] as const) {
+					const harness = crashHarness(turns, makeTools);
+					const lines = await dieAt(harness, at, when);
+
+					const events: string[] = [];
+					const handle = await resume(harness, lines, (event) => {
+						events.push(event.type);
+					});
+					expect({ at, when, reason: handle.reason }).toEqual({
+						at,
+						when,
+						reason: "done",
+					});
+
+					const read = await harness.inner.read();
+					expect(read.ok).toBe(true);
+					const after = read.ok ? read.value : [];
+					// The record still loads, and the conversation the model would see is
+					// the one the uninterrupted run ended with.
+					const loaded = loadRecord(after);
+					expect(loaded.ok).toBe(true);
+					expect(JSON.stringify(replayConversation(entriesOf(after)))).toBe(conversation);
+
+					// Each segment that ends says so exactly once.
+					expect(events.filter((type) => type === "run_end")).toHaveLength(1);
+					expect(events.at(-1)).toBe("run_end");
+				}
+			}
+		}),
+		{ numRuns: 15 },
+	);
 });
