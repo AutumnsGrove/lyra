@@ -139,6 +139,8 @@ test("RSM03 a wake on a live run does nothing, and joins the run it found", asyn
 	});
 	await until(() => harness.model.requests.length === 1);
 	expect(harness.model.requests).toHaveLength(1);
+	// The registry is what a wake consults, and this run is in it.
+	expect(harness.runtime.active("run-1")).toBe(handle);
 
 	const woken = await harness.runtime.wake({
 		runId: "run-1",
