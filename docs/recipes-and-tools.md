@@ -123,7 +123,8 @@ saved results rebuilds it exactly.
 means (decision 25). `createFinishTool({ check })` asks the recipe's `check(state, skipped)`; a refusal is an
 ordinary error result carrying the message, so the model goes back to work, and repeated refusals count
 toward the same-failure total and park the run as stuck. `coverageCheck` builds the message that names what
-is missing, and `skipped` records what the recipe agreed to leave out, each with a reason.
+is missing, sorted and capped, and `skipped` records what the recipe agreed to leave out, each with a
+reason. The message reads `not covered yet: 4 issues (i3, i7, i9, i12)`.
 
 | ID | Case | Expected |
 |---|---|---|

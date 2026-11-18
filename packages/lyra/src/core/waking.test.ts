@@ -11,7 +11,8 @@ import {
 	toolTakingTime,
 	type ScriptedTurn,
 } from "../testkit/index.js";
-import { createRuntime } from "./runtime.js";
+import { createRuntime, type Runtime } from "./runtime.js";
+import type { RunHandle } from "./run-handle.js";
 import { drive, until } from "./run-harness.testing.js";
 
 /** The rows are in `docs/adapters.md`, the Waking slot's own table. */
@@ -23,6 +24,14 @@ const turns: ScriptedTurn[] = [
 
 function tools(clock: ReturnType<typeof fakeClock>) {
 	return [toolTakingTime("slow", 5_000, clock), createFinishTool()];
+}
+
+/** A start that the recipe's own input schema accepted. */
+function started(result: ReturnType<Runtime["start"]>): RunHandle {
+	if (!result.ok) {
+		throw new Error(`the run did not start: ${result.error.message}`);
+	}
+	return result.value;
 }
 
 test("WAK01 a wake is set as a step begins, re-armed, and cancelled when the run ends", async () => {
@@ -38,17 +47,19 @@ test("WAK01 a wake is set as a step begins, re-armed, and cancelled when the run
 		waking: waking.slot,
 	});
 
-	const handle = runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: {
-			name: "timeline",
-			version: 1,
-			instructions: "you are a test",
-			tools: tools(clock),
-		},
-	});
+	const handle = started(
+		runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: {
+				name: "timeline",
+				version: 1,
+				instructions: "you are a test",
+				tools: tools(clock),
+			},
+		}),
+	);
 	await until(() => waking.scheduled().length === 1);
 	const first = waking.scheduled()[0];
 	expect(first?.runId).toBe("run-1");
@@ -68,27 +79,29 @@ test("WAK02 an alarm that fires for a dead run resumes it", async () => {
 
 	// A host that dies while saving the first tool's result, with its alarm set.
 	const dying = crashingStorage(inner, { at: 5, when: "before" });
-	createRuntime({
-		storage: dying,
-		clock,
-		ids: counterIds(),
-		model: scriptedModel(turns, { clock }),
-		host: "first-host",
-		waking: waking.slot,
-	}).start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: {
-			name: "timeline",
-			version: 1,
-			instructions: "you are a test",
-			tools: [
-				toolReturning("slow", "the content", { safeToRepeat: true }),
-				createFinishTool(),
-			],
-		},
-	});
+	void started(
+		createRuntime({
+			storage: dying,
+			clock,
+			ids: counterIds(),
+			model: scriptedModel(turns, { clock }),
+			host: "first-host",
+			waking: waking.slot,
+		}).start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: {
+				name: "timeline",
+				version: 1,
+				instructions: "you are a test",
+				tools: [
+					toolReturning("slow", "the content", { safeToRepeat: true }),
+					createFinishTool(),
+				],
+			},
+		}),
+	);
 	await until(() => dying.appends() >= 5);
 
 	// The alarm is what a host sees when the process is gone, so it is what it fires.

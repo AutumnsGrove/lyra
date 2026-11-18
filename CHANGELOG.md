@@ -112,6 +112,13 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- `finish` with a done-check: `createFinishTool({ check })` takes the recipe's own answer, a refusal is
+  an error result the model works from, and `coverageCheck` says `not covered yet: 4 issues (…)`,
+  sorted and capped. A skip needs a reason. Repeated refusals park the run as stuck (decision 115).
+- `defineRecipe`, which checks a task's input schema, its unique tool names, their schemas, and that a
+  tool called `finish` really has a done-check, refusing a broken recipe at module load instead of on a
+  person's first day. `runtime.start` validates a task's input against the recipe and returns
+  `bad_request` instead of starting a run that cannot work, so `start` now returns a `Result`.
 - `createHandleTable`: short handles (`c1`, `pr12`, `i34`) that the model cites instead of a commit
   hash or a link, with a deterministic, idempotent mint per kind, a resolve back to the real value,
   and a capped listing for the error an unknown handle gets. It lives in a recipe's state, so replay

@@ -15,6 +15,9 @@
  * the alarm back to `wake`, so the same run is never driven twice.
  */
 
+import type { Recipe } from "./define-recipe.js";
+import type { JsonValue } from "./json.js";
+import { compileSchema, formatErrors, validateValue } from "./schema.js";
 import type { LoadedRecord } from "../record/load.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
@@ -27,16 +30,11 @@ import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
 import type { StorageSlot, WakingSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
 
-/** The minimal recipe this step needs. Step 3 grows it (decision 5). */
-export interface RunDefinition {
-	name: string;
-	version: number;
-	instructions: string;
-	tools: readonly Tool[];
-	limits?: Limits;
-	fallbackModel?: string;
-	stuck?: StuckSettings;
-}
+/**
+ * The recipe a runtime runs. Step 2's minimal shape is this with `input` and
+ * `setup` absent, which is a plain run that takes a text input (decision 5).
+ */
+export type RunDefinition = Recipe;
 
 export interface RuntimeOptions {
 	storage: StorageSlot;
@@ -59,7 +57,8 @@ export interface RuntimeOptions {
 export interface StartRequest {
 	runId: string;
 	task: string;
-	input: string;
+	/** The task's input, checked against the recipe's own schema before a run begins. */
+	input: JsonValue;
 	definition: RunDefinition;
 }
 
@@ -75,8 +74,11 @@ export interface ResumeRequest {
 }
 
 export interface Runtime {
-	/** Begin a run, and hand back the handle a person steers. */
-	start(request: StartRequest): RunHandle;
+	/**
+	 * Begin a run, and hand back the handle a person steers. An input the recipe's
+	 * schema refuses is `bad_request`, and nothing is written (RCP05).
+	 */
+	start(request: StartRequest): Result<RunHandle>;
 	/** Continue a run from its record. Refused with `not_found` when there is none. */
 	resume(request: ResumeRequest): Promise<Result<RunHandle>>;
 	/** The host's alarm, which is a resume that may not overrule a person. */
@@ -152,6 +154,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			clock: options.clock,
 			ids: options.ids,
 			recipe: { name: definition.name, version: definition.version },
+			...(definition.setup === undefined ? {} : { setup: definition.setup }),
 			...((request.limits ?? definition.limits) === undefined
 				? {}
 				: { limits: request.limits ?? definition.limits }),
@@ -211,11 +214,22 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
 		start(request) {
 			const definition = request.definition;
+			if (definition.input !== undefined) {
+				const checked = validateValue(
+					compileSchema(definition.input, "input"),
+					request.input,
+					"input",
+				);
+				if (!checked.ok) {
+					return fail("bad_request", formatErrors(checked.errors, "invalid input"));
+				}
+			}
 			const setup: RunSetup = {
 				runId: request.runId,
 				task: request.task,
 				host: options.host,
-				input: request.input,
+				input: definition.setup === undefined ? String(request.input) : "",
+				inputValue: request.input,
 				system: definition.instructions,
 				tools: definition.tools,
 				model: options.model,
@@ -223,6 +237,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				clock: options.clock,
 				ids: options.ids,
 				recipe: { name: definition.name, version: definition.version },
+				...(definition.setup === undefined ? {} : { setup: definition.setup }),
 				...(definition.limits === undefined ? {} : { limits: definition.limits }),
 				...(definition.fallbackModel === undefined
 					? {}
@@ -233,7 +248,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			const handle = createRun(setup);
 			track(request.runId, handle);
 			armsWake(request.runId, handle);
-			return handle;
+			return ok(handle);
 		},
 
 		resume,

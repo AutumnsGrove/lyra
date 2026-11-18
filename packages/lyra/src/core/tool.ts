@@ -65,6 +65,11 @@ export interface Tool {
 	 * a successful execute, and again for every saved result on a resume.
 	 */
 	apply?(state: unknown, args: unknown, outcome: ToolOutcome): unknown;
+	/**
+	 * Set by `createFinishTool`, so `defineRecipe` can tell a real done-check from a
+	 * tool that merely borrowed the name (RCP04).
+	 */
+	finish?: true;
 }
 
 /** A tool with no parameters, which is the shape `finish` and the fakes have. */

@@ -569,15 +569,16 @@ function exceedsDepth(value: unknown): boolean {
 export function validateValue<T = JsonValue>(
 	schema: CompiledSchema,
 	value: unknown,
+	path = "arguments",
 ): Validation<T> {
 	if (exceedsDepth(value)) {
 		return {
 			ok: false,
-			errors: [`arguments: nested deeper than ${MAX_VALUE_DEPTH} levels`],
+			errors: [`${path}: nested deeper than ${MAX_VALUE_DEPTH} levels`],
 		};
 	}
 	const errors: string[] = [];
-	validateAt(schema, value, "arguments", errors);
+	validateAt(schema, value, path, errors);
 	if (errors.length > 0) {
 		return { ok: false, errors };
 	}
@@ -587,8 +588,8 @@ export function validateValue<T = JsonValue>(
 }
 
 /** The message the model reads: stable, specific, and never longer than the cap. */
-export function formatErrors(errors: readonly string[]): string {
-	const text = `invalid arguments: ${errors.join("; ")}`;
+export function formatErrors(errors: readonly string[], prefix = "invalid arguments"): string {
+	const text = `${prefix}: ${errors.join("; ")}`;
 	if (text.length <= MAX_MESSAGE_LENGTH) {
 		return text;
 	}

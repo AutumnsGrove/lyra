@@ -35,19 +35,6 @@
 	},
 	"docs/recipes-and-tools.md": {
 		"step": 3,
-		"rows": [
-			"FIN01",
-			"FIN02",
-			"FIN03",
-			"FIN04",
-			"FIN05",
-			"FIN06",
-			"RCP01",
-			"RCP02",
-			"RCP03",
-			"RCP04",
-			"RCP05",
-			"RCP06"
-		]
+		"rows": []
 	}
 }
