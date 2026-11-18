@@ -2,7 +2,7 @@ import fc from "fast-check";
 
 import type { JsonObject, JsonValue } from "../core/json.js";
 import type { FinishReason, ToolCall, Usage } from "../core/model.js";
-import type { MessageLabel, RecordEntry, RecordHeader, RunState } from "./entries.js";
+import type { MessageLabel, RecipeStamp, RecordEntry, RecordHeader, RunState } from "./entries.js";
 
 /**
  * Generators for the record's property and fuzz tests (RCD06 and RCD07 in
@@ -68,6 +68,28 @@ const toolCallsArbitrary = (index: number): fc.Arbitrary<ToolCall[]> =>
 		.array(fc.record({ name: word, arguments: fc.string({ maxLength: 20 }) }), { maxLength: 3 })
 		.map((calls) => calls.map((call, position) => ({ id: `e${index}c${position}`, ...call })));
 
+/** One recipe pin, with the fields step 2 added either present or absent. */
+export function stampArbitrary(): fc.Arbitrary<RecipeStamp> {
+	return fc
+		.record({
+			name: word,
+			version: fc.nat({ max: 99 }),
+			toolSetHash: fc.stringMatching(/^[0-9a-f]{1,16}$/),
+			instructionsHash: fc.option(fc.stringMatching(/^[0-9a-f]{1,16}$/), { nil: undefined }),
+			tools: fc.option(
+				fc.array(fc.record({ name: word, hash: fc.stringMatching(/^[0-9a-f]{1,16}$/) }), {
+					maxLength: 3,
+				}),
+				{ nil: undefined },
+			),
+		})
+		.map(({ instructionsHash, tools, ...rest }) => ({
+			...rest,
+			...(instructionsHash === undefined ? {} : { instructionsHash }),
+			...(tools === undefined ? {} : { tools }),
+		}));
+}
+
 export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 	return fc
 		.record({
@@ -75,14 +97,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 			task: text,
 			startedAt: fc.nat({ max: 2 ** 41 }),
 			host: text,
-			recipe: fc.option(
-				fc.record({
-					name: word,
-					version: fc.nat({ max: 99 }),
-					toolSetHash: fc.stringMatching(/^[0-9a-f]{1,16}$/),
-				}),
-				{ nil: undefined },
-			),
+			recipe: fc.option(stampArbitrary(), { nil: undefined }),
 		})
 		.map(({ recipe, ...rest }) =>
 			recipe === undefined
@@ -92,7 +107,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback",
+	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -164,15 +179,27 @@ function entryArbitrary(
 			return fc
 				.record({ from: word, to: word, reason: text })
 				.map((rest) => ({ type: "fallback" as const, ...base, ...rest }));
+		case "recipe":
+			return fc
+				.record({
+					from: fc.option(stampArbitrary(), { nil: undefined }),
+					to: stampArbitrary(),
+				})
+				.map(({ from, to }) =>
+					from === undefined
+						? { type: "recipe_updated" as const, ...base, to }
+						: { type: "recipe_updated" as const, ...base, from, to },
+				);
 	}
 }
 
 /** A whole valid record chain, in the order it would be saved. */
 export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 	return fc
-		.array(fc.constantFrom("user", "assistant", "tool", "status", "note", "fallback"), {
-			maxLength: 5,
-		})
+		.array(
+			fc.constantFrom("user", "assistant", "tool", "status", "note", "fallback", "recipe"),
+			{ maxLength: 5 },
+		)
 		.chain((kinds) =>
 			kinds.length === 0
 				? fc.constant<RecordEntry[]>([])

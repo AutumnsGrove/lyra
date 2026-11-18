@@ -16,7 +16,12 @@
  * and not only at the last entry.
  */
 
-import type { AssistantMessageEntry, RecordEntry, StatusEntry } from "../record/entries.js";
+import type {
+	AssistantMessageEntry,
+	RecipeStamp,
+	RecordEntry,
+	StatusEntry,
+} from "../record/entries.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
 import { activePath, replayConversation } from "../record/replay.js";
 import type { ConversationMessage } from "./conversation.js";
@@ -45,6 +50,8 @@ export interface ResumeSeed {
 	unansweredCalls: ToolCall[];
 	/** The last tool result on the path passed the done-check (decision 25). */
 	finished: boolean;
+	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
+	pin: RecipeStamp | undefined;
 }
 
 export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
@@ -62,6 +69,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let last: RecordEntry | undefined;
 	let assistant: { entry: AssistantMessageEntry; index: number } | undefined;
 	let lastTool: RecordEntry | undefined;
+	let pin = loaded.value.header.recipe;
 	const usedTools = new Set<string>();
 
 	for (const [index, entry] of path.entries()) {
@@ -91,6 +99,9 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 					lastTool = entry;
 				}
 				last = entry;
+				break;
+			case "recipe_updated":
+				pin = entry.to;
 				break;
 			case "fallback":
 			case "note":
@@ -124,5 +135,6 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		usedTools,
 		unansweredCalls,
 		finished: lastTool?.type === "tool_message" && lastTool.done === true,
+		pin,
 	});
 }

@@ -50,6 +50,8 @@ function toMessage(entry: RecordEntry): ConversationMessage | undefined {
 			};
 		case "status":
 		case "note":
+		case "fallback":
+		case "recipe_updated":
 		case "unknown":
 			// A status is progress, a note is for a person, and an unknown kind is not ours to read.
 			return undefined;

@@ -18,6 +18,7 @@ import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import { readResumeSeed, type ResumeSeed } from "./resume.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
@@ -31,6 +32,9 @@ import {
 	type AssistantMessageEntry,
 	type FallbackEntry,
 	type NoteEntry,
+	type RecipeStamp,
+	type RecipeUpdatedEntry,
+	type RecordHeader,
 	type RecordEntry,
 	type StatusEntry,
 	type ToolMessageEntry,
@@ -112,6 +116,8 @@ export interface RunConfig {
 	control?: RunControl;
 	/** The stuck safeguard: on by default, because the default has no limits (decision 25). */
 	stuck?: StuckSettings;
+	/** The recipe this run is held to, whose pin goes in the header (decision 91). */
+	recipe?: { name: string; version: number };
 	/**
 	 * Continue a record instead of starting one (decision 20). `by` decides what may
 	 * be continued: an accident resumes on its own, everything else waits for a
@@ -409,6 +415,63 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const noteSuccess = (): void => {
 		lastFailureKey = undefined;
 		failuresInARow = 0;
+	};
+
+	/**
+	 * Whether the current recipe's tools differ from the record's pin, which is what
+	 * parks a resume for a person to look at (REC07, REC08). A run already parked for
+	 * exactly that is the person's decision to make, so the next resume continues.
+	 */
+	const recipeChangeParked = (
+		seed: ResumeSeed,
+		current: RecipeStamp | undefined,
+	): string | undefined => {
+		if (current === undefined || seed.pin === undefined) {
+			return undefined;
+		}
+		if (current.toolSetHash === seed.pin.toolSetHash) {
+			return undefined;
+		}
+		if (seed.status?.state === "parked" && seed.status.detail?.startsWith("recipe_changed")) {
+			return undefined;
+		}
+		const change = compareTools(seed.pin.tools, current.tools);
+		return `recipe_changed: ${describeChange(change, seed.usedTools)}`;
+	};
+
+	/** Move the record's pin, and write it only when something actually moved (REC06). */
+	const noteRecipeChange = async (seed: ResumeSeed, current: RecipeStamp): Promise<void> => {
+		const pinned = seed.pin;
+		if (pinned === undefined) {
+			await saveRecipeUpdated(undefined, current);
+			return;
+		}
+		if (
+			current.toolSetHash === pinned.toolSetHash &&
+			current.version === pinned.version &&
+			current.instructionsHash === pinned.instructionsHash
+		) {
+			return;
+		}
+		await saveRecipeUpdated(pinned, current);
+	};
+
+	/** The pin the record is held to from now on (REC06, REC09). */
+	const saveRecipeUpdated = async (
+		from: RecipeStamp | undefined,
+		to: RecipeStamp,
+	): Promise<number> => {
+		const entry: RecipeUpdatedEntry = {
+			type: "recipe_updated",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			to,
+		};
+		if (from !== undefined) {
+			entry.from = from;
+		}
+		return append(entry);
 	};
 
 	/** A steer or a follow-up, written where it can be read without breaking a pairing. */
@@ -1000,6 +1063,15 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				closedActiveMs = seed.activeMs;
 
 				const recorded = recordedOutcome(seed, config.resume.by);
+				const current =
+					config.recipe === undefined
+						? undefined
+						: await pinRecipe({
+								name: config.recipe.name,
+								version: config.recipe.version,
+								instructions: config.system,
+								tools: config.tools.map((tool) => tool.spec),
+							});
 				if (recorded !== undefined) {
 					// Nothing is written: the record already says how this run ended, or
 					// that it waits for a person.
@@ -1010,7 +1082,20 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					// rather than asking the model for a turn it already gave.
 					recordStarted = true;
 					result = { reason: "done", usage: usageTotal.total(), turns };
+				} else if (recipeChangeParked(seed, current) !== undefined) {
+					// A tool set that differs from the pin waits for a person (REC07, REC08);
+					// the closing status below writes the one park, with the reason.
+					result = {
+						reason: "parked",
+						parkedReason: "stuck",
+						parkedDetail: recipeChangeParked(seed, current) ?? "recipe_changed",
+						usage: usageTotal.total(),
+						turns,
+					};
 				} else {
+					if (current !== undefined) {
+						await noteRecipeChange(seed, current);
+					}
 					await saveStatus("resumed");
 					activeSince = clock.now();
 					await answerUnanswered(seed);
@@ -1029,15 +1114,25 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			emit({ type: "error", run: runId, ts: clock.now(), error });
 			result = { reason: "failed", error, usage: usageTotal.total(), turns };
 		} else {
-			const header = encodeHeader({
+			const header: RecordHeader = {
 				type: "header",
 				v: RECORD_VERSION,
 				run: runId,
 				task: config.task,
 				startedAt: clock.now(),
 				host: config.host,
-			});
-			await save(header);
+			};
+			if (config.recipe !== undefined) {
+				// The pin is what a later resume is held to, so it is taken before the
+				// first line and never guessed (decision 91).
+				header.recipe = await pinRecipe({
+					name: config.recipe.name,
+					version: config.recipe.version,
+					instructions: config.system,
+					tools: config.tools.map((tool) => tool.spec),
+				});
+			}
+			await save(encodeHeader(header));
 			recordStarted = true;
 
 			await append(first);

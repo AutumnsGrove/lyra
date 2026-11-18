@@ -8,6 +8,24 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 6 (part two), 2026-11-17
+
+- **The header's pin grew two fields, and `run-record.md` says so.** `REC06` cannot tell a reworded
+  prompt from the same one without an instructions hash, and `REC07`/`REC08` cannot name the tool that
+  moved from a single set hash, so the header keeps `instructionsHash` and one `{name, hash}` per tool.
+  Both are optional, so a record written without them still loads, and the pin's rows cover that.
+- **Descriptions are out of the hash on purpose.** Rewording a tool's description does not change what it
+  does, so a resume must not stop for it; `REC05` tests exactly that (two descriptions, one pin).
+- **A person resuming a `recipe_changed` park does not accept the new tools by accident.** The first
+  person resume of any other park is checked against the pin and parks if the tools moved; only a resume
+  whose record already says `recipe_changed` continues, writes `recipe_updated`, and becomes the new pin.
+  That is the strict reading of "a later resume continues", and it means a changed tool set always
+  costs a person one explicit look rather than being accepted by a resume they started for another reason.
+- **`recipe_updated` may have no `from`.** A record started before pins existed has none to compare, so
+  the first resume on a recipe writes the pin with `from` absent rather than inventing one.
+- **Both new behaviors were mutation-checked.** With `recipeChangeParked` forced to `undefined`, REC07,
+  REC08 and REC09 fail; with `noteRecipeChange` unable to write, REC06 fails twice and REC09 fails once.
+
 ## Step 2, slice 6 (part one), 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** Step 2 is on

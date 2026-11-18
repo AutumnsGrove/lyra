@@ -83,6 +83,9 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- A resume checks the recipe against the header's pin: the same tools and instructions continue, a new
+  version or reworded instructions are noted in a `recipe_updated` entry, and a changed tool set parks
+  as `stuck` with `recipe_changed` and the tools named, until a person resumes it (decision 91).
 - `runTask` can resume a record: the conversation, the turns, the usage and the active time of a run
   are read back from what it saved, the last turn's unanswered calls are answered instead of assumed
   (a call that is safe to repeat runs again; one that is not is reported as an unknown outcome), and a

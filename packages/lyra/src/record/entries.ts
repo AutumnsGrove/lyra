@@ -110,6 +110,18 @@ export interface StatusEntry extends EntryBase {
 }
 
 /**
+ * The recipe moved while the run was alive (REC06, REC09): a new version, reworded
+ * instructions, or a tool set a person let it continue with. The new pin becomes
+ * the one the next resume compares against.
+ */
+export interface RecipeUpdatedEntry extends EntryBase {
+	type: "recipe_updated";
+	/** Absent when the record had no pin at all, which is what a newer Lyra adds. */
+	from?: RecipeStamp;
+	to: RecipeStamp;
+}
+
+/**
  * The run moved to another model because the first failed after its retries
  * (decision 58). Written where it happened, so the record says which model made
  * which turn.
@@ -148,6 +160,7 @@ export type RecordEntry =
 	| ToolMessageEntry
 	| StatusEntry
 	| FallbackEntry
+	| RecipeUpdatedEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -166,6 +179,22 @@ function isState(value: unknown): value is RunState {
 	);
 }
 
+/** One pin, as a line's field. Shared by the header and by a `recipe_updated` entry. */
+function stampLine(stamp: RecipeStamp): Record<string, unknown> {
+	const line: Record<string, unknown> = {
+		name: stamp.name,
+		version: stamp.version,
+		toolSetHash: stamp.toolSetHash,
+	};
+	if (stamp.instructionsHash !== undefined) {
+		line["instructionsHash"] = stamp.instructionsHash;
+	}
+	if (stamp.tools !== undefined) {
+		line["tools"] = stamp.tools.map((tool) => ({ name: tool.name, hash: tool.hash }));
+	}
+	return line;
+}
+
 export function encodeHeader(header: RecordHeader): string {
 	const line: Record<string, unknown> = {
 		type: "header",
@@ -176,21 +205,7 @@ export function encodeHeader(header: RecordHeader): string {
 		host: header.host,
 	};
 	if (header.recipe !== undefined) {
-		const recipe: Record<string, unknown> = {
-			name: header.recipe.name,
-			version: header.recipe.version,
-			toolSetHash: header.recipe.toolSetHash,
-		};
-		if (header.recipe.instructionsHash !== undefined) {
-			recipe["instructionsHash"] = header.recipe.instructionsHash;
-		}
-		if (header.recipe.tools !== undefined) {
-			recipe["tools"] = header.recipe.tools.map((tool) => ({
-				name: tool.name,
-				hash: tool.hash,
-			}));
-		}
-		line["recipe"] = recipe;
+		line["recipe"] = stampLine(header.recipe);
 	}
 	return JSON.stringify(line);
 }
@@ -273,6 +288,13 @@ export function encodeEntry(entry: RecordEntry): string {
 				from: entry.from,
 				to: entry.to,
 				reason: entry.reason,
+			});
+		case "recipe_updated":
+			return JSON.stringify({
+				type: entry.type,
+				...base,
+				...(entry.from === undefined ? {} : { from: stampLine(entry.from) }),
+				to: stampLine(entry.to),
 			});
 		case "unknown":
 			return entry.raw;
@@ -386,34 +408,51 @@ export function decodeHeader(value: unknown): Result<RecordHeader> {
 	if (rawRecipe === undefined) {
 		return ok({ type: "header", v: RECORD_VERSION, run, task, startedAt, host });
 	}
-	if (!isPlainObject(rawRecipe)) {
-		return bad("the record header's recipe is not an object");
+	const recipe = decodeStamp(rawRecipe);
+	if (!recipe.ok) {
+		return recipe;
 	}
-	const name = rawRecipe["name"];
-	const version = rawRecipe["version"];
-	const toolSetHash = rawRecipe["toolSetHash"];
+	return ok({
+		type: "header",
+		v: RECORD_VERSION,
+		run,
+		task,
+		startedAt,
+		host,
+		recipe: recipe.value,
+	});
+}
+
+/** A recipe's pin, from a header or from a `recipe_updated` entry. */
+function decodeStamp(value: unknown): Result<RecipeStamp> {
+	if (!isPlainObject(value)) {
+		return bad("a recipe pin is not an object");
+	}
+	const name = value["name"];
+	const version = value["version"];
+	const toolSetHash = value["toolSetHash"];
 	if (typeof name !== "string" || !isTimestamp(version) || !isName(toolSetHash)) {
-		return bad("the record header's recipe is not a name, a version and a tool-set hash");
+		return bad("a recipe pin is not a name, a version and a tool-set hash");
 	}
-	const instructionsHash = rawRecipe["instructionsHash"];
+	const instructionsHash = value["instructionsHash"];
 	if (instructionsHash !== undefined && !isName(instructionsHash)) {
-		return bad("the record header's recipe has an instructions hash that is not text");
+		return bad("a recipe pin has an instructions hash that is not text");
 	}
-	const rawTools = rawRecipe["tools"];
+	const rawTools = value["tools"];
 	let tools: ToolStamp[] | undefined;
 	if (rawTools !== undefined) {
 		if (!Array.isArray(rawTools)) {
-			return bad("the record header's recipe has a tool list that is not a list");
+			return bad("a recipe pin has a tool list that is not a list");
 		}
 		tools = [];
 		for (const rawTool of rawTools) {
 			if (!isPlainObject(rawTool)) {
-				return bad("the record header's recipe has a tool that is not an object");
+				return bad("a recipe pin has a tool that is not an object");
 			}
 			const toolName = rawTool["name"];
 			const toolHash = rawTool["hash"];
 			if (typeof toolName !== "string" || !isName(toolHash)) {
-				return bad("the record header's recipe has a tool without a name and a hash");
+				return bad("a recipe pin has a tool without a name and a hash");
 			}
 			tools.push({ name: toolName, hash: toolHash });
 		}
@@ -425,7 +464,7 @@ export function decodeHeader(value: unknown): Result<RecordHeader> {
 	if (tools !== undefined) {
 		recipe.tools = tools;
 	}
-	return ok({ type: "header", v: RECORD_VERSION, run, task, startedAt, host, recipe });
+	return ok(recipe);
 }
 
 /**
@@ -584,6 +623,21 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				return bad("a note entry has no text");
 			}
 			return ok({ type, ...base, kind, text });
+		}
+		case "recipe_updated": {
+			const to = decodeStamp(value["to"]);
+			if (!to.ok) {
+				return to;
+			}
+			const rawFrom = value["from"];
+			if (rawFrom === undefined) {
+				return ok({ type, ...base, to: to.value });
+			}
+			const from = decodeStamp(rawFrom);
+			if (!from.ok) {
+				return from;
+			}
+			return ok({ type, ...base, from: from.value, to: to.value });
 		}
 		case "fallback": {
 			const from = value["from"];
