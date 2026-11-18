@@ -23,6 +23,16 @@ export {
 	type CrashingStorageOptions,
 } from "./crashing-storage.js";
 export {
+	renderHandles,
+	renderPage,
+	timelineTestRecipe,
+	type TimelineCommit,
+	type TimelineLine,
+	type TimelinePage,
+	type TimelineProject,
+	type TimelineState,
+} from "./timeline-recipe.js";
+export {
 	createFinishTool,
 	executionCounter,
 	toolReturning,

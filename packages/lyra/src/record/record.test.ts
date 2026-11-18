@@ -286,27 +286,33 @@ test("RCD05 a header of a version this code does not know is refused", () => {
 	}
 });
 
-test("RCD06 any valid record survives encode then load, and the active path is the chain", () => {
-	fc.assert(
-		fc.property(headerArbitrary(), entriesArbitrary(), (head, entries) => {
-			const loaded = loadRecord([encodeHeader(head), ...entries.map(encodeEntry)]);
-			expect(loaded.ok).toBe(true);
-			if (!loaded.ok) {
-				return;
-			}
-			expect(loaded.value.header).toEqual(head);
-			expect(loaded.value.entries).toEqual(entries);
-			expect(loaded.value.notes).toEqual([]);
+// A timeout well over the work, because the coverage run is slow and a property test
+// of this size has crossed the default five seconds under it (step 3, notes.md).
+test(
+	"RCD06 any valid record survives encode then load, and the active path is the chain",
+	{ timeout: 60_000 },
+	() => {
+		fc.assert(
+			fc.property(headerArbitrary(), entriesArbitrary(), (head, entries) => {
+				const loaded = loadRecord([encodeHeader(head), ...entries.map(encodeEntry)]);
+				expect(loaded.ok).toBe(true);
+				if (!loaded.ok) {
+					return;
+				}
+				expect(loaded.value.header).toEqual(head);
+				expect(loaded.value.entries).toEqual(entries);
+				expect(loaded.value.notes).toEqual([]);
 
-			const path = activePath(loaded.value.entries);
-			expect(path).toEqual(entries);
-			if (path.length > 0) {
-				expect(path[0]?.parent).toBeNull();
-			}
-		}),
-		{ numRuns: 200 },
-	);
-});
+				const path = activePath(loaded.value.entries);
+				expect(path).toEqual(entries);
+				if (path.length > 0) {
+					expect(path[0]?.parent).toBeNull();
+				}
+			}),
+			{ numRuns: 200 },
+		);
+	},
+);
 
 test("RCD04 every kind refuses a line of the wrong shape, and the record still loads", () => {
 	const head = encodeHeader(header());

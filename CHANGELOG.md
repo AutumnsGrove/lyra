@@ -112,6 +112,15 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- The `timeline-test` recipe in the testkit: a generic, fake day of repos and commits, with handles,
+  projects, lines, vines, a continuation and a coverage-checked `finish`, plus `renderPage` and
+  `renderHandles` for comparing a resumed run with an uninterrupted one. A scenario file may name it with
+  `recipe:` and give its JSON `input`; a file without one keeps the inline `tools:` shape (decision 116).
+- Five recipe scenarios, including the bad-repo-corrected one from `engineering-practices.md`, and
+  `RSM07`, which kills the test recipe at every append and compares the resumed page and handles with the
+  uninterrupted run's.
+- `finish` is safe to repeat, so a run killed between its call and its result resumes instead of being
+  told the outcome is unknown.
 - `finish` with a done-check: `createFinishTool({ check })` takes the recipe's own answer, a refusal is
   an error result the model works from, and `coverageCheck` says `not covered yet: 4 issues (…)`,
   sorted and capped. A skip needs a reason. Repeated refusals park the run as stuck (decision 115).

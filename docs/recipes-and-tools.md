@@ -149,3 +149,21 @@ module load rather than on a person's first day.
 | RCP04 | Bad: a `finish` with no done-check | A tool named `finish` that was not made by `createFinishTool` is refused when the recipe is defined |
 | RCP05 | Sad: invalid input at start | `start` returns `bad_request` naming the field, and no run begins |
 | RCP06 | Happy: input that is exactly right | `start` accepts it, `setup` turns it into the first message and the state, and the input is saved on the task message |
+
+## The test recipe, and the scenarios
+
+`timeline-test` is in the testkit: it is generic and fake, with the timeline's shape, so the machinery is
+exercised end to end without anything touching the network (decision 60). Its input is a list of repos and
+a list of commits (`repo`, `sha`, `message`); `setup` mints `c1..cN` and renders the day, and its tools are
+`start_project`, `add_line`, `add_vine`, `mark_continuation` and `finish`. `renderPage` and `renderHandles`
+turn its state into strings, which is what the resume test compares.
+
+A scenario file names it with `recipe: timeline-test` and gives the recipe's input as JSON under `input:`. A
+scenario without a `recipe` keeps step 1's shape: inline `tools:` and a text `input`, which is what the
+loop's own scenarios still use. A `recipe` and `tools` together are refused, so a file cannot say two
+things about what runs.
+
+The scenario files are in `scenarios/`: the bad repo from `engineering-practices.md`, a refused then
+accepted `finish`, a vine on a missing line, a citation of another repo's commit, and an argument of the
+wrong type. The resume row is `RSM07` in [`limits-and-interruptions.md`](limits-and-interruptions.md).
+

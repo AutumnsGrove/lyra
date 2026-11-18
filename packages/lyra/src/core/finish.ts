@@ -68,6 +68,9 @@ export function createFinishTool<S = unknown>(options: FinishOptions<S>): Tool {
 		// `defineRecipe` uses this to tell a real done-check from a tool that merely
 		// borrowed the name (RCP04).
 		finish: true,
+		// The check is pure, and a kill between the call and its result leaves the run
+		// with nothing that running it again could duplicate.
+		safeToRepeat: true,
 		validate: (args) => validateValue<FinishArguments>(compiled, args),
 		execute: async (args, ctx) => {
 			const checked = validateValue<FinishArguments>(compiled, args);

@@ -13,7 +13,7 @@
  */
 
 import type { RunEvent } from "../core/events.js";
-import { isPlainObject } from "../core/json.js";
+import { isJsonValue, isPlainObject, type JsonValue } from "../core/json.js";
 import { isFinishReason } from "../core/decode-reply.js";
 import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
@@ -23,6 +23,7 @@ import { counterIds } from "../adapters/memory/ids.js";
 import { memoryStorage } from "../adapters/memory/storage.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
 import { fakeClock } from "./clock.js";
+import { timelineTestRecipe } from "./timeline-recipe.js";
 import {
 	scriptedModel,
 	type ScriptedFailure,
@@ -54,7 +55,10 @@ export interface Scenario {
 	name: string;
 	task: string;
 	system: string;
-	input: string;
+	/** The task's input: a text message, or a recipe's own JSON input. */
+	input: JsonValue;
+	/** A testkit recipe to run instead of the inline tools. */
+	recipe?: string;
 	tools: ScenarioTool[];
 	model: ScriptedTurn[];
 	expectEvents: Expectation[];
@@ -259,9 +263,22 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	if (!name.ok) {
 		return name;
 	}
-	const input = stringField(value, "input", "scenario");
-	if (!input.ok) {
-		return input;
+	const rawInput = value["input"];
+	if (rawInput === undefined || !isJsonValue(rawInput)) {
+		return bad("scenario.input must be there, and JSON");
+	}
+	const recipe = optionalString(value, "recipe", "scenario");
+	if (!recipe.ok) {
+		return recipe;
+	}
+	if (recipe.value !== undefined && !RECIPES.has(recipe.value)) {
+		return bad(`scenario.recipe must be one of ${[...RECIPES.keys()].join(", ")}`);
+	}
+	if (recipe.value === undefined && typeof rawInput !== "string") {
+		return bad("scenario.input must be a string when no recipe is named");
+	}
+	if (recipe.value !== undefined && value["tools"] !== undefined) {
+		return bad("scenario.tools cannot be given with a recipe");
 	}
 	const task = optionalString(value, "task", "scenario");
 	if (!task.ok) {
@@ -336,12 +353,15 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 		name: name.value,
 		task: task.value ?? "scenario",
 		system: system.value ?? "you are being tested",
-		input: input.value,
+		input: rawInput,
 		tools,
 		model,
 		expectEvents: expectEvents.value,
 		expectRecord: expectRecord.value,
 	};
+	if (recipe.value !== undefined) {
+		scenario.recipe = recipe.value;
+	}
 
 	const abortAfter = value["abort_after"];
 	if (abortAfter !== undefined) {
@@ -496,20 +516,37 @@ function matchRecord(expected: Expectation[], record: LoadedRecord, problems: st
 	}
 }
 
+/** The testkit recipes a scenario may name, by name. */
+const RECIPES = new Map([[timelineTestRecipe.name, timelineTestRecipe]]);
+
 export async function runScenario(scenario: Scenario): Promise<ScenarioOutcome> {
 	const clock = fakeClock();
 	const storage = memoryStorage();
 	const events: RunEvent[] = [];
 	const controller = new AbortController();
-	const tools: Tool[] = scenario.tools.map((tool) => makeTool(tool, clock));
-	tools.push(createFinishTool());
+	const recipe = scenario.recipe === undefined ? undefined : RECIPES.get(scenario.recipe);
+	const tools: Tool[] =
+		recipe === undefined
+			? [...scenario.tools.map((tool) => makeTool(tool, clock)), createFinishTool()]
+			: [...recipe.tools];
+
+	// A recipe brings its own first message, state and instructions; a plain scenario
+	// still sends its input text straight in.
+	const recipeParts =
+		recipe === undefined
+			? {}
+			: {
+					inputValue: scenario.input,
+					...(recipe.setup === undefined ? {} : { setup: recipe.setup }),
+				};
 
 	const running = runTask({
 		runId: "scenario",
-		task: scenario.task,
+		task: recipe?.name ?? scenario.task,
 		host: "scenario",
-		input: scenario.input,
-		system: scenario.system,
+		input: recipe === undefined && typeof scenario.input === "string" ? scenario.input : "",
+		...recipeParts,
+		system: recipe?.instructions ?? scenario.system,
 		tools,
 		model: scriptedModel(scenario.model, { clock }),
 		storage,
