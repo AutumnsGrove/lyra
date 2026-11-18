@@ -15,7 +15,7 @@ seven slices landed, and the branch is deleted. The rows built here are `REC01` 
 now holds only the 28 protocol rows, which step 6 builds. The step's "Done when" list is met, and the
 pull request says how each line is true.
 
-Read: `docs/limits-and-interruptions.md` (the owner of this step's behavior), `docs/run-record.md` (its rows `REC01` to `REC09` are this step's, and are currently listed in `scripts/unbuilt-rows.json`), `docs/adapters.md` (the Waking slot), `docs/engineering-practices.md` (catalog: "The loop", "The record and resume"), `docs/implementation/notes.md` (what step 1 decided), and step 1's code, in particular `core/run.ts`, the record, and the testkit.
+Read: `docs/limits-and-interruptions.md` (the owner of this step's behavior), `docs/run-record.md` (its rows `REC01` to `REC09` are this step's; they are tested and no longer in `scripts/unbuilt-rows.json`), `docs/adapters.md` (the Waking slot), `docs/engineering-practices.md` (catalog: "The loop", "The record and resume"), `docs/implementation/notes.md` (what step 1 decided), and step 1's code, in particular `core/run.ts`, the record, and the testkit.
 
 ## Goal and done when
 

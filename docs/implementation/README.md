@@ -43,8 +43,8 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Next is step 3**, [`03-recipes-and-tools.md`](03-recipes-and-tools.md), from this `main`: recipes and
   tools, including the small JSON Schema validator for tool arguments. It is the step that grows
   `RunDefinition` from what step 2 needed into the full recipe.
-- **`scripts/unbuilt-rows.json` has 33 rows left**: `REC05` to `REC09` (step 2) and the 28 protocol rows
-  (step 6). `REC01` to `REC04` came out with slice 1, as decision 96 requires.
+- **`scripts/unbuilt-rows.json` holds only the 28 protocol rows** (step 6). Every record row came out
+  with step 2, as decision 96 requires, and `matrixcheck` now reports 96 tested and 28 unbuilt.
 - **`main`'s gate** (on `d278c82`): 185 tests, 3 fuzz/property targets, coverage 96.56% statements
   and 91.79% branches, budget 47,278 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28 unbuilt). The
   ceiling was raised from 40 to 52 KiB during step 2 (decision 109) because the step's own work passed
