@@ -112,11 +112,51 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- The `timeline-test` recipe in the testkit: a generic, fake day of repos and commits, with handles,
+  projects, lines, vines, a continuation and a coverage-checked `finish`, plus `renderPage` and
+  `renderHandles` for comparing a resumed run with an uninterrupted one. A scenario file may name it with
+  `recipe:` and give its JSON `input`; a file without one keeps the inline `tools:` shape (decision 116).
+- Five recipe scenarios, including the bad-repo-corrected one from `engineering-practices.md`, and
+  `RSM07`, which kills the test recipe at every append and compares the resumed page and handles with the
+  uninterrupted run's.
+- `finish` is safe to repeat, so a run killed between its call and its result resumes instead of being
+  told the outcome is unknown.
+- `finish` with a done-check: `createFinishTool({ check })` takes the recipe's own answer, a refusal is
+  an error result the model works from, and `coverageCheck` says `not covered yet: 4 issues (…)`,
+  sorted and capped. A skip needs a reason. Repeated refusals park the run as stuck (decision 115).
+- `defineRecipe`, which checks a task's input schema, its unique tool names, their schemas, and that a
+  tool called `finish` really has a done-check, refusing a broken recipe at module load instead of on a
+  person's first day. `runtime.start` validates a task's input against the recipe and returns
+  `bad_request` instead of starting a run that cannot work, so `start` now returns a `Result`.
+- `createHandleTable`: short handles (`c1`, `pr12`, `i34`) that the model cites instead of a commit
+  hash or a link, with a deterministic, idempotent mint per kind, a resolve back to the real value,
+  and a capped listing for the error an unknown handle gets. It lives in a recipe's state, so replay
+  rebuilds it exactly (decision 114).
+- A recipe's state comes back from the record: `setup(input)` makes the first message and the state,
+  a tool may read `ctx.state` but only `apply` changes it, and a resume replays every saved result
+  through that same `apply`, so a live run and a rebuilt one cannot drift. The task's input is saved in
+  the `task` message's `details`, and one too big for a record entry is refused with `bad_request`
+  before anything is written (decision 112). The size ceiling moves from 52 to 64 KiB (decision 113).
+- `compileSchema` and `validateValue`: the small JSON Schema subset a tool's arguments are checked
+  against (`type`, `properties`, `required`, `additionalProperties`, `enum`, `items`, `minItems`,
+  `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`). A tool author's schema is refused at
+  definition time if it uses anything else, and a model's arguments are refused with a specific message
+  that never throws, never runs past a depth cap, and never lists more than ten errors (decision 111).
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
   plus briefs for the three steps that live in Lattice. They add no decisions.
 
 ### Changed
+
+- `Runtime.start` returns a `Result<RunHandle>`, because a recipe's input schema is checked before a run
+  begins and a refused input is `bad_request` with nothing written. A caller that used the handle directly
+  now unwraps the result. Step 2's minimal definition still works: without an `input` schema, nothing is
+  checked and the text input is unchanged.
+- `ToolContext` gained `state`, and `Tool` gained `validate`, `apply` and `finish`, so a tool reads a
+  recipe's state, is checked before it runs, and changes state only through `apply` (decisions 112, 115,
+  116). `JsonValue` accepts a readonly array, so a schema written with `const` type-checks as JSON. A tool
+  made by hand, as the testkit's fakes are, carries no schema and is not checked, which is why step 2's
+  tests are unchanged.
 
 - The planning record carries no open questions, and it gained decisions 99 to 103 in the process. The
   two the first slice listed, the repository's name, layout and release process, and whether the

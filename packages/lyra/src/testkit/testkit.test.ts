@@ -233,7 +233,13 @@ test("KIT05 the clock reports a timer that was never resolved", () => {
 test("KIT06 the scripted tools answer as their names say", async () => {
 	const clock = fakeClock();
 	const signal = new AbortController().signal;
-	const ctx = { signal, runId: "run-1", callId: "c1", callKey: "run-1:c1" };
+	const ctx = {
+		signal,
+		runId: "run-1",
+		callId: "c1",
+		callKey: "run-1:c1",
+		state: undefined,
+	};
 
 	expect(await toolReturning("read", "content").execute({}, ctx)).toEqual({
 		isError: false,
@@ -317,9 +323,18 @@ test("KIT08 a scripted tool records every execution by call id", async () => {
 	const tool = toolReturning("read", "content", { executions });
 	const signal = new AbortController().signal;
 
-	await tool.execute({}, { signal, runId: "run-1", callId: "c1", callKey: "run-1:c1" });
-	await tool.execute({}, { signal, runId: "run-1", callId: "c1", callKey: "run-1:c1" });
-	await tool.execute({}, { signal, runId: "run-1", callId: "c2", callKey: "run-1:c2" });
+	await tool.execute(
+		{},
+		{ signal, runId: "run-1", callId: "c1", callKey: "run-1:c1", state: undefined },
+	);
+	await tool.execute(
+		{},
+		{ signal, runId: "run-1", callId: "c1", callKey: "run-1:c1", state: undefined },
+	);
+	await tool.execute(
+		{},
+		{ signal, runId: "run-1", callId: "c2", callKey: "run-1:c2", state: undefined },
+	);
 
 	expect(executions.ids()).toEqual(["c1", "c1", "c2"]);
 	expect(executions.count("c1")).toBe(2);
@@ -328,7 +343,7 @@ test("KIT08 a scripted tool records every execution by call id", async () => {
 	expect(
 		await toolReturning("read", "content").execute(
 			{},
-			{ signal, runId: "r", callId: "c3", callKey: "r:c3" },
+			{ signal, runId: "r", callId: "c3", callKey: "r:c3", state: undefined },
 		),
 	).toEqual({ isError: false, content: "content" });
 });

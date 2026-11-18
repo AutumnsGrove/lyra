@@ -14,11 +14,20 @@ import {
 	type ScriptedTurn,
 } from "../testkit/index.js";
 import { createRuntime, type RunDefinition, type Runtime } from "./runtime.js";
+import type { RunHandle } from "./run-handle.js";
 import { drive, until } from "./run-harness.testing.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
 
 /** The rows are in `docs/limits-and-interruptions.md`, "Rows (step 2, slice 6)". */
+
+/** A start that the recipe's own input schema accepted. */
+function started(result: ReturnType<Runtime["start"]>): RunHandle {
+	if (!result.ok) {
+		throw new Error(`the run did not start: ${result.error.message}`);
+	}
+	return result.value;
+}
 
 interface RuntimeHarness {
 	clock: FakeClock;
@@ -69,12 +78,14 @@ async function entriesOf(storage: StorageSlot) {
 
 /** Start a run that stops in the middle of a tool, and wait for the stop to land. */
 async function stoppedRun(harness: RuntimeHarness) {
-	const handle = harness.runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: harness.definition,
-	});
+	const handle = started(
+		harness.runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: harness.definition,
+		}),
+	);
 	await until(() =>
 		(harness.storage.saved() as string[]).some((line) => line.includes("assistant_message")),
 	);
@@ -131,12 +142,14 @@ test("RSM03 a wake on a live run does nothing, and joins the run it found", asyn
 		],
 		(clock) => [toolTakingTime("slow", 30_000, clock), createFinishTool()],
 	);
-	const handle = harness.runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: harness.definition,
-	});
+	const handle = started(
+		harness.runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: harness.definition,
+		}),
+	);
 	await until(() => harness.model.requests.length === 1);
 	expect(harness.model.requests).toHaveLength(1);
 	// The registry is what a wake consults, and this run is in it.
@@ -167,26 +180,28 @@ test("RSM03 an alarm that fires twice resumes the run once", async () => {
 	const clock = fakeClock();
 	const inner = memoryStorage();
 	const dying = crashingStorage(inner, { at: 5, when: "before" });
-	void createRuntime({
-		storage: dying,
-		clock,
-		ids: counterIds(),
-		model: scriptedModel(turns, { clock }),
-		host: "first-host",
-	}).start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: {
-			name: "timeline",
-			version: 1,
-			instructions: "you are a test",
-			tools: [
-				toolReturning("read", "the content", { safeToRepeat: true }),
-				createFinishTool(),
-			],
-		},
-	});
+	void started(
+		createRuntime({
+			storage: dying,
+			clock,
+			ids: counterIds(),
+			model: scriptedModel(turns, { clock }),
+			host: "first-host",
+		}).start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: {
+				name: "timeline",
+				version: 1,
+				instructions: "you are a test",
+				tools: [
+					toolReturning("read", "the content", { safeToRepeat: true }),
+					createFinishTool(),
+				],
+			},
+		}),
+	);
 	await until(() => dying.appends() >= 5);
 
 	const model = scriptedModel(turns, { clock });
@@ -271,12 +286,14 @@ test("RSM06 a person resumes a model_unavailable park with the same definition",
 		() => [createFinishTool()],
 	);
 
-	const handle = harness.runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: harness.definition,
-	});
+	const handle = started(
+		harness.runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: harness.definition,
+		}),
+	);
 	// Move the clock past every retry delay.
 	const parked = await drive(harness.clock, handle.outcome, 20_000);
 	expect(parked).toMatchObject({
@@ -304,12 +321,14 @@ test("RSM06 a person resumes a limit park with new limits and a stuck park", asy
 		],
 		() => [toolReturning("read", "the content"), createFinishTool()],
 	);
-	const stopped = limited.runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: { ...limited.definition, limits: { steps: 1 } },
-	});
+	const stopped = started(
+		limited.runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: { ...limited.definition, limits: { steps: 1 } },
+		}),
+	);
 	expect(await stopped.outcome).toMatchObject({ reason: "parked", parkedDetail: "steps" });
 
 	const lifted = await limited.runtime.resume({
@@ -333,12 +352,14 @@ test("RSM06 a person resumes a limit park with new limits and a stuck park", asy
 		],
 		() => [createFinishTool()],
 	);
-	const stuck = silentForever.runtime.start({
-		runId: "run-1",
-		task: "test-task",
-		input: "go",
-		definition: silentForever.definition,
-	});
+	const stuck = started(
+		silentForever.runtime.start({
+			runId: "run-1",
+			task: "test-task",
+			input: "go",
+			definition: silentForever.definition,
+		}),
+	);
 	expect(await stuck.outcome).toMatchObject({
 		reason: "parked",
 		parkedDetail: "stopped_without_finishing",

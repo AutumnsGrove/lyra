@@ -19,7 +19,10 @@ import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
+import type { JsonValue } from "./json.js";
+import { formatErrors, type Validation } from "./schema.js";
 import { readResumeSeed, reserveIds, type ResumeSeed } from "./resume.js";
+import { replayState } from "./state.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
@@ -94,12 +97,32 @@ export interface StuckSettings {
 const REMINDER_TEXT =
 	"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.";
 
+/**
+ * What a recipe's `setup` makes: the first message the model sees, and the state the
+ * run starts with. On a resume the same function runs again and the saved results
+ * are replayed through each tool's `apply` (decision 112).
+ */
+export interface TaskStart {
+	message: string;
+	state: unknown;
+}
+
 export interface RunConfig {
 	runId: string;
 	task: string;
 	host: string;
-	/** What the person asked for, saved as the first message. */
+	/** What the person asked for, saved as the first message when no recipe sets it. */
 	input: string;
+	/** The recipe's input as JSON, saved on the task message so a resume can rebuild. */
+	inputValue?: JsonValue;
+	/** The recipe's `setup`, when the run has one. */
+	setup?: (input: JsonValue) => TaskStart;
+	/**
+	 * Checks the record's saved input against the recipe's schema before `setup` runs
+	 * again. A record outlives a deploy, and an input schema can change, so the old
+	 * input is not trusted just because it was ours (found in review, step 3).
+	 */
+	inputCheck?: (input: JsonValue) => Validation<JsonValue>;
 	system: string;
 	tools: readonly Tool[];
 	model: ModelSlot;
@@ -141,6 +164,8 @@ export interface RunResult {
 	/** How many times the model was asked. */
 	turns: number;
 	error?: LyraError;
+	/** The recipe's state when the run has one, live or rebuilt from the record. */
+	state?: unknown;
 }
 
 /**
@@ -283,6 +308,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const tools = new Map<string, Tool>(config.tools.map((tool) => [tool.spec.name, tool]));
 
 	let live = true;
+	/**
+	 * The recipe's state, when it has one. It starts at what `setup` made, changes
+	 * only inside a tool's `apply`, and is rebuilt from the record on a resume.
+	 */
+	let state: unknown;
 	/** Set once the header is saved. Nothing is written into a record that never started. */
 	let recordStarted = false;
 	const usageTotal = createUsageTotal();
@@ -612,6 +642,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			deadlineMs,
 			runId,
 			isFinished: () => finishedRun,
+			readState: () => state,
 			onStart: (call) => {
 				emit({
 					type: "tool_start",
@@ -621,7 +652,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					name: call.name,
 				});
 			},
-			onFinish: async (call, outcome) => {
+			onFinish: async (call, outcome, args) => {
 				const resultSeq = await saveToolResult(call, outcome);
 				emit({
 					type: "tool_end",
@@ -640,6 +671,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				}
 				if (outcome.done === true && !outcome.isError) {
 					finishedRun = true;
+				}
+				// One writer, and only a success: the same call a resume replays, so a
+				// live run and a rebuilt one cannot drift (decision 112, TOL08).
+				const tool = tools.get(call.name);
+				if (!outcome.isError && args !== undefined && tool?.apply !== undefined) {
+					state = tool.apply(state, args, outcome);
 				}
 			},
 		});
@@ -1014,16 +1051,25 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let nothingWritten = false;
 	try {
 		// A task input is never truncated: half a request would be a different job,
-		// so one that cannot fit is refused and nothing is saved (decision 90).
-		const first: UserMessageEntry = {
-			type: "user_message",
-			id: config.ids.next("e"),
-			parent,
-			ts: clock.now(),
-			label: "task",
-			text: config.input,
+		// so one that cannot fit is refused and nothing is saved (decision 90). A
+		// recipe's input is measured with it, because it is saved in the details for
+		// the resume that has to rebuild the state (decision 112).
+		const makeFirst = (text: string, input: JsonValue | undefined): UserMessageEntry => {
+			const entry: UserMessageEntry = {
+				type: "user_message",
+				id: config.ids.next("e"),
+				parent,
+				ts: clock.now(),
+				label: "task",
+				text,
+			};
+			if (input !== undefined) {
+				entry.details = { input };
+			}
+			return entry;
 		};
-		const firstFits = utf8Length(encodeEntry(first)) <= entryCap;
+		const firstFits = (entry: UserMessageEntry): boolean =>
+			utf8Length(encodeEntry(entry)) <= entryCap;
 
 		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
 
@@ -1062,13 +1108,29 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				turns = seed.turns;
 				parent = seed.parent;
 				closedActiveMs = seed.activeMs;
-				if (seed.messages.length === 0) {
-					// The kill landed after the header and before the task message, so the
-					// resume writes the job the caller is asking for. This comes after the
-					// seed sets `parent`, or the write would leave the message orphaned.
-					await append(first);
-					messages.push({ role: "user", text: first.text });
-				}
+				let prepared: TaskStart | undefined;
+
+				/**
+				 * A recipe's state comes back from its own `setup` and the saved results
+				 * (decision 112). Returns why it could not be rebuilt, or nothing when it
+				 * did. Without the input there is nothing to run `setup` with, and a
+				 * schema that moved under the record's input cannot be rebuilt faithfully.
+				 */
+				const rebuild = (): string | undefined => {
+					if (config.setup === undefined) {
+						return undefined;
+					}
+					if (seed.input === undefined) {
+						return "the record has no task input to rebuild the recipe's state";
+					}
+					const checked = config.inputCheck?.(seed.input);
+					if (checked !== undefined && !checked.ok) {
+						return `the record's task input no longer matches the recipe's input schema, so the run cannot be rebuilt: ${formatErrors(checked.errors, "invalid input")}`;
+					}
+					prepared = config.setup(seed.input);
+					state = replayState(prepared.state, seed.record.entries, tools);
+					return undefined;
+				};
 
 				const recorded = recordedOutcome(seed, config.resume.by);
 				const current =
@@ -1080,28 +1142,55 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 								instructions: config.system,
 								tools: config.tools.map((tool) => tool.spec),
 							});
+				const change = recipeChangeParked(seed, current);
+
 				if (recorded !== undefined) {
 					// Nothing is written: the record already says how this run ended, or
-					// that it waits for a person.
+					// that it waits for a person. The state is only for the caller's
+					// benefit, so a rebuild that cannot happen loses it and not the ending.
 					nothingWritten = true;
+					try {
+						rebuild();
+					} catch {
+						state = undefined;
+					}
 					result = recorded;
 				} else if (seed.finished) {
 					// A kill landed between an accepted finish and the closing status. The
 					// record already knows the done-check passed, so the run ends done
 					// rather than asking the model for a turn it already gave.
 					recordStarted = true;
+					try {
+						rebuild();
+					} catch {
+						state = undefined;
+					}
 					result = { reason: "done", usage: usageTotal.total(), turns };
-				} else if (recipeChangeParked(seed, current) !== undefined) {
+				} else if (change !== undefined) {
 					// A tool set that differs from the pin waits for a person (REC07, REC08);
 					// the closing status below writes the one park, with the reason.
 					result = {
 						reason: "parked",
 						parkedReason: "stuck",
-						parkedDetail: recipeChangeParked(seed, current) ?? "recipe_changed",
+						parkedDetail: change,
 						usage: usageTotal.total(),
 						turns,
 					};
 				} else {
+					// Only a run that is really going on needs a state, and only here is a
+					// record that cannot be rebuilt an honest failure.
+					const refused = rebuild();
+					if (refused !== undefined) {
+						throw new Error(refused);
+					}
+					if (seed.messages.length === 0) {
+						// The kill landed after the header and before the task message, so the
+						// resume writes the job the caller is asking for. This comes after the
+						// seed sets `parent`, or the write would leave the message orphaned.
+						const first = makeFirst(prepared?.message ?? config.input, seed.input);
+						await append(first);
+						messages.push({ role: "user", text: first.text });
+					}
 					if (current !== undefined) {
 						await noteRecipeChange(seed, current);
 					}
@@ -1115,41 +1204,51 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						: await loop();
 				}
 			}
-		} else if (!firstFits) {
-			const error: LyraError = {
-				code: "bad_request",
-				message: `the task input is bigger than one record entry can hold (${entryCap} bytes)`,
-			};
-			emit({ type: "error", run: runId, ts: clock.now(), error });
-			result = { reason: "failed", error, usage: usageTotal.total(), turns };
 		} else {
-			const header: RecordHeader = {
-				type: "header",
-				v: RECORD_VERSION,
-				run: runId,
-				task: config.task,
-				startedAt: clock.now(),
-				host: config.host,
-			};
-			if (config.recipe !== undefined) {
-				// The pin is what a later resume is held to, so it is taken before the
-				// first line and never guessed (decision 91).
-				header.recipe = await pinRecipe({
-					name: config.recipe.name,
-					version: config.recipe.version,
-					instructions: config.system,
-					tools: config.tools.map((tool) => tool.spec),
-				});
+			// A recipe's `setup` makes the first message and the state together, so a
+			// fresh run and a resumed one start from the same place (decision 112).
+			const prepared =
+				config.setup === undefined
+					? undefined
+					: config.setup(config.inputValue ?? config.input);
+			const first = makeFirst(prepared?.message ?? config.input, config.inputValue);
+			if (!firstFits(first)) {
+				const error: LyraError = {
+					code: "bad_request",
+					message: `the task input is bigger than one record entry can hold (${entryCap} bytes)`,
+				};
+				emit({ type: "error", run: runId, ts: clock.now(), error });
+				result = { reason: "failed", error, usage: usageTotal.total(), turns };
+			} else {
+				const header: RecordHeader = {
+					type: "header",
+					v: RECORD_VERSION,
+					run: runId,
+					task: config.task,
+					startedAt: clock.now(),
+					host: config.host,
+				};
+				if (config.recipe !== undefined) {
+					// The pin is what a later resume is held to, so it is taken before the
+					// first line and never guessed (decision 91).
+					header.recipe = await pinRecipe({
+						name: config.recipe.name,
+						version: config.recipe.version,
+						instructions: config.system,
+						tools: config.tools.map((tool) => tool.spec),
+					});
+				}
+				await save(encodeHeader(header));
+				recordStarted = true;
+
+				await append(first);
+				messages.push({ role: "user", text: first.text });
+				state = prepared?.state;
+				await saveStatus("running");
+				activeSince = clock.now();
+
+				result = await loop();
 			}
-			await save(encodeHeader(header));
-			recordStarted = true;
-
-			await append(first);
-			messages.push({ role: "user", text: first.text });
-			await saveStatus("running");
-			activeSince = clock.now();
-
-			result = await loop();
 		}
 	} catch (caught) {
 		const error: LyraError =
@@ -1190,6 +1289,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			emit({ type: "error", run: runId, ts: clock.now(), error });
 			result = { reason: "failed", error, usage: result.usage, turns: result.turns };
 		}
+	}
+
+	if (config.setup !== undefined) {
+		result = { ...result, state };
 	}
 
 	emit(

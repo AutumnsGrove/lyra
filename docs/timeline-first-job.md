@@ -42,6 +42,8 @@ Pull request and issue data needs new GitHub calls in the day's fetch. GitHub ac
 
 ## Lyra's tools for this task (first draft)
 
+The machinery these tools stand on is in [`recipes-and-tools.md`](recipes-and-tools.md): the recipe, argument validation, handles, and the done-check. What follows is the timeline's own design, which lives in Lattice (decision 60) and is built in step 9.
+
 | Kind | Tool | What it does | What it checks |
 |---|---|---|---|
 | Dig deeper | `get_diff` | Shows what changed in a commit or PR | The commit or PR exists |
@@ -57,7 +59,7 @@ Pull request and issue data needs new GitHub calls in the day's fetch. GitHub ac
 
 Shared with other tasks: `finish`, `search_past_days`, and (later) asking a human. The rest belong to the timeline.
 
-## Design note: handles, not raw ids (proposed)
+## Design note: handles, not raw ids (the machinery is decision 114)
 
 Lumen's privacy scrubber runs over tool results (decision 8). It can rewrite text that looks like an email, phone number, or IP address, and long hashes and numbers are exactly what it might touch. So tools should give the model short handles, such as `c1` for a commit, `pr12` for a pull request, and `i34` for an issue. Lyra keeps the map back to the real hash, number, and link. The model cites handles and never copies a long exact string, which also stops it mistyping one. This matches the rule that tools own anything exact.
 

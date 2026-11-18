@@ -6,7 +6,7 @@ category: features
 
 # Limits, interruptions, and failures
 
-Last updated: 2026-11-17. Everything here is decided.
+Last updated: 2026-11-18. Everything here is decided.
 
 ## What a run is
 
@@ -39,7 +39,7 @@ If the interruption lands in the middle of a tool call, nobody knows whether the
 - **A read** (get a diff, read an issue) can safely be run again.
 - **A tool that changes something** might do it twice if run again.
 
-So each tool declares whether it is safe to repeat. The default is no. When an unsafe tool was cut off, Lyra does not run it again. It tells the model "the outcome of this call is unknown, check before repeating". For the timeline, the reads are safe, and the page-building tools are made safe another way: each call has an id built from the run and the step, so a repeated `add_line` with the same id changes nothing.
+So each tool declares whether it is safe to repeat. The default is no. When an unsafe tool was cut off, Lyra does not run it again. It tells the model "the outcome of this call is unknown, check before repeating". For the timeline, the reads are safe, and the page-building tools are made safe another way: the core gives every call a key built from the run and the call id (`ctx.callKey`), and a repeated `add_line` with a key already applied changes nothing (decision 116, and [`recipes-and-tools.md`](recipes-and-tools.md)). The `finish` a recipe uses is safe to repeat, because its check is pure.
 
 A model request that was in flight when the interruption landed is simply asked again. It costs one extra call. Avoiding that would need request ids in Lumen, which is not worth it yet.
 
@@ -66,7 +66,7 @@ Reasons a run can be parked: waiting for an approval, a limit was reached, stopp
 
 **C. Each tool declares whether it is safe to repeat.** The default is no. An unsafe tool that was cut off is reported to the model as an unknown outcome, not run again. See "The one wrinkle".
 
-**D. Done is decided by the task's done-check, not by the model's say-so.** For the timeline that means `finish` was accepted. Alongside it:
+**D. Done is decided by the task's done-check, not by the model's say-so.** For the timeline that means `finish` was accepted, and `finish` asks the recipe's own check in the recipe's state (decision 115). Alongside it:
 - If the model stops without finishing, Lyra reminds it a small number of times, then parks the run as stuck.
 - If a tool fails the same way several times in a row, Lyra parks the run as stuck. This is the one default-on safeguard, because the default has no limits and a stuck loop spends a Wanderer's own provider key. It is configurable per task: whether it is on, and the counts.
 - A reply that was cut off by the token limit never runs its half-written tool arguments. It counts as a failure and the model is asked again. This needs Lumen to report a finish reason (`lumen-changes.md`, item 2).
@@ -164,6 +164,7 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 | RSM04 | Bad: a record that cannot be used | A record that does not exist is `not_found`, one with no usable header fails the resume with `internal` and never throws, and a damaged last line is noted and skipped so the run continues |
 | RSM05 | Property: any script, killed anywhere | For any generated script of safe calls, any append and either side of it, the resume ends `done`, the record loads, each segment that ends has exactly one `run_end` and nothing after it, and the conversation equals the uninterrupted run's |
 | RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
+| RSM07 | Happy: the test recipe killed at every append | Killed at every append from the task message on, before and after it, the resumed page and handle table equal the uninterrupted run’s, and a call the kill left unanswered adds its line exactly once. The one window that cannot resume is a record holding only the header, because a recipe’s input is on the task message and inventing one would invent the page; it fails with a message saying so |
 
 ## Answered since this document was written
 

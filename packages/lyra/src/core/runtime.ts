@@ -15,6 +15,16 @@
  * the alarm back to `wake`, so the same run is never driven twice.
  */
 
+import type { Recipe } from "./define-recipe.js";
+import type { JsonValue } from "./json.js";
+import {
+	SchemaDefinitionError,
+	compileSchema,
+	formatErrors,
+	validateValue,
+	type CompiledSchema,
+	type Validation,
+} from "./schema.js";
 import type { LoadedRecord } from "../record/load.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
@@ -27,16 +37,11 @@ import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
 import type { StorageSlot, WakingSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
 
-/** The minimal recipe this step needs. Step 3 grows it (decision 5). */
-export interface RunDefinition {
-	name: string;
-	version: number;
-	instructions: string;
-	tools: readonly Tool[];
-	limits?: Limits;
-	fallbackModel?: string;
-	stuck?: StuckSettings;
-}
+/**
+ * The recipe a runtime runs. Step 2's minimal shape is this with `input` and
+ * `setup` absent, which is a plain run that takes a text input (decision 5).
+ */
+export type RunDefinition = Recipe;
 
 export interface RuntimeOptions {
 	storage: StorageSlot;
@@ -59,7 +64,8 @@ export interface RuntimeOptions {
 export interface StartRequest {
 	runId: string;
 	task: string;
-	input: string;
+	/** The task's input, checked against the recipe's own schema before a run begins. */
+	input: JsonValue;
 	definition: RunDefinition;
 }
 
@@ -74,9 +80,35 @@ export interface ResumeRequest {
 	limits?: Limits;
 }
 
+/** Checks a value against a recipe's input schema, once the schema is compiled. */
+export type InputCheck = (value: JsonValue) => Validation<JsonValue>;
+
+/**
+ * Compile a definition's input schema once, and hand back the check that uses it.
+ * A hand-written `RunDefinition` can carry a schema this build cannot compile, and
+ * that is a `bad_request` rather than a throw, because the caller only sees a
+ * `Result` (found in review, step 3).
+ */
+function inputCheckOf(definition: RunDefinition): Result<InputCheck | undefined> {
+	if (definition.input === undefined) {
+		return ok(undefined);
+	}
+	let compiled: CompiledSchema;
+	try {
+		compiled = compileSchema(definition.input, "input");
+	} catch (error) {
+		const message = error instanceof SchemaDefinitionError ? error.message : String(error);
+		return fail("bad_request", `the recipe's input schema cannot be checked: ${message}`);
+	}
+	return ok((value) => validateValue(compiled, value, "input"));
+}
+
 export interface Runtime {
-	/** Begin a run, and hand back the handle a person steers. */
-	start(request: StartRequest): RunHandle;
+	/**
+	 * Begin a run, and hand back the handle a person steers. An input the recipe's
+	 * schema refuses is `bad_request`, and nothing is written (RCP05).
+	 */
+	start(request: StartRequest): Result<RunHandle>;
 	/** Continue a run from its record. Refused with `not_found` when there is none. */
 	resume(request: ResumeRequest): Promise<Result<RunHandle>>;
 	/** The host's alarm, which is a resume that may not overrule a person. */
@@ -138,6 +170,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	const setupFor = (
 		request: ResumeRequest,
 		extra: Pick<RunConfig, "input" | "resume">,
+		inputCheck: InputCheck | undefined,
 	): RunSetup => {
 		const definition = request.definition;
 		const setup: RunSetup = {
@@ -152,6 +185,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			clock: options.clock,
 			ids: options.ids,
 			recipe: { name: definition.name, version: definition.version },
+			...(definition.setup === undefined ? {} : { setup: definition.setup }),
+			...(inputCheck === undefined ? {} : { inputCheck }),
 			...((request.limits ?? definition.limits) === undefined
 				? {}
 				: { limits: request.limits ?? definition.limits }),
@@ -195,11 +230,19 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		// A record with no readable header has no task message to offer, and the run
 		// then fails through the same path as any other unusable record.
 		const input = loaded.ok ? (firstUserText(loaded.value) ?? "") : "";
+		const check = inputCheckOf(request.definition);
+		if (!check.ok) {
+			return check;
+		}
 		const handle = createRun(
-			setupFor(request, {
-				input,
-				resume: { lines: read.value, by: request.by ?? "person" },
-			}),
+			setupFor(
+				request,
+				{
+					input,
+					resume: { lines: read.value, by: request.by ?? "person" },
+				},
+				check.value,
+			),
 		);
 		track(request.runId, handle);
 		armsWake(request.runId, handle);
@@ -211,11 +254,22 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
 		start(request) {
 			const definition = request.definition;
+			const check = inputCheckOf(definition);
+			if (!check.ok) {
+				return check;
+			}
+			if (check.value !== undefined) {
+				const checked = check.value(request.input);
+				if (!checked.ok) {
+					return fail("bad_request", formatErrors(checked.errors, "invalid input"));
+				}
+			}
 			const setup: RunSetup = {
 				runId: request.runId,
 				task: request.task,
 				host: options.host,
-				input: request.input,
+				input: definition.setup === undefined ? String(request.input) : "",
+				inputValue: request.input,
 				system: definition.instructions,
 				tools: definition.tools,
 				model: options.model,
@@ -223,6 +277,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				clock: options.clock,
 				ids: options.ids,
 				recipe: { name: definition.name, version: definition.version },
+				...(definition.setup === undefined ? {} : { setup: definition.setup }),
+				...(check.value === undefined ? {} : { inputCheck: check.value }),
 				...(definition.limits === undefined ? {} : { limits: definition.limits }),
 				...(definition.fallbackModel === undefined
 					? {}
@@ -233,7 +289,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			const handle = createRun(setup);
 			track(request.runId, handle);
 			armsWake(request.runId, handle);
-			return handle;
+			return ok(handle);
 		},
 
 		resume,

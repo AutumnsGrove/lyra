@@ -14,6 +14,7 @@
 
 import type { Clock } from "./clock.js";
 import { isPlainObject } from "./json.js";
+import { formatErrors } from "./schema.js";
 import type { ToolCall } from "./model.js";
 import { type Tool, type ToolOutcome } from "./tool.js";
 
@@ -27,8 +28,13 @@ export interface ExecuteToolsOptions {
 	runId: string;
 	/** Called for a call that is about to run, after its arguments are known to be usable. */
 	onStart(call: ToolCall): void;
-	/** Called for every call, in order, when its result is ready to be saved. */
-	onFinish(call: ToolCall, outcome: ToolOutcome): Promise<void>;
+	/**
+	 * Called for every call, in order, when its result is ready to be saved. A call
+	 * that ran carries the arguments it ran with, which is what `apply` needs.
+	 */
+	onFinish(call: ToolCall, outcome: ToolOutcome, args?: unknown): Promise<void>;
+	/** The recipe's state, read at the moment a call runs (not copied, not changed). */
+	readState?(): unknown;
 	/** True once the run has already finished, so later calls are answered but not run. */
 	isFinished(): boolean;
 }
@@ -52,6 +58,30 @@ export function decodeArguments(
 
 function errorResult(content: string): ToolOutcome {
 	return { isError: true, content };
+}
+
+export type UsableArguments =
+	{ ok: true; value: unknown } | { ok: false; reason: string; invalid: boolean };
+
+/**
+ * The arguments a tool may run with: JSON, and the tool's own schema's word.
+ *
+ * It is one function because the live path and the replay path have to agree, and
+ * two copies of "is this call usable" would drift the moment one changed.
+ */
+export function usableArguments(tool: Tool, raw: string): UsableArguments {
+	const decoded = decodeArguments(raw);
+	if (!decoded.ok) {
+		return { ok: false, reason: decoded.reason, invalid: false };
+	}
+	if (tool.validate === undefined) {
+		return { ok: true, value: decoded.value };
+	}
+	const checked = tool.validate(decoded.value);
+	if (!checked.ok) {
+		return { ok: false, reason: formatErrors(checked.errors), invalid: true };
+	}
+	return { ok: true, value: checked.value };
 }
 
 export async function executeTools(options: ExecuteToolsOptions): Promise<void> {
@@ -96,18 +126,22 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 			continue;
 		}
 
-		const args = decodeArguments(call.arguments);
+		// A tool's own schema is the boundary its arguments cross (decision 21). A
+		// refused call never reaches the tool, and the model gets the specific
+		// message it needs to correct itself (TOL02).
+		const args = usableArguments(tool, call.arguments);
 		if (!args.ok) {
-			await options.onFinish(
-				call,
-				errorResult(`the call to ${call.name} was not run because ${args.reason}`),
-			);
+			await options.onFinish(call, {
+				isError: true,
+				content: `the call to ${call.name} was not run because ${args.reason}`,
+				...(args.invalid ? { details: { code: "bad_request" } } : {}),
+			});
 			continue;
 		}
 
 		options.onStart(call);
 		const outcome = await runOne(tool, args.value, call.id, options);
-		await options.onFinish(call, outcome);
+		await options.onFinish(call, outcome, args.value);
 	}
 }
 
@@ -150,6 +184,7 @@ async function runOne(
 				runId: options.runId,
 				callId,
 				callKey: `${options.runId}:${callId}`,
+				state: options.readState?.(),
 			}),
 		)
 		.then(

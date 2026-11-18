@@ -65,6 +65,11 @@ export interface UserMessageEntry extends EntryBase {
 	type: "user_message";
 	label: MessageLabel;
 	text: string;
+	/**
+	 * The task's input as JSON, saved only on the `task` message, so a resume can run
+	 * the recipe's `setup` again and rebuild the state it made (decision 112).
+	 */
+	details?: JsonValue;
 }
 
 export interface AssistantMessageEntry extends EntryBase {
@@ -213,13 +218,18 @@ export function encodeHeader(header: RecordHeader): string {
 export function encodeEntry(entry: RecordEntry): string {
 	const base = { id: entry.id, parent: entry.parent, ts: entry.ts };
 	switch (entry.type) {
-		case "user_message":
-			return JSON.stringify({
+		case "user_message": {
+			const line: Record<string, unknown> = {
 				type: entry.type,
 				...base,
 				label: entry.label,
 				text: entry.text,
-			});
+			};
+			if (entry.details !== undefined) {
+				line["details"] = entry.details;
+			}
+			return JSON.stringify(line);
+		}
 		case "assistant_message": {
 			const line: Record<string, unknown> = {
 				type: entry.type,
@@ -503,7 +513,15 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			if (typeof text !== "string") {
 				return bad("a user_message entry has no text");
 			}
-			return ok({ type, ...base, label, text });
+			const details = value["details"];
+			const entry: UserMessageEntry = { type, ...base, label, text };
+			if (details !== undefined) {
+				if (!isJsonValue(details)) {
+					return bad("a user_message entry has details that are not JSON");
+				}
+				entry.details = details;
+			}
+			return ok(entry);
 		}
 		case "assistant_message": {
 			const text = value["text"];

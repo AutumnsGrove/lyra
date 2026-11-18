@@ -13,7 +13,7 @@ import type { ConversationMessage } from "../core/conversation.js";
 import type { RecordEntry } from "./entries.js";
 
 /** Root first, last entry last. Unknown kinds are part of the chain but not the conversation. */
-export function activePath(entries: RecordEntry[]): RecordEntry[] {
+export function activePath(entries: readonly RecordEntry[]): RecordEntry[] {
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
 	const path: RecordEntry[] = [];
 	const seen = new Set<string>();

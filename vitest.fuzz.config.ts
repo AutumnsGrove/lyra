@@ -9,5 +9,8 @@ export default defineConfig({
 		include: ["packages/*/src/**/*.fuzz.test.ts"],
 		environment: "node",
 		passWithNoTests: true,
+		// A fuzz target runs a high `numRuns` on purpose, so the default five-second
+		// test timeout measures the machine rather than the property (step 3, notes.md).
+		testTimeout: 30_000,
 	},
 });

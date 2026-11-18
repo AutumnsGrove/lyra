@@ -19,7 +19,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | merged |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
-| 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
+| 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | in review |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
@@ -27,10 +27,20 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
-### Where the last session stopped (2026-11-17)
+### Where the last session stopped (2026-11-18)
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
 
+- **Step 3 is built and in review**, on `feat/step-03-recipes-and-tools`: the JSON Schema subset and
+  its fuzz target, `defineTool` and validation in the loop, state and replay (`setup`, `apply`,
+  `ctx.state`), the handle table, `finish` with `coverageCheck`, `defineRecipe`, and the `timeline-test`
+  recipe with five scenarios and `RSM07`. The spec is `docs/recipes-and-tools.md`, and decisions 111 to
+  116 are its own.
+- **Step 3's gate** on the branch: 247 tests, 4 fuzz/property targets, coverage 94.28% statements and
+  88.63% branches, budget 62,585 B of 65,536 B (decision 113), and `matrixcheck` 175 rows (147 tested, 28
+  unbuilt, all protocol).
+- **The next step is 4**, [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md), from the merged
+  `main`. It brings the workerd half of the gate with it.
 - **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
   went through `pi-review` and the agent merged them, on Autumn's instruction (decision 107).
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
@@ -39,13 +49,14 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Step 2 is merged**, as pull request #6 and the merge commit `d278c82`, after two review rounds (the
   first found a stale finish flag and an uncounted truncated field, both fixed test-first). It added the
   entry cap, limits, stop/steer/follow-up, retries with a fallback, the stuck safeguard, resume with the
-  recipe pin and the runtime, and waking.
+  recipe pin and the runtime, and waking. It also raised the size ceiling to 52 KiB (decision 109), which
+  step 3 raised again to 64 KiB (decision 113).
 - **Next is step 3**, [`03-recipes-and-tools.md`](03-recipes-and-tools.md), from this `main`: recipes and
   tools, including the small JSON Schema validator for tool arguments. It is the step that grows
   `RunDefinition` from what step 2 needed into the full recipe.
 - **`scripts/unbuilt-rows.json` holds only the 28 protocol rows** (step 6). Every record row came out
-  with step 2, as decision 96 requires, and `matrixcheck` now reports 96 tested and 28 unbuilt.
-- **`main`'s gate** (on `d278c82`): 185 tests, 3 fuzz/property targets, coverage 96.56% statements
+  with step 2 and every recipes-and-tools row with step 3, as decision 96 requires.
+- **`main`'s gate on `d278c82`** (step 2): 185 tests, 3 fuzz/property targets, coverage 96.56% statements
   and 91.79% branches, budget 47,278 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28 unbuilt). The
   ceiling was raised from 40 to 52 KiB during step 2 (decision 109) because the step's own work passed
   40, and nothing in it is padding.
