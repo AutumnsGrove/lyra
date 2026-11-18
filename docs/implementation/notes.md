@@ -8,6 +8,26 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 7, 2026-11-17
+
+**Start a session at [`README.md`](README.md), "Where the last session stopped".** Step 2 is complete on
+`feat/step-02-limits-retries-resume` and its pull request is open.
+
+- **The runtime arms the wake, and the host fires it.** `turn_start` sets one wake a step ahead,
+  `run_end` cancels it, so a run that is working always has exactly one alarm and a run that has stopped
+  has none. Which run is woken is the host's business: `wake` is what an alarm calls, and it is the
+  registry that makes a late or doubled alarm harmless.
+- **A broken Waking slot cannot fail a run.** The scheduling is a fire-and-forget promise on the
+  handle's event stream, and the stream isolates a throwing listener, so a host whose alarm cannot be
+  set loses the automatic resume and nothing else. That is the right trade for a slot that is a
+  convenience, and it is the reason WAK01 asserts on the slot's own record rather than on the run.
+- **The memory adapter's `memoryWaking()` returns a wrapper, not a slot.** A test passes `waking.slot`
+  to the runtime and inspects `waking.scheduled()`/`fire()`. Passing the wrapper silently did nothing,
+  because the runtime caught the missing method as a listener error; the row that caught it is WAK01.
+- **`LIM06` and the resume half of `LIM04` are in the limit rows, not the resume rows**, because what
+  they test is the allowance arithmetic across a resume: turns already spent still count, and active
+  time already spent can park a run before it asks anything.
+
 ## Step 2, slice 6 (part three), 2026-11-17
 
 - **A resume has to move the host's id source past the record's ids, and the test fake is what found

@@ -18,7 +18,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | done in Lattice, 2026-11-17 |
 | 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | merged |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
-| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | in progress, slices 1 to 5 of 7 done |
+| 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | in review |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | not started |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
@@ -36,20 +36,16 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
   dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
   covered 1a and 1b only.
-- **Step 2 is in progress on `feat/step-02-limits-retries-resume`**: slices 1 to 5 are `8b3ce75` (the entry
-  cap) through `ccbaa62` (the handoff docs), pushed and green, and there is **no pull request yet**: the PR
-  opens when the step's gate is green, as the rules below say. Slice 1 capped an entry; slice 2 added limits;
-  slice 3 added `createRun` and stop, steer and follow-up; slice 4 added retries and the fallback; slice 5
-  added the stuck safeguard.
-- **Next is slice 6 of that document: the definition pin and resume** (`REC05` to `REC09`, then `RSM01` to
-  `RSM06`), which is also where `createRuntime` and its registry arrive, with `resume` and `wake`. It is the
-  largest slice left, and it is what `LIM06` and the resume half of `RTY` wait for. Slice 7 follows.
+- **Step 2 is complete on `feat/step-02-limits-retries-resume`**, all seven slices, with its pull request
+  open for review. It added the entry cap, limits, stop/steer/follow-up, retries with a fallback, the
+  stuck safeguard, resume with the recipe pin and the runtime, and waking. **Next is step 3**, from a
+  `main` that has step 2 merged: recipes and tools, including the small JSON Schema validator.
 - **`scripts/unbuilt-rows.json` has 33 rows left**: `REC05` to `REC09` (step 2) and the 28 protocol rows
   (step 6). `REC01` to `REC04` came out with slice 1, as decision 96 requires.
-- **The branch's last gate** (on `cde9628`, with `ccbaa62` docs after it): 157 tests, 3 fuzz/property
-  targets, coverage 97.11% statements and 93.75% branches, budget 37,785 B of 40,960 B, and `matrixcheck`
-  112 rows (79 tested, 33 unbuilt). The budget has ~3 KiB left, so slice 6 and 7 will need care: the
-  registry and resume are real code and nothing here is padding.
+- **The branch's last gate** (on `08d26a8`): 183 tests, 3 fuzz/property targets, coverage 96.43%
+  statements and 91.72% branches, budget 47,080 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28
+  unbuilt). The ceiling was raised from 40 to 52 KiB at slice 6 (decision 109) because the step's own
+  work passed 40, and nothing in it is padding.
 - **Nothing is released.** The package is `0.0.0` and unpublished; step R does that, and Autumn decides when.
 
 
