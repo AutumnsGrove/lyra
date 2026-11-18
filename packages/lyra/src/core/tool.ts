@@ -9,8 +9,17 @@
 
 import type { JsonObject, JsonValue } from "./json.js";
 import type { ToolSpec } from "./model.js";
+import {
+	compileSchema,
+	formatErrors,
+	validateValue,
+	type InferSchema,
+	type Validation,
+} from "./schema.js";
 
-export interface ToolContext {
+export type { InferSchema };
+
+export interface ToolContext<S = unknown> {
 	/** Fires when the run is stopped or the tool's deadline passes. */
 	signal: AbortSignal;
 	runId: string;
@@ -21,6 +30,11 @@ export interface ToolContext {
 	 * (decision 24).
 	 */
 	callKey: string;
+	/**
+	 * The recipe's state. A tool may read it here and must not change it: `apply` is
+	 * the only writer, so a live run and a replayed one cannot drift (decision 112).
+	 */
+	state: S;
 }
 
 export interface ToolOutcome {
@@ -41,7 +55,66 @@ export interface Tool {
 	/** Whether repeating it after an interruption is harmless (decision 24). Default no. */
 	safeToRepeat?: boolean;
 	execute(args: unknown, ctx: ToolContext): Promise<ToolOutcome>;
+	/**
+	 * The check the loop runs before this tool executes, when the tool has a schema.
+	 * A tool made by hand (a test fake) has none and is not checked.
+	 */
+	validate?(args: unknown): Validation<unknown>;
+	/**
+	 * The only place a recipe's state changes (decision 112). The core calls it after
+	 * a successful execute, and again for every saved result on a resume.
+	 */
+	apply?(state: unknown, args: unknown, outcome: ToolOutcome): unknown;
 }
 
 /** A tool with no parameters, which is the shape `finish` and the fakes have. */
 export const NO_PARAMETERS: JsonObject = { type: "object", properties: {} };
+
+export interface DefineToolOptions<A extends JsonObject, S> {
+	name: string;
+	description: string;
+	parameters: A;
+	safeToRepeat?: boolean;
+	execute(args: InferSchema<A>, ctx: ToolContext<S>): Promise<ToolOutcome>;
+	apply?(state: S, args: InferSchema<A>, outcome: ToolOutcome): S;
+}
+
+export function defineTool<const A extends JsonObject, S = unknown>(
+	options: DefineToolOptions<A, S>,
+): Tool {
+	// A schema this build cannot compile is a tool author's mistake, and it is
+	// thrown here rather than letting the tool silently check nothing (TOL04).
+	const compiled = compileSchema(options.parameters);
+	const apply = options.apply;
+
+	const tool: Tool = {
+		spec: {
+			name: options.name,
+			description: options.description,
+			parameters: options.parameters,
+		},
+		validate: (args) => validateValue<InferSchema<A>>(compiled, args),
+		execute: async (args, ctx) => {
+			// The loop checks arguments before calling this, but a tool called directly
+			// (a test, a later host) still never sees a value its schema refuses.
+			const checked = validateValue<InferSchema<A>>(compiled, args);
+			if (!checked.ok) {
+				return { isError: true, content: formatErrors(checked.errors) };
+			}
+			return options.execute(checked.value, ctx as ToolContext<S>);
+		},
+	};
+	if (options.safeToRepeat !== undefined) {
+		tool.safeToRepeat = options.safeToRepeat;
+	}
+	if (apply !== undefined) {
+		tool.apply = (state, args, outcome) => {
+			const checked = validateValue<InferSchema<A>>(compiled, args);
+			if (!checked.ok) {
+				return state;
+			}
+			return apply(state as S, checked.value, outcome);
+		};
+	}
+	return tool;
+}

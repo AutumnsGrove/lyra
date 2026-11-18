@@ -102,7 +102,7 @@ export type CompiledSchema =
 	  }
 	| { kind: "enum"; values: readonly JsonValue[] };
 
-export type Validation = { ok: true; value: JsonValue } | { ok: false; errors: string[] };
+export type Validation<T = JsonValue> = { ok: true; value: T } | { ok: false; errors: string[] };
 
 function definitionError(message: string): never {
 	throw new SchemaDefinitionError(message);
@@ -566,7 +566,10 @@ function exceedsDepth(value: unknown): boolean {
 }
 
 /** Check a value against a compiled schema. It never throws, whatever the value is. */
-export function validateValue(schema: CompiledSchema, value: unknown): Validation {
+export function validateValue<T = JsonValue>(
+	schema: CompiledSchema,
+	value: unknown,
+): Validation<T> {
 	if (exceedsDepth(value)) {
 		return {
 			ok: false,
@@ -578,7 +581,9 @@ export function validateValue(schema: CompiledSchema, value: unknown): Validatio
 	if (errors.length > 0) {
 		return { ok: false, errors };
 	}
-	return { ok: true, value: value as JsonValue };
+	// The one cast in the validator: everything above has checked the value against
+	// the same subset the inferred type describes, so this is a claim, not a guess.
+	return { ok: true, value: value as T };
 }
 
 /** The message the model reads: stable, specific, and never longer than the cap. */
