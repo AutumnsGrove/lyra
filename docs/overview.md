@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-17. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 108 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-18. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 116 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -40,9 +40,9 @@ Three things make this safe to leave running:
 |---|---|
 | **Run** | One job, from start to finish. |
 | **Session** | A conversation that can hold many runs (decision 44). |
-| **Recipe** | A task's instructions, its tools, its limits, and what counts as done (decision 5). |
-| **Tool** | Something a run can do: read a diff, add a line to a page. A tool owns anything that must be exact, like a repo name or a link, and rejects a bad request so the model corrects itself (decision 21). |
-| **Handle** | A short name like `c1` or `pr12` the model uses for a real commit or pull request, so it never copies a long exact string (decision 8). |
+| **Recipe** | A task's instructions, its input, its tools, its limits, and what counts as done (decision 5). |
+| **Tool** | Something a run can do: read a diff, add a line to a page. A tool owns anything that must be exact, like a repo name or a link, checks its own arguments against a schema, and rejects a bad request so the model corrects itself (decisions 21, 111). |
+| **Handle** | A short name like `c1` or `pr12` the model uses for a real commit or pull request, so it never copies a long exact string (decisions 8, 114). |
 | **Record** | The saved history of a run (see above). |
 | **Park** | Pause a run, with a reason, at no cost while it waits (decision 22). |
 | **Slot** | A small interface to the outside world: model, storage, secrets, waking, and an optional shell (decision 12). |
@@ -156,11 +156,12 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 108 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 116 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |
 | [`core-loop.md`](core-loop.md) | The core loop, and the vocabulary around it: failure as a value, injected time and ids, and the rows the loop is tested by. |
+| [`recipes-and-tools.md`](recipes-and-tools.md) | Recipes, tool argument validation, state and replay, handles, and the done-check. |
 | [`approvals.md`](approvals.md) | Approvals, questions, and proposals. |
 | [`context-size.md`](context-size.md) | Compaction. |
 | [`protocol.md`](protocol.md) | The wire, with spec rows. |

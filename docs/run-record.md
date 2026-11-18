@@ -6,7 +6,7 @@ category: features
 
 # The record of a run
 
-Last updated: 2026-11-17. Everything here is decided. The entries, the loader, replay and their rows were built in step 1a, slice 3; the size cap and resume rows (REC01 to REC09) are step 2.
+Last updated: 2026-11-18. Everything here is decided. The entries, the loader, replay and their rows were built in step 1a, slice 3; the size cap and resume rows (REC01 to REC09) are step 2.
 
 ## What the record is
 
@@ -29,7 +29,7 @@ Every entry has four fields: `type`, `id`, `parent`, and `ts` (the time). The he
 | Entry | What it holds | Written when |
 |---|---|---|
 | header | Record version, run id, task name, recipe name, version, tool-set hash, instructions hash and one hash per tool, start time, host | At the start |
-| message from the user | The job, or a steer or a follow-up (labeled which) | When it arrives |
+| message from the user | The job, or a steer or a follow-up (labeled which). The `task` message also carries the task’s input in `details`, so a resume can rebuild a recipe’s state (decision 112) | When it arrives |
 | message from the assistant | The model's text and its tool requests, plus the model, tokens, cost and its source, finish reason, time taken, and retries | Right after the model replies, before any tool runs |
 | message from a tool | The result: ok or error, what the model sees, and optional details for people | Right after the tool finishes |
 | status | running, parked (with its reason, and the detail that names which part of it), resumed, done, or failed | On every change |
@@ -72,7 +72,7 @@ The tool-set hash covers tool names and argument schemas, not the wording of the
 
 Some tools build something as the run goes. The timeline's tools build a page, and they hand out short handles (`c1`, `pr12`) that map back to real hashes. If the host loses the run partway, that half-built page and that handle map have to come back.
 
-The record is the only place progress lives. On resume, Lyra replays the saved tool results to rebuild the half-built page and the handle map. There is no second copy to get out of step. Tools are written so that replaying their saved results rebuilds their state.
+The record is the only place progress lives. On resume, Lyra replays the saved tool results to rebuild the half-built page and the handle map. There is no second copy to get out of step. Tools are written so that replaying their saved results rebuilds their state: a recipe's `setup(input)` runs again from the input saved on the `task` message, and each saved result goes through the tool's `apply` in order, the same call a live run makes (decision 112). The input is why it is on the task message and not only in the caller's hands.
 
 ## Decided: the model's own reasoning (decision 33)
 

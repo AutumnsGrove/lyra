@@ -8,6 +8,42 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 3, recipes and tools, 2026-11-18
+
+- **The one record that cannot be resumed is a recipe killed between the header and the task message.** The
+  recipe's input is saved on the task message (decision 112) because that is the second append, and a
+  header-only record has nothing to run `setup` with. Inventing an input would invent the page, so the
+  resume fails with "the record has no task input to rebuild the recipe's state" and says so. `RSM07` tests
+  that window explicitly rather than skipping it quietly. Saving the input in the header too would close it
+  at the cost of keeping a possibly-large input twice; that was not worth it for a one-append window.
+- **`finish` is now safe to repeat, and a resume needed it.** `RSM07` killed `finish` between its call and
+  its result, and the resume reported the outcome unknown, asked the model for a turn the script did not
+  have, and failed. The check is pure, so repeating it cannot duplicate anything; without that mark, a
+  killed `finish` costs the run. The testkit's old always-accepting `finish` stub is left alone, because the
+  step 2 rows are about the loop rather than the done-check.
+- **`defineTool` inferred the state type from `apply` only when `execute` did not lean on it.** Inference of
+  `S` from an optional `apply` was not reliable with a `const` schema parameter and an `args`-taking apply,
+  so the test recipe annotates `ctx` as `ToolContext<TimelineState>` on the tools whose execute reads state.
+  The tool contract itself is unchanged; this is what writing a tool now looks like.
+- **A fixture that shares its state poisons the next test, and that is the enforcement row's fault.** TOL09's
+  tool mutates `ctx.state` on purpose; its first run pushed "changed in execute" into the shared `first`
+  object, and the next test saw it. `firstRun()` now returns a fresh page each time, which is also how a
+  recipe is meant to be written.
+- **The size ceiling moved to 64 KiB (decision 113) at slice 3, not at the end.** The validator, typed
+  tools, the state seam and the record's task input passed 53 KiB before half the step was built, and the
+  remaining modules were promised by the step document. The step finished at 62,585 B. The next raise is a
+  decision again, not a rounding.
+- **Two property runs outgrew the default five-second test timeout, so the timeout was raised, not the
+  work cut.** The coverage run pushed RCD06 past it, and the fuzz run pushed RCD07 past it on the same
+  machine. RCD06 has an explicit 60 s timeout, and the fuzz config sets 30 s for every target, because a
+  high `numRuns` is the point of a fuzz target and five seconds measured the machine rather than the
+  property.
+- **`Runtime.start` returns a `Result`, which changes a step 2 signature.** RCP05 asks for `bad_request`
+  from `start`, and a handle cannot carry one. The step's own row is the reason, and `runtime.test.ts` and
+  `waking.test.ts` started through a one-line helper.
+- **`ToolOutcome.details` on a refusal is `{ code: "bad_request" }`.** The step document asks for the code
+  in details; it is the one detail a refused call carries, and nothing reads it yet.
+
 ## Step 2 merged, 2026-11-18
 
 - **A clean review job is not a clean review.** I merged the post-merge docs pull request (#7) because its

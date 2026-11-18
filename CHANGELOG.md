@@ -148,6 +148,16 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Changed
 
+- `Runtime.start` returns a `Result<RunHandle>`, because a recipe's input schema is checked before a run
+  begins and a refused input is `bad_request` with nothing written. A caller that used the handle directly
+  now unwraps the result. Step 2's minimal definition still works: without an `input` schema, nothing is
+  checked and the text input is unchanged.
+- `ToolContext` gained `state`, and `Tool` gained `validate`, `apply` and `finish`, so a tool reads a
+  recipe's state, is checked before it runs, and changes state only through `apply` (decisions 112, 115,
+  116). `JsonValue` accepts a readonly array, so a schema written with `const` type-checks as JSON. A tool
+  made by hand, as the testkit's fakes are, carries no schema and is not checked, which is why step 2's
+  tests are unchanged.
+
 - The planning record carries no open questions, and it gained decisions 99 to 103 in the process. The
   two the first slice listed, the repository's name, layout and release process, and whether the
   Cloudflare adapter builds on Cloudflare's agent tooling, were already decided (68 to 73, 95, 98), so
