@@ -54,9 +54,9 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   entry cap, limits, stop/steer/follow-up, retries with a fallback, the stuck safeguard, resume with the
   recipe pin and the runtime, and waking. It also raised the size ceiling to 52 KiB (decision 109), which
   step 3 raised again to 64 KiB (decision 113).
-- **Next is step 3**, [`03-recipes-and-tools.md`](03-recipes-and-tools.md), from this `main`: recipes and
-  tools, including the small JSON Schema validator for tool arguments. It is the step that grows
-  `RunDefinition` from what step 2 needed into the full recipe.
+- **Step 3 grew `RunDefinition` into the full recipe**: an input schema, `setup`, the tools, limits, a
+  fallback model and the stuck settings, with argument validation, state and replay, handles and the
+  done-check. What it chose along the way is in decisions 111 to 116 and in `notes.md` under "Step 3".
 - **`scripts/unbuilt-rows.json` holds only the 28 protocol rows** (step 6). Every record row came out
   with step 2 and every recipes-and-tools row with step 3, as decision 96 requires.
 - **`main`'s gate on `d278c82`** (step 2): 185 tests, 3 fuzz/property targets, coverage 96.56% statements
