@@ -112,6 +112,11 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- A recipe's state comes back from the record: `setup(input)` makes the first message and the state,
+  a tool may read `ctx.state` but only `apply` changes it, and a resume replays every saved result
+  through that same `apply`, so a live run and a rebuilt one cannot drift. The task's input is saved in
+  the `task` message's `details`, and one too big for a record entry is refused with `bad_request`
+  before anything is written (decision 112). The size ceiling moves from 52 to 64 KiB (decision 113).
 - `compileSchema` and `validateValue`: the small JSON Schema subset a tool's arguments are checked
   against (`type`, `properties`, `required`, `additionalProperties`, `enum`, `items`, `minItems`,
   `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`). A tool author's schema is refused at

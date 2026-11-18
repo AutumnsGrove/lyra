@@ -373,6 +373,12 @@ time-box from `implementation/03-recipes-and-tools.md` still stands: if this had
 fuzz target kept finding one class of bug, it would have been swapped for TypeBox or Valibot and Autumn's
 word would have been needed for the new dependency. Decided 2026-11-18.
 
+### 112. A recipe's state changes only in `apply`, and its input is saved on the task message
+Written and decided at step 3, slice 3. A run's progress has to live in the record (decision 32), and a tool's in-memory state cannot be saved as a second copy without the two drifting. So a recipe has a pure `setup(input)` that returns the first message and the initial state, an `execute` that may read the state and never changes it, and an `apply(state, args, outcome)` that is the only writer. The core calls `apply` after every successful execute, and again for every saved result while rebuilding on a resume, so there is one path and the live state and the replayed state cannot disagree. An error result is never applied, and neither is a call the tool's schema refused, because neither changed anything. The task's input is saved as `details` on the `task` message, which is what lets a resume run `setup` again; an input too large for one record entry is `bad_request` at start, and a record with a recipe but no saved input fails rather than guessing. Decided 2026-11-18.
+
+### 113. The package's size ceiling is 64 KiB
+Raised from 52 KiB on 2026-11-18, at step 3 slice 3, when the gzipped package passed 53 KiB before the step was half built. The growth is that step's own work and nothing else: the JSON Schema validator, `defineTool` and typed arguments, the state and replay seam, and the record's task input. Decision 109 said the next raise needs a reason of its own, and this is it: step 3's remaining modules (handles, `finish`, `defineRecipe`, and the testkit's test recipe) are not written yet, and cutting any of them drops behavior the step document promises. Splitting files does not help because the budget sums `dist/`. 64 KiB is still far below a Worker's own limit and still fails on careless growth. If the step's number comes in close to it, the next raise is again a decision rather than a rounding. Decided 2026-11-18.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

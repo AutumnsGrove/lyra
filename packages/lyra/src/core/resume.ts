@@ -21,7 +21,9 @@ import type {
 	RecipeStamp,
 	RecordEntry,
 	StatusEntry,
+	UserMessageEntry,
 } from "../record/entries.js";
+import { isJsonValue, isPlainObject, type JsonValue } from "./json.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
 import { activePath, replayConversation } from "../record/replay.js";
 import type { Ids } from "./clock.js";
@@ -57,6 +59,22 @@ export interface ResumeSeed {
 	finished: boolean;
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
+	/**
+	 * The task's input as JSON, from the `task` message's details, so a resume can run
+	 * the recipe's `setup` again. Absent on a record written before step 3, and on one
+	 * whose task message never landed (decision 112).
+	 */
+	input: JsonValue | undefined;
+}
+
+/** The input saved on a `task` message, if it is there and shaped as this build writes it. */
+function inputOf(message: UserMessageEntry | undefined): JsonValue | undefined {
+	const details = message?.details;
+	if (!isPlainObject(details) || !Object.prototype.hasOwnProperty.call(details, "input")) {
+		return undefined;
+	}
+	const input = details["input"];
+	return isJsonValue(input) ? input : undefined;
 }
 
 /**
@@ -94,6 +112,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let last: RecordEntry | undefined;
 	let assistant: { entry: AssistantMessageEntry; index: number } | undefined;
 	let pin = loaded.value.header.recipe;
+	let taskMessage: UserMessageEntry | undefined;
 	const usedTools = new Set<string>();
 
 	for (const [index, entry] of path.entries()) {
@@ -118,6 +137,11 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				last = entry;
 				break;
 			case "user_message":
+				if (entry.label === "task" && taskMessage === undefined) {
+					taskMessage = entry;
+				}
+				last = entry;
+				break;
 			case "tool_message":
 				last = entry;
 				break;
@@ -157,5 +181,6 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		unansweredCalls,
 		finished: last?.type === "tool_message" && last.done === true,
 		pin,
+		input: inputOf(taskMessage),
 	});
 }
