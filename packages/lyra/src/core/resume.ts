@@ -49,7 +49,11 @@ export interface ResumeSeed {
 	usedTools: ReadonlySet<string>;
 	/** Calls of the last assistant turn that have no result saved after it. */
 	unansweredCalls: ToolCall[];
-	/** The last tool result on the path passed the done-check (decision 25). */
+	/**
+	 * The run's last act was a tool result that passed the done-check (decision 25).
+	 * Only when it is the last message: a follow-up saved after it means the run has
+	 * more to do, and a resume that stopped there would silently drop it.
+	 */
 	finished: boolean;
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
@@ -89,7 +93,6 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let status: StatusEntry | undefined;
 	let last: RecordEntry | undefined;
 	let assistant: { entry: AssistantMessageEntry; index: number } | undefined;
-	let lastTool: RecordEntry | undefined;
 	let pin = loaded.value.header.recipe;
 	const usedTools = new Set<string>();
 
@@ -116,9 +119,6 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				break;
 			case "user_message":
 			case "tool_message":
-				if (entry.type === "tool_message") {
-					lastTool = entry;
-				}
 				last = entry;
 				break;
 			case "recipe_updated":
@@ -155,7 +155,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		last,
 		usedTools,
 		unansweredCalls,
-		finished: lastTool?.type === "tool_message" && lastTool.done === true,
+		finished: last?.type === "tool_message" && last.done === true,
 		pin,
 	});
 }

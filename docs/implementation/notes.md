@@ -8,6 +8,19 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, review round one, 2026-11-17
+
+- **A done-check that is not the last act is not the end of the run.** `finished` in the resume seed
+  looked at the last *tool result*, so a record that had an accepted finish and then a follow-up ended
+  `done` on resume and silently dropped the follow-up. It now looks at the last *message*: a tool result
+  with `done` at the very end means finished, anything after it means the run has more to do. The case is
+  RSM01's "a follow-up saved after an accepted finish is not skipped".
+- **Time spent before a crash is not counted.** A run killed mid-call has a `running` status and no
+  closing one, so the segment never closes and its active time is not in the record. It cannot be
+  measured after the fact without using calendar time, which would count the downtime as work. The time
+  limit therefore under-counts by whatever the last, interrupted segment did, and it is the conservative
+  direction for a limit.
+
 ## Step 2, slice 7, 2026-11-17
 
 **Start a session at [`README.md`](README.md), "Where the last session stopped".** Step 2 is complete on

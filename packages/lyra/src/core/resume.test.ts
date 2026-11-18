@@ -16,6 +16,7 @@ import {
 	type FakeClock,
 	type ScriptedTurn,
 } from "../testkit/index.js";
+import { createRun } from "./run-handle.js";
 import { runTask, type RunConfig } from "./run.js";
 import { until } from "./run-harness.testing.js";
 import type { Tool } from "./tool.js";
@@ -325,4 +326,52 @@ test("RSM05 property: killed anywhere, any script, the resume matches the whole 
 		}),
 		{ numRuns: 15 },
 	);
+});
+
+test("RSM01 a follow-up saved after an accepted finish is not skipped by a resume", async () => {
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "finish" }] },
+		{ toolCalls: [{ id: "c2", name: "finish" }] },
+	];
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	// The kill lands on the assistant turn the follow-up caused, so the record ends
+	// with an accepted finish and then a message that means the run must go on.
+	const dying = crashingStorage(inner, { at: 7, when: "before" });
+	const handle = createRun({
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools: [safeFinish()],
+		model: scriptedModel(turns, { clock }),
+		storage: dying,
+		clock,
+		ids: counterIds(),
+	});
+	expect(handle.followUp("one more thing")).toMatchObject({ ok: true });
+	await until(() => dying.appends() >= 7);
+
+	const read = await inner.read();
+	expect(read.ok).toBe(true);
+	const model = scriptedModel(turns, { clock });
+	const resumed = await runTask({
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools: [safeFinish()],
+		model,
+		storage: inner,
+		clock,
+		ids: counterIds(),
+		resume: { lines: read.ok ? read.value : [], by: "person" },
+	});
+
+	expect(resumed.reason).toBe("done");
+	// The model was asked for the turn the follow-up deserves, rather than the run
+	// ending on the finish that came before it.
+	expect(model.requests).toHaveLength(1);
 });
