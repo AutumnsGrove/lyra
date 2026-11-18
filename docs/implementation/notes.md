@@ -8,7 +8,15 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
-## Step 2, review round one, 2026-11-17
+## Step 2 merged, 2026-11-18
+
+Step 2 is merged as pull request #6 (`d278c82`) and `main` is green. It took two review rounds: the first
+found a stale finish flag that silently dropped a follow-up's work and a truncated field whose bytes were
+not counted, both fixed test-first; the second found nothing. **Step 3, recipes and tools, is next**, and
+it starts from this `main` — the size ceiling is 52 KiB (decision 109), and the only unbuilt rows left are
+the 28 protocol ones that step 6 builds.
+
+## Step 2, review round one, 2026-11-18
 
 - **The review found a stale finish flag, and it was right.** After a follow-up continued a run,
   `finishedRun` still said the job was done, so every call of the turn the follow-up caused was answered
