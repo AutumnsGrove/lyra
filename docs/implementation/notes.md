@@ -17,6 +17,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   a check; `setup` only runs after the saved input passes it, and a mismatch fails with "the record's task
   input no longer matches the recipe's input schema". A park was the other option the review offered, but a
   person cannot fix it by resuming, so `failed` with that message is the honest ending. `RCP07` is the row.
+- **The input check ran before the record's ending was read, and that was the second finding.** A `done`
+  record resumed under a schema that had moved got a fresh `failed` status appended, and a wake over a
+  parked run wrote `failed`, which is an alarm overruling a person (decision 23). The rebuild is now gated
+  on the resume actually continuing: a terminal record's rebuild is best-effort for the caller's state and
+  never writes, a recipe-change park never rebuilds, and only a run that is going on fails when its input
+  can no longer be rebuilt. `RCP07` grew both cases, and both failed before the fix.
 - **`start` could throw where it promised a `Result`.** A hand-written `RunDefinition` with a schema this
   build cannot compile reached `compileSchema` unguarded, and `defineRecipe` is not the only way in because
   `RunDefinition` is public. Compiling is now wrapped and returns `bad_request` with the schema's own

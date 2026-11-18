@@ -1108,33 +1108,29 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				turns = seed.turns;
 				parent = seed.parent;
 				closedActiveMs = seed.activeMs;
-				// A recipe's state comes back from its own `setup` and the saved results,
-				// before anything new runs (decision 112). Without the input the record
-				// cannot rebuild it, and guessing would invent a page.
 				let prepared: TaskStart | undefined;
-				if (config.setup !== undefined) {
+
+				/**
+				 * A recipe's state comes back from its own `setup` and the saved results
+				 * (decision 112). Returns why it could not be rebuilt, or nothing when it
+				 * did. Without the input there is nothing to run `setup` with, and a
+				 * schema that moved under the record's input cannot be rebuilt faithfully.
+				 */
+				const rebuild = (): string | undefined => {
+					if (config.setup === undefined) {
+						return undefined;
+					}
 					if (seed.input === undefined) {
-						throw new Error(
-							"the record has no task input to rebuild the recipe's state",
-						);
+						return "the record has no task input to rebuild the recipe's state";
 					}
 					const checked = config.inputCheck?.(seed.input);
 					if (checked !== undefined && !checked.ok) {
-						throw new Error(
-							`the record's task input no longer matches the recipe's input schema, so the run cannot be rebuilt: ${formatErrors(checked.errors, "invalid input")}`,
-						);
+						return `the record's task input no longer matches the recipe's input schema, so the run cannot be rebuilt: ${formatErrors(checked.errors, "invalid input")}`;
 					}
 					prepared = config.setup(seed.input);
 					state = replayState(prepared.state, seed.record.entries, tools);
-				}
-				if (seed.messages.length === 0) {
-					// The kill landed after the header and before the task message, so the
-					// resume writes the job the caller is asking for. This comes after the
-					// seed sets `parent`, or the write would leave the message orphaned.
-					const first = makeFirst(prepared?.message ?? config.input, seed.input);
-					await append(first);
-					messages.push({ role: "user", text: first.text });
-				}
+					return undefined;
+				};
 
 				const recorded = recordedOutcome(seed, config.resume.by);
 				const current =
@@ -1146,28 +1142,55 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 								instructions: config.system,
 								tools: config.tools.map((tool) => tool.spec),
 							});
+				const change = recipeChangeParked(seed, current);
+
 				if (recorded !== undefined) {
 					// Nothing is written: the record already says how this run ended, or
-					// that it waits for a person.
+					// that it waits for a person. The state is only for the caller's
+					// benefit, so a rebuild that cannot happen loses it and not the ending.
 					nothingWritten = true;
+					try {
+						rebuild();
+					} catch {
+						state = undefined;
+					}
 					result = recorded;
 				} else if (seed.finished) {
 					// A kill landed between an accepted finish and the closing status. The
 					// record already knows the done-check passed, so the run ends done
 					// rather than asking the model for a turn it already gave.
 					recordStarted = true;
+					try {
+						rebuild();
+					} catch {
+						state = undefined;
+					}
 					result = { reason: "done", usage: usageTotal.total(), turns };
-				} else if (recipeChangeParked(seed, current) !== undefined) {
+				} else if (change !== undefined) {
 					// A tool set that differs from the pin waits for a person (REC07, REC08);
 					// the closing status below writes the one park, with the reason.
 					result = {
 						reason: "parked",
 						parkedReason: "stuck",
-						parkedDetail: recipeChangeParked(seed, current) ?? "recipe_changed",
+						parkedDetail: change,
 						usage: usageTotal.total(),
 						turns,
 					};
 				} else {
+					// Only a run that is really going on needs a state, and only here is a
+					// record that cannot be rebuilt an honest failure.
+					const refused = rebuild();
+					if (refused !== undefined) {
+						throw new Error(refused);
+					}
+					if (seed.messages.length === 0) {
+						// The kill landed after the header and before the task message, so the
+						// resume writes the job the caller is asking for. This comes after the
+						// seed sets `parent`, or the write would leave the message orphaned.
+						const first = makeFirst(prepared?.message ?? config.input, seed.input);
+						await append(first);
+						messages.push({ role: "user", text: first.text });
+					}
 					if (current !== undefined) {
 						await noteRecipeChange(seed, current);
 					}

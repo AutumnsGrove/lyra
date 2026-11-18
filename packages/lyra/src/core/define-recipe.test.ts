@@ -138,6 +138,11 @@ function runtimeFor(recipe: ReturnType<typeof timelineRecipe>) {
 	return { clock, storage, runtime, recipe };
 }
 
+async function statusesOf(storage: ReturnType<typeof memoryStorage>): Promise<string[]> {
+	const entries = await entriesOf(storage);
+	return entries.filter((entry) => entry.type === "status").map((entry) => entry.state);
+}
+
 async function entriesOf(storage: ReturnType<typeof memoryStorage>): Promise<RecordEntry[]> {
 	const read = await storage.read();
 	if (!read.ok) {
@@ -257,6 +262,125 @@ test("RCP07 a resume under a changed input schema fails before setup runs", asyn
 	expect(outcome.reason).toBe("failed");
 	expect(outcome.error?.message).toContain("no longer matches the recipe's input schema");
 	expect(setupRan).toBe(false);
+});
+
+test("RCP07 a done record resumed under a changed schema stays done, and a wake leaves a park alone", async () => {
+	const tools = [createFinishTool<{ day: string }>({ check: () => ({ ok: true }) })];
+	const first = defineRecipe({
+		name: "input-check",
+		version: 1,
+		instructions: "build the page",
+		input: daySchema,
+		setup: (input) => ({ message: input.day, state: { day: input.day } }),
+		tools,
+		limits: { steps: 1 },
+	});
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const runtime = createRuntime({
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(
+			[
+				{ toolCalls: [{ id: "c1", name: "finish", args: {} }] },
+				{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+			],
+			{ clock },
+		),
+		host: "test-host",
+	});
+	const started = runtime.start({
+		runId: "run-1",
+		task: "input-check",
+		input: { day: "Monday" },
+		definition: first,
+	});
+	if (!started.ok) {
+		throw new Error(started.error.message);
+	}
+	expect((await started.value.outcome).reason).toBe("done");
+	const done = await statusesOf(storage);
+	expect(done).toEqual(["running", "done"]);
+
+	// The deploy tightened the input schema, so the saved input no longer matches it,
+	// but setup would still read the field it knows. A finished record is not rewritten.
+	const tightened = defineRecipe({
+		name: "input-check",
+		version: 2,
+		instructions: "build the page",
+		input: {
+			type: "object",
+			properties: { day: { type: "string" }, extra: { type: "string" } },
+			required: ["day", "extra"],
+		},
+		setup: (input) => ({ message: input.day, state: { day: input.day } }),
+		tools,
+		limits: { steps: 1 },
+	});
+	const resumed = await runtime.resume({
+		runId: "run-1",
+		task: "input-check",
+		definition: tightened,
+	});
+	if (!resumed.ok) {
+		throw new Error(resumed.error.message);
+	}
+	expect((await resumed.value.outcome).reason).toBe("done");
+	expect(await statusesOf(storage)).toEqual(done);
+});
+
+test("RCP07 a wake on a parked run under a changed schema writes nothing", async () => {
+	const tools = [toolReturning("read", "the content")];
+	const first = defineRecipe({
+		name: "input-check",
+		version: 1,
+		instructions: "build the page",
+		input: daySchema,
+		setup: (input) => ({ message: input.day, state: { day: input.day } }),
+		tools,
+		limits: { steps: 1 },
+	});
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const runtime = createRuntime({
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel([{ toolCalls: [{ id: "c1", name: "read", args: {} }] }], { clock }),
+		host: "test-host",
+	});
+	const started = runtime.start({
+		runId: "run-1",
+		task: "input-check",
+		input: { day: "Monday" },
+		definition: first,
+	});
+	if (!started.ok) {
+		throw new Error(started.error.message);
+	}
+	expect((await started.value.outcome).reason).toBe("parked");
+	const parked = await statusesOf(storage);
+	expect(parked).toEqual(["running", "parked"]);
+
+	const changed = defineRecipe({
+		name: "input-check",
+		version: 2,
+		instructions: "build the page",
+		input: { type: "object", properties: { when: { type: "string" } }, required: ["when"] },
+		setup: (input) => ({ message: input.when, state: { when: input.when } }),
+		tools,
+	});
+	const woken = await runtime.wake({
+		runId: "run-1",
+		task: "input-check",
+		definition: changed,
+	});
+	if (!woken.ok) {
+		throw new Error(woken.error.message);
+	}
+	expect((await woken.value.outcome).parkedReason).toBe("limit");
+	expect(await statusesOf(storage)).toEqual(parked);
 });
 
 test("RCP06 a good input makes the first message and the state, and is saved with it", async () => {
