@@ -165,7 +165,7 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 | RSM05 | Property: any script, killed anywhere | For any generated script of safe calls, any append and either side of it, the resume ends `done`, the record loads, each segment that ends has exactly one `run_end` and nothing after it, and the conversation equals the uninterrupted run's |
 | RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
 
-## Not discussed yet
+## Answered since this document was written
 
 - **Follow-up when nothing is running.** Decided 2026-11-16 (decision 100): it continues the conversation, appending the message and starting a run in the same session, so `follow_up` and `prompt` behave the same when the run is idle.
 - **How the record is read.** Written since: `run-record.md`.

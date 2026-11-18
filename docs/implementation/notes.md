@@ -10,6 +10,18 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 ## Step 2, review round one, 2026-11-17
 
+- **The review found a stale finish flag, and it was right.** After a follow-up continued a run,
+  `finishedRun` still said the job was done, so every call of the turn the follow-up caused was answered
+  "the run already finished" and the run ended on the old flag: the follow-up's work was dropped. STP04
+  passed anyway, because the refused finish turned into an error result and the stale flag supplied
+  `done` — a test that proved the loop did not crash rather than that it did the work. It now clears the
+  flag before continuing, and STP04's test asserts the follow-up turn's `finish` really ran.
+- **The review also found a field wiped without being counted.** When one field could not fit even
+  emptied, truncation left it empty and moved on, and a smaller field that did fit then supplied the
+  `droppedBytes`: 1.2 KB of tool arguments disappeared from an entry whose marker named only the other
+  field. The wiped field's bytes now join the total, so the marker accounts for everything the entry
+  lost, and a new REC04 case fails if they stop doing so.
+
 - **A done-check that is not the last act is not the end of the run.** `finished` in the resume seed
   looked at the last *tool result*, so a record that had an accepted finish and then a follow-up ended
   `done` on resume and silently dropped the follow-up. It now looks at the last *message*: a tool result

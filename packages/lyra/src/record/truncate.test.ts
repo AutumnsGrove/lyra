@@ -171,3 +171,36 @@ test("REC04 an entry whose structure alone is over the cap is refused rather tha
 	expect(fitted.refused).toBeDefined();
 	expect(fitted.refused).toMatch(/structure/);
 });
+
+test("REC04 a second field that cannot fit even when empty is counted in the total", () => {
+	// Two large arguments and a cap that only one of them can be brought under. The
+	// bigger field is wiped whole, so the entry has to say how many bytes went with
+	// it: a save that silently loses 1.2 KB is the kind of record a resume cannot
+	// explain, because the call it replays has no arguments at all.
+	const entry: RecordEntry = {
+		type: "assistant_message",
+		id: "e3",
+		parent: null,
+		ts: START,
+		text: "",
+		toolCalls: [
+			{ id: "c1", name: "read", arguments: "a".repeat(900) },
+			{ id: "c2", name: "read", arguments: "b".repeat(1_200) },
+		],
+		model: "fake/model",
+		usage: { inputTokens: 1, outputTokens: 1 },
+		finishReason: "tool_calls",
+	};
+
+	const fitted = fitEntry(entry, 1_000);
+	expect(fitted.refused).toBeUndefined();
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(1_000);
+	expect(loadRecord([encodeHeader(header()), fitted.line]).ok).toBe(true);
+
+	// The wiped field's bytes are part of the total the marker reports.
+	const truncated =
+		fitted.entry.type === "assistant_message" ? fitted.entry.truncated : undefined;
+	expect(truncated?.droppedBytes).toBeGreaterThanOrEqual(1_200);
+	// And the call is still there, so the result that follows it is pair-able.
+	expect(fitted.entry.type === "assistant_message" ? fitted.entry.toolCalls : []).toHaveLength(2);
+});

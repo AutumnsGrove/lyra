@@ -165,6 +165,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 		const originalBytes = utf8Length(original);
 		candidate.write("");
 		if (sizeWithMarker(working, candidate.field) > maxBytes) {
+			// Emptying this field is not enough on its own, so it goes whole and its
+			// bytes join the total. Leaving them uncounted would save an entry that lost
+			// a kilobyte with nothing in it saying so, and a resume would replay a call
+			// with no arguments at all.
+			dropped += originalBytes;
 			continue;
 		}
 

@@ -998,6 +998,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			if (finishedRun) {
 				// The run would end here, so this is where a person's follow-up is read.
 				if (await readQueued("follow_up")) {
+					// The follow-up asks for new work, so the finish that came before it no
+					// longer ends the run: a stale flag would refuse every call of the turn
+					// it caused (found in review).
+					finishedRun = false;
 					continue;
 				}
 				return { reason: "done", usage: usageTotal.total(), turns };

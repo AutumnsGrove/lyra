@@ -297,6 +297,11 @@ test("STP04 follow-ups are read at an accepted finish, in arrival order", async 
 		"first follow-up",
 		"second follow-up",
 	]);
+
+	// The turn the follow-up caused really ran: its finish was not refused by the
+	// finish before it, which would have dropped the work the follow-up asked for.
+	const lastResult = record.entries.filter((entry) => entry.type === "tool_message").at(-1);
+	expect(lastResult).toMatchObject({ isError: false, content: "finished" });
 });
 
 test("STP04 a follow-up is read when the model stops without finishing", async () => {
