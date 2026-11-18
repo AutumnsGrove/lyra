@@ -20,6 +20,7 @@ import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./e
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import type { JsonValue } from "./json.js";
+import { formatErrors, type Validation } from "./schema.js";
 import { readResumeSeed, reserveIds, type ResumeSeed } from "./resume.js";
 import { replayState } from "./state.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
@@ -116,6 +117,12 @@ export interface RunConfig {
 	inputValue?: JsonValue;
 	/** The recipe's `setup`, when the run has one. */
 	setup?: (input: JsonValue) => TaskStart;
+	/**
+	 * Checks the record's saved input against the recipe's schema before `setup` runs
+	 * again. A record outlives a deploy, and an input schema can change, so the old
+	 * input is not trusted just because it was ours (found in review, step 3).
+	 */
+	inputCheck?: (input: JsonValue) => Validation<JsonValue>;
 	system: string;
 	tools: readonly Tool[];
 	model: ModelSlot;
@@ -1109,6 +1116,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					if (seed.input === undefined) {
 						throw new Error(
 							"the record has no task input to rebuild the recipe's state",
+						);
+					}
+					const checked = config.inputCheck?.(seed.input);
+					if (checked !== undefined && !checked.ok) {
+						throw new Error(
+							`the record's task input no longer matches the recipe's input schema, so the run cannot be rebuilt: ${formatErrors(checked.errors, "invalid input")}`,
 						);
 					}
 					prepared = config.setup(seed.input);

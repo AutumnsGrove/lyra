@@ -17,7 +17,14 @@
 
 import type { Recipe } from "./define-recipe.js";
 import type { JsonValue } from "./json.js";
-import { compileSchema, formatErrors, validateValue } from "./schema.js";
+import {
+	SchemaDefinitionError,
+	compileSchema,
+	formatErrors,
+	validateValue,
+	type CompiledSchema,
+	type Validation,
+} from "./schema.js";
 import type { LoadedRecord } from "../record/load.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
@@ -71,6 +78,29 @@ export interface ResumeRequest {
 	by?: "wake" | "person";
 	/** New limits for a resumed run, which is how a park is lifted (decision 22). */
 	limits?: Limits;
+}
+
+/** Checks a value against a recipe's input schema, once the schema is compiled. */
+export type InputCheck = (value: JsonValue) => Validation<JsonValue>;
+
+/**
+ * Compile a definition's input schema once, and hand back the check that uses it.
+ * A hand-written `RunDefinition` can carry a schema this build cannot compile, and
+ * that is a `bad_request` rather than a throw, because the caller only sees a
+ * `Result` (found in review, step 3).
+ */
+function inputCheckOf(definition: RunDefinition): Result<InputCheck | undefined> {
+	if (definition.input === undefined) {
+		return ok(undefined);
+	}
+	let compiled: CompiledSchema;
+	try {
+		compiled = compileSchema(definition.input, "input");
+	} catch (error) {
+		const message = error instanceof SchemaDefinitionError ? error.message : String(error);
+		return fail("bad_request", `the recipe's input schema cannot be checked: ${message}`);
+	}
+	return ok((value) => validateValue(compiled, value, "input"));
 }
 
 export interface Runtime {
@@ -140,6 +170,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	const setupFor = (
 		request: ResumeRequest,
 		extra: Pick<RunConfig, "input" | "resume">,
+		inputCheck: InputCheck | undefined,
 	): RunSetup => {
 		const definition = request.definition;
 		const setup: RunSetup = {
@@ -155,6 +186,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			ids: options.ids,
 			recipe: { name: definition.name, version: definition.version },
 			...(definition.setup === undefined ? {} : { setup: definition.setup }),
+			...(inputCheck === undefined ? {} : { inputCheck }),
 			...((request.limits ?? definition.limits) === undefined
 				? {}
 				: { limits: request.limits ?? definition.limits }),
@@ -198,11 +230,19 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		// A record with no readable header has no task message to offer, and the run
 		// then fails through the same path as any other unusable record.
 		const input = loaded.ok ? (firstUserText(loaded.value) ?? "") : "";
+		const check = inputCheckOf(request.definition);
+		if (!check.ok) {
+			return check;
+		}
 		const handle = createRun(
-			setupFor(request, {
-				input,
-				resume: { lines: read.value, by: request.by ?? "person" },
-			}),
+			setupFor(
+				request,
+				{
+					input,
+					resume: { lines: read.value, by: request.by ?? "person" },
+				},
+				check.value,
+			),
 		);
 		track(request.runId, handle);
 		armsWake(request.runId, handle);
@@ -214,12 +254,12 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
 		start(request) {
 			const definition = request.definition;
-			if (definition.input !== undefined) {
-				const checked = validateValue(
-					compileSchema(definition.input, "input"),
-					request.input,
-					"input",
-				);
+			const check = inputCheckOf(definition);
+			if (!check.ok) {
+				return check;
+			}
+			if (check.value !== undefined) {
+				const checked = check.value(request.input);
 				if (!checked.ok) {
 					return fail("bad_request", formatErrors(checked.errors, "invalid input"));
 				}
@@ -238,6 +278,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				ids: options.ids,
 				recipe: { name: definition.name, version: definition.version },
 				...(definition.setup === undefined ? {} : { setup: definition.setup }),
+				...(check.value === undefined ? {} : { inputCheck: check.value }),
 				...(definition.limits === undefined ? {} : { limits: definition.limits }),
 				...(definition.fallbackModel === undefined
 					? {}

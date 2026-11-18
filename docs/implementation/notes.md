@@ -8,6 +8,20 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 3, review round one, 2026-11-18
+
+- **The saved input was trusted on resume, and the review was right.** The record outlives a deploy, and
+  the pin covers the tool set, not the recipe's input schema, so a parked run resumed under a recipe whose
+  input changed could hand `setup` the old shape: a raw `TypeError` out of typed recipe code, or a state
+  built from the wrong fields. The recipe's schema is compiled once by the runtime and carried to the run as
+  a check; `setup` only runs after the saved input passes it, and a mismatch fails with "the record's task
+  input no longer matches the recipe's input schema". A park was the other option the review offered, but a
+  person cannot fix it by resuming, so `failed` with that message is the honest ending. `RCP07` is the row.
+- **`start` could throw where it promised a `Result`.** A hand-written `RunDefinition` with a schema this
+  build cannot compile reached `compileSchema` unguarded, and `defineRecipe` is not the only way in because
+  `RunDefinition` is public. Compiling is now wrapped and returns `bad_request` with the schema's own
+  reason, which also means the schema is compiled once per start or resume rather than twice.
+
 ## Step 3, recipes and tools, 2026-11-18
 
 - **The one record that cannot be resumed is a recipe killed between the header and the task message.** The

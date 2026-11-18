@@ -149,6 +149,7 @@ module load rather than on a person's first day.
 | RCP04 | Bad: a `finish` with no done-check | A tool named `finish` that was not made by `createFinishTool` is refused when the recipe is defined |
 | RCP05 | Sad: invalid input at start | `start` returns `bad_request` naming the field, and no run begins |
 | RCP06 | Happy: input that is exactly right | `start` accepts it, `setup` turns it into the first message and the state, and the input is saved on the task message |
+| RCP07 | Bad: a record resumed under a changed input schema | The saved input is checked against the recipe's schema before `setup` runs, and a mismatch fails with a message saying the input no longer matches, rather than a `TypeError` out of typed recipe code or a state built from the wrong shape |
 
 ## The test recipe, and the scenarios
 

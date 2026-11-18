@@ -12,7 +12,7 @@ import type { RecordEntry } from "../record/entries.js";
 import { defineRecipe, RecipeDefinitionError } from "./define-recipe.js";
 import { createFinishTool } from "./finish.js";
 import { pinRecipe } from "./recipe.js";
-import { createRuntime } from "./runtime.js";
+import { createRuntime, type RunDefinition } from "./runtime.js";
 import type { Tool } from "./tool.js";
 
 /** The rows are in `docs/recipes-and-tools.md`, RCP01 to RCP06. */
@@ -163,6 +163,100 @@ test("RCP05 an input the recipe's schema refuses is bad_request, and nothing is 
 	expect(started.error.code).toBe("bad_request");
 	expect(started.error.message).toContain("input.day");
 	expect(await entriesOf(storage)).toEqual([]);
+});
+
+test("RCP05 a hand-written definition with an uncompilable input schema is bad_request, not a throw", () => {
+	const { runtime, storage } = runtimeFor(timelineRecipe());
+	const definition: RunDefinition = {
+		name: "hand-written",
+		version: 1,
+		instructions: "do it",
+		input: { type: "object", properties: { day: { type: "string", pattern: "^a" } } },
+		tools: [],
+	};
+
+	let outcome: ReturnType<typeof runtime.start> | undefined;
+	expect(() => {
+		outcome = runtime.start({
+			runId: "run-1",
+			task: "hand-written",
+			input: { day: "abc" },
+			definition,
+		});
+	}).not.toThrow();
+	expect(outcome?.ok).toBe(false);
+	if (outcome !== undefined && !outcome.ok) {
+		expect(outcome.error.code).toBe("bad_request");
+		expect(outcome.error.message).toContain("pattern");
+	}
+	return (async () => {
+		expect(await entriesOf(storage)).toEqual([]);
+	})();
+});
+
+test("RCP07 a resume under a changed input schema fails before setup runs", async () => {
+	const tools = [
+		createFinishTool<{ day: string }>({ check: () => ({ ok: true }) }),
+		toolReturning("read", "the content"),
+	];
+	const first = defineRecipe({
+		name: "input-check",
+		version: 1,
+		instructions: "build the page",
+		input: daySchema,
+		setup: (input) => ({ message: input.day, state: { day: input.day } }),
+		tools,
+		limits: { steps: 1 },
+	});
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const runtime = createRuntime({
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel([{ toolCalls: [{ id: "c1", name: "read", args: {} }] }], { clock }),
+		host: "test-host",
+	});
+	const started = runtime.start({
+		runId: "run-1",
+		task: "input-check",
+		input: { day: "Monday" },
+		definition: first,
+	});
+	expect(started.ok).toBe(true);
+	if (!started.ok) {
+		return;
+	}
+	const parked = await started.value.outcome;
+	expect(parked.reason).toBe("parked");
+	expect(parked.parkedDetail).toBe("steps");
+
+	// The deploy renamed the input field, so the record's input is not this recipe's.
+	let setupRan = false;
+	const changed = defineRecipe({
+		name: "input-check",
+		version: 2,
+		instructions: "build the page",
+		input: { type: "object", properties: { when: { type: "string" } }, required: ["when"] },
+		setup: (input) => {
+			setupRan = true;
+			return { message: input.when.toUpperCase(), state: { when: input.when } };
+		},
+		tools,
+	});
+	const resumed = await runtime.resume({
+		runId: "run-1",
+		task: "input-check",
+		definition: changed,
+	});
+	expect(resumed.ok).toBe(true);
+	if (!resumed.ok) {
+		return;
+	}
+	const outcome = await resumed.value.outcome;
+	expect(outcome.reason).toBe("failed");
+	expect(outcome.error?.message).toContain("no longer matches the recipe's input schema");
+	expect(setupRan).toBe(false);
 });
 
 test("RCP06 a good input makes the first message and the state, and is saved with it", async () => {
