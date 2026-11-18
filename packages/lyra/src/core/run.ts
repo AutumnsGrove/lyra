@@ -19,7 +19,7 @@ import { executeTools } from "./execute-tools.js";
 import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
-import { readResumeSeed, type ResumeSeed } from "./resume.js";
+import { readResumeSeed, reserveIds, type ResumeSeed } from "./resume.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
 import type { StorageSlot } from "./slots.js";
@@ -1006,6 +1006,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	};
 
 	let result: RunResult;
+	/** True when a resume ended on the record's own word, so nothing new is written. */
+	let nothingWritten = false;
 	try {
 		// A task input is never truncated: half a request would be a different job,
 		// so one that cannot fit is refused and nothing is saved (decision 90).
@@ -1046,6 +1048,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				const seed = seeded.value;
 				// The record is already there, so writes are allowed from this point.
 				recordStarted = true;
+				reserveIds(config.ids, seed.record.entries);
 				// What the record already spent counts from the first line, so a limit
 				// means the same thing on both sides of an interruption (LIM06).
 				for (const usage of seed.usages) {
@@ -1075,6 +1078,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				if (recorded !== undefined) {
 					// Nothing is written: the record already says how this run ended, or
 					// that it waits for a person.
+					nothingWritten = true;
 					result = recorded;
 				} else if (seed.finished) {
 					// A kill landed between an accepted finish and the closing status. The
@@ -1158,11 +1162,17 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	// closing status cannot be written, the record is not finished either, so the
 	// run reports `failed` rather than an ending nobody can resume from.
 	try {
-		await saveStatus(
-			result.reason === "done" ? "done" : result.reason === "parked" ? "parked" : "failed",
-			result.reason === "parked" ? result.parkedReason : undefined,
-			result.reason === "parked" ? result.parkedDetail : undefined,
-		);
+		if (!nothingWritten) {
+			await saveStatus(
+				result.reason === "done"
+					? "done"
+					: result.reason === "parked"
+						? "parked"
+						: "failed",
+				result.reason === "parked" ? result.parkedReason : undefined,
+				result.reason === "parked" ? result.parkedDetail : undefined,
+			);
+		}
 	} catch (caught) {
 		if (result.reason !== "failed") {
 			const error: LyraError =

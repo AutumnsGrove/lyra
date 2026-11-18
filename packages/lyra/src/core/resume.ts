@@ -24,6 +24,7 @@ import type {
 } from "../record/entries.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
 import { activePath, replayConversation } from "../record/replay.js";
+import type { Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import type { ToolCall, Usage } from "./model.js";
 import { ok, type Result } from "./result.js";
@@ -52,6 +53,26 @@ export interface ResumeSeed {
 	finished: boolean;
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
+}
+
+/**
+ * Move the id source past every id the record already holds.
+ *
+ * The record is the truth about which ids are taken, and a host's `Ids` has no
+ * memory of a previous process: a counter starts again at one, and a resume that
+ * wrote `e1` into a record that already had one would have its line skipped as a
+ * duplicate, losing a step. This advances a counter until it is clear of the record
+ * and costs a random source one draw, which is why it is a loop rather than a check.
+ */
+export function reserveIds(ids: Ids, entries: readonly RecordEntry[]): void {
+	const used = new Set(entries.map((entry) => entry.id));
+	// A finite source that can only answer with used ids must not hang the resume; the
+	// loader skips a duplicate rather than crashing, so giving up is safe.
+	for (let attempt = 0; attempt <= used.size; attempt += 1) {
+		if (!used.has(ids.next("e"))) {
+			return;
+		}
+	}
 }
 
 export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {

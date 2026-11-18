@@ -8,6 +8,29 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 2, slice 6 (part three), 2026-11-17
+
+- **A resume has to move the host's id source past the record's ids, and the test fake is what found
+  it.** `counterIds` starts again at one in a restarted process, so a resume wrote `e2` into a record
+  that already had one; the loader skipped both the `resumed` status and a tool result as duplicate
+  ids, and the run still reported `done`. `reserveIds` now advances the source until its next id is
+  clear. A random source spends one draw, which is why it is a loop and not a check. A production
+  `systemIds` would have hidden this for a long time.
+- **`until` and `drive` now turn the event loop, not just the microtask queue.** The recipe pin hashes
+  with `crypto.subtle`, which finishes off-thread, so a run that pins was invisible to a
+  microtask-only poll: the test spun 500 times and then asserted on a record that had not been written
+  yet. Vitest's own timer is the only real timer available to a file under `src/`, where `setTimeout`
+  is banned so no test can sleep on the clock it is testing.
+- **A resume that ends on the record's own word writes nothing at all.** `recordedOutcome` used to
+  return the ending and then the closing-status block appended a second `parked` status; the wake row
+  caught it as a line count that grew when it should not have.
+- **The runtime's registry is what makes a wake idempotent.** A run in `runs` is joined by a later
+  wake or resume, and a resume still reading the record is in `inFlight`, so two alarms share one
+  promise. That is the whole of "late, twice, or while a request is running is harmless".
+- **Who may resume what is decided by the record's last status, not by the reason.** A wake continues
+  only `running`; a park of any kind waits for a person. `recipe_changed` therefore costs a person one
+  explicit look, which is what decision 91 asks for.
+
 ## Step 2, slice 6 (part two), 2026-11-17
 
 - **The header's pin grew two fields, and `run-record.md` says so.** `REC06` cannot tell a reworded

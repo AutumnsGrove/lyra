@@ -91,10 +91,8 @@ cost limit counts reported cost of any source.
 | LIM03 | Bad: a limit that is not a positive number | Zero, negative, fractional, infinite and non-numeric limits are `bad_request` when the run is created, and nothing is saved |
 | LIM04 | Happy: the time limit | Time is measured on the injected clock from the `running` status, so a model call and a tool each count toward it, a limit just over the elapsed time lets the run continue, and no real time passes |
 | LIM05 | Sad: a cost limit with no reported cost | A reply that reports no cost writes one `note` entry (`limit_unenforceable`), the limit stops being enforced for the run, and the run carries on to its natural end |
+| LIM06 | Happy: a resume with larger limits | A run parked on a limit continues when a person resumes it with a bigger allowance, and the turns it already spent still count |
 | LIM07 | Property: the usage total | For any script, the tokens and cost summed over the replies that arrived equal the run's reported total, even when a later model call fails |
-
-`LIM06` is a resume with larger limits, and lands with resume in slice 6, so the
-planned number waits for it rather than being reused.
 
 ## Rows (step 2, slice 3)
 
@@ -162,7 +160,9 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 |---|---|---|
 | RSM01 | Happy: killed at every write | Killed at every append, before and after it, on a three-tool script whose tools are safe to repeat, the resume ends `done` and its conversation and results are the uninterrupted run's, once unknown-outcome results are set aside |
 | RSM02 | Sad: a tool that changes something | An unsafe call killed anywhere runs at most once across the original and the resume, and where its result was lost the model is told the outcome is unknown |
+| RSM03 | Happy: who may resume what | A wake leaves a person's stop alone and writes nothing, a person continues it; a wake on a run this process is driving joins that run instead of starting a rival; and two alarms for the same dead run resume it once, with one `resumed` status |
 | RSM04 | Bad: a record that cannot be used | A record that does not exist is `not_found`, one with no usable header fails the resume with `internal` and never throws, and a damaged last line is noted and skipped so the run continues |
+| RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
 
 ## Not discussed yet
 

@@ -336,3 +336,61 @@ test("LIM07 the usage total is the sum of the replies that arrived, even after a
 		}),
 	);
 });
+
+const readOnce = (): ScriptedTurn => ({ toolCalls: [{ id: "c1", name: "read", args: {} }] });
+
+async function linesOf(storage: { read(): Promise<{ ok: boolean }> }) {
+	const read = (await storage.read()) as { ok: true; value: string[] } | { ok: false };
+	expect(read.ok).toBe(true);
+	return read.ok ? read.value : [];
+}
+
+test("LIM06 a resume with larger limits continues", async () => {
+	const limited = harness([readOnce(), { toolCalls: [{ id: "c2", name: "finish" }] }], () => [
+		toolReturning("read", "content"),
+		createFinishTool(),
+	]);
+
+	const first = await limited.run({ limits: { steps: 1 } });
+	expect(first).toMatchObject({ reason: "parked", parkedDetail: "steps", turns: 1 });
+
+	const lines = await linesOf(limited.storage);
+	const second = await limited.run({
+		resume: { lines, by: "person" },
+		limits: { steps: 3 },
+	});
+	// The turn already spent counts: one turn stays one, and the next one finishes.
+	expect(second).toMatchObject({ reason: "done", turns: 2 });
+});
+
+test("LIM04 time already spent counts against the limit after a resume", async () => {
+	const script: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "read", args: {} }], delayMs: 5_000 },
+		{ toolCalls: [{ id: "c2", name: "finish" }] },
+	];
+	const timed = harness(script, () => [toolReturning("read", "content"), createFinishTool()]);
+
+	const first = await drive(timed.clock, timed.run({ limits: { timeMs: 4_000 } }), 20_000);
+	expect(first).toMatchObject({ reason: "parked", parkedDetail: "time" });
+
+	// Five seconds of active time are already on the record, so a limit under that
+	// parks at once, without asking the model anything.
+	const asked = timed.model.requests.length;
+	const tight = await timed.run({
+		resume: { lines: await linesOf(timed.storage), by: "person" },
+		limits: { timeMs: 1_000 },
+	});
+	expect(tight).toMatchObject({ reason: "parked", parkedDetail: "time" });
+	expect(timed.model.requests).toHaveLength(asked);
+
+	// A limit above the time already spent lets it continue and finish.
+	const roomy = await drive(
+		timed.clock,
+		timed.run({
+			resume: { lines: await linesOf(timed.storage), by: "person" },
+			limits: { timeMs: 60_000 },
+		}),
+		20_000,
+	);
+	expect(roomy.reason).toBe("done");
+});

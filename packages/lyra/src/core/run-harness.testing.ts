@@ -7,7 +7,7 @@
  * empty suite, and so no production file can import it.
  */
 
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 
 import { counterIds, memoryStorage, type MemoryStorage } from "../adapters/memory/index.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
@@ -79,10 +79,32 @@ export async function readRecord(storage: MemoryStorage): Promise<LoadedRecord> 
 	return loaded.value;
 }
 
-/** Let the microtask queue turn until a condition holds, instead of counting ticks. */
-export async function until(check: () => boolean, limit = 500): Promise<void> {
+/**
+ * Let the event loop turn, not just the microtask queue. `crypto.subtle` finishes
+ * off-thread, so a run that pins its recipe is not observable from a microtask-only
+ * wait and a poll would spin past it. Vitest's own timer is the one real timer
+ * available to a file under `src/`, where the project bans `setTimeout` so no test
+ * can sleep on the clock it is testing.
+ */
+async function eventLoopTurn(): Promise<void> {
+	let first = true;
+	await vi
+		.waitFor(
+			() => {
+				if (first) {
+					first = false;
+					throw new Error("one turn");
+				}
+			},
+			{ interval: 1, timeout: 100 },
+		)
+		.catch(() => undefined);
+}
+
+/** Let the event loop turn until a condition holds, instead of counting ticks. */
+export async function until(check: () => boolean, limit = 200): Promise<void> {
 	for (let tick = 0; tick < limit && !check(); tick += 1) {
-		await Promise.resolve();
+		await eventLoopTurn();
 	}
 }
 
@@ -97,10 +119,9 @@ export async function drive<T>(clock: FakeClock, running: Promise<T>, stepMs = 1
 			done = true;
 		},
 	);
-	for (let tick = 0; tick < 100 && !done; tick += 1) {
-		await Promise.resolve();
+	for (let tick = 0; tick < 200 && !done; tick += 1) {
 		clock.advance(stepMs);
-		await Promise.resolve();
+		await eventLoopTurn();
 	}
 	return running;
 }
