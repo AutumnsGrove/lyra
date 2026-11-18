@@ -112,6 +112,10 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- `createHandleTable`: short handles (`c1`, `pr12`, `i34`) that the model cites instead of a commit
+  hash or a link, with a deterministic, idempotent mint per kind, a resolve back to the real value,
+  and a capped listing for the error an unknown handle gets. It lives in a recipe's state, so replay
+  rebuilds it exactly (decision 114).
 - A recipe's state comes back from the record: `setup(input)` makes the first message and the state,
   a tool may read `ctx.state` but only `apply` changes it, and a resume replays every saved result
   through that same `apply`, so a live run and a rebuilt one cannot drift. The task's input is saved in
