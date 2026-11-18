@@ -10,6 +10,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 ## Step 2 merged, 2026-11-18
 
+- **A clean review job is not a clean review.** I merged the post-merge docs pull request (#7) because its
+  `review / review` job showed `pass`, without reading the two inline comments it had left: both were right,
+  both were stale row pointers this step had invalidated, and both should have been fixed before the merge.
+  pi-review's job passes when it finishes, and its findings live in the comments, so the thing to check is
+  `gh api repos/…/pulls/N/comments`, not the check's colour. They are fixed in the pull request that follows.
+
 Step 2 is merged as pull request #6 (`d278c82`) and `main` is green. It took two review rounds: the first
 found a stale finish flag that silently dropped a follow-up's work and a truncated field whose bytes were
 not counted, both fixed test-first; the second found nothing. **Step 3, recipes and tools, is next**, and
