@@ -24,7 +24,7 @@ import type { ModelSlot } from "./model.js";
 import { fail, ok, type Result } from "./result.js";
 import type { RunConfig, StuckSettings } from "./run.js";
 import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
-import type { StorageSlot } from "./slots.js";
+import type { StorageSlot, WakingSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
 
 /** The minimal recipe this step needs. Step 3 grows it (decision 5). */
@@ -46,6 +46,14 @@ export interface RuntimeOptions {
 	/** The model the recipe names, when it names one. */
 	modelName?: string;
 	host: string;
+	/**
+	 * How a host wakes a run whose process died. The runtime schedules one ahead as
+	 * each step begins, re-arms it, and cancels it when the run ends, so an accident
+	 * resumes on its own (decisions 12, 23).
+	 */
+	waking?: WakingSlot;
+	/** How far ahead a wake is set, in milliseconds. Sixty seconds by default. */
+	wakeAfterMs?: number;
 }
 
 export interface StartRequest {
@@ -91,6 +99,30 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	const runs = new Map<string, RunHandle>();
 	/** Resumes still reading the record, so two calls share one run. */
 	const inFlight = new Map<string, Promise<Result<RunHandle>>>();
+
+	const wakeAfterMs = options.wakeAfterMs ?? 60_000;
+
+	/**
+	 * Keep one wake scheduled for as long as a run is alive. A step re-arms it, so a
+	 * late alarm is always about a run that is still working, and the end cancels it
+	 * so a finished run is not woken.
+	 */
+	const armsWake = (runId: string, handle: RunHandle): void => {
+		const waking = options.waking;
+		if (waking === undefined) {
+			return;
+		}
+		handle.subscribe((event) => {
+			if (event.type === "turn_start") {
+				void waking
+					.schedule(runId, options.clock.now() + wakeAfterMs)
+					.catch(() => undefined);
+			}
+			if (event.type === "run_end") {
+				void waking.cancel(runId).catch(() => undefined);
+			}
+		});
+	};
 
 	const track = (runId: string, handle: RunHandle): void => {
 		runs.set(runId, handle);
@@ -170,6 +202,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			}),
 		);
 		track(request.runId, handle);
+		armsWake(request.runId, handle);
 		return ok(handle);
 	};
 
@@ -199,6 +232,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			};
 			const handle = createRun(setup);
 			track(request.runId, handle);
+			armsWake(request.runId, handle);
 			return handle;
 		},
 

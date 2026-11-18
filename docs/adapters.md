@@ -103,3 +103,17 @@ over it is refused and nothing is stored, so a save never half-happens.
 | STO03 | Bad: awkward and oversized lines | A line holding newlines, U+2028 and a very long string round-trips exactly; a line over the adapter's limit is refused and stores nothing |
 | STO04 | Bad: appends at the same time | Appends issued together get distinct, increasing `seq` values in the order they were issued |
 | STO05 | Happy: counter ids | The in-memory id source returns the prefix and an increasing number per prefix, so the same script writes the same record twice |
+
+### Waking (step 2)
+
+A host wakes a run whose process died, and the runtime is what decides when: as a
+step begins it sets one wake a configurable interval ahead (60 s by default),
+re-arms it on the next step, and cancels it when the run ends, so a finished or
+parked run is never woken. The in-memory adapter records what would have been
+scheduled and fires it on demand, which is how an interruption is exercised without
+waiting. On Cloudflare the same slot is a Durable Object alarm (step 4).
+
+| ID | Case | Expected |
+|---|---|---|
+| WAK01 | Happy: a wake follows the steps | A runtime with a Waking slot schedules one wake a step's interval ahead when a step begins, re-arms it for the next step, and cancels it when the run ends |
+| WAK02 | Sad: the host died | The wake a dead host left is fired, and a `wake` on the new host resumes the record, answers what was cut off, and finishes the run |

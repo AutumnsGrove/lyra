@@ -83,6 +83,9 @@ new API and any breaking change, and a patch bump is fixes only.
   one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
   limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
   pretending it works (decisions 15, 18, 22).
+- The runtime sets a wake a step ahead through the Waking slot, re-arms it each step, and cancels it when
+  the run ends, so an evicted run resumes on its own and a finished one is not woken. The in-memory
+  adapter records and fires wakes on demand (WAK01, WAK02).
 - `createRuntime` owns the runs a process is driving: `start`, `resume`, `wake` and the handle per run.
   A wake continues only a run that was killed while running, joins a run this process already owns, and
   two alarms for the same run resume it once; a person may resume any park, with new limits (decisions
