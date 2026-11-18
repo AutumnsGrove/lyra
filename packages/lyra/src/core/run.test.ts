@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
-import { loadRecord, type LoadedRecord } from "../record/load.js";
+import { loadRecord } from "../record/load.js";
 import { activePath, replayConversation } from "../record/replay.js";
 import {
 	createFinishTool,
@@ -13,77 +13,15 @@ import {
 	toolThatThrows,
 	toolTakingTime,
 	failingStorage,
-	type FakeClock,
 	type ScriptedTurn,
 } from "../testkit/index.js";
 import type { RunEvent } from "./events.js";
 import { loopScriptArbitrary } from "./loop-generators.testing.js";
+import { drive, readRecord, runHarness as harness, until } from "./run-harness.testing.js";
 import { runTask } from "./run.js";
 import type { Tool } from "./tool.js";
 
 /** The rows are in `docs/core-loop.md`, "The loop (step 1b)". */
-
-function harness(turns: readonly ScriptedTurn[], makeTools: (clock: FakeClock) => Tool[]) {
-	const clock = fakeClock();
-	const ids = counterIds();
-	const storage = memoryStorage();
-	const events: RunEvent[] = [];
-	const model = scriptedModel(turns, { clock });
-	const tools = makeTools(clock);
-
-	const run = async (overrides: Partial<Parameters<typeof runTask>[0]> = {}) =>
-		runTask({
-			runId: "run-1",
-			task: "test-task",
-			host: "test-host",
-			input: "do the thing",
-			system: "you are a test",
-			tools,
-			model,
-			storage,
-			clock,
-			ids,
-			onEvent: (event) => {
-				events.push(event);
-			},
-			...overrides,
-		});
-
-	return { clock, ids, storage, events, model, tools, run };
-}
-
-async function readRecord(storage: { read(): Promise<{ ok: boolean }> }): Promise<LoadedRecord> {
-	const read = (await storage.read()) as { ok: true; value: string[] } | { ok: false };
-	expect(read.ok).toBe(true);
-	if (!read.ok) {
-		throw new Error("the storage read failed");
-	}
-	const loaded = loadRecord(read.value);
-	expect(loaded.ok).toBe(true);
-	if (!loaded.ok) {
-		throw new Error(`the record did not load: ${loaded.error.message}`);
-	}
-	return loaded.value;
-}
-
-/** Let a run that is waiting on the clock get as far as it can, moving time each turn. */
-async function drive<T>(clock: FakeClock, running: Promise<T>, stepMs = 100): Promise<T> {
-	let done = false;
-	void running.then(
-		() => {
-			done = true;
-		},
-		() => {
-			done = true;
-		},
-	);
-	for (let tick = 0; tick < 100 && !done; tick += 1) {
-		await Promise.resolve();
-		clock.advance(stepMs);
-		await Promise.resolve();
-	}
-	return running;
-}
 
 test("LOOP01 tool, tool, finish ends done with a record in order and one run_end", async () => {
 	const threeCalls = harness(
@@ -331,7 +269,13 @@ test("LOOP05 a tool that outstays its deadline is stopped and reported as an err
 		(clock) => [toolTakingTime("slow", 60_000, clock), createFinishTool()],
 	);
 
-	const result = await drive(slow.clock, slow.run({ toolDeadlineMs: 1_000 }), 500);
+	const running = slow.run({ toolDeadlineMs: 1_000 });
+	await until(() => slow.events.some((event) => event.type === "tool_start"));
+	// Move time by the deadline itself, then let the run finish without advancing
+	// further: the finish call's own deadline must not race the tool's microtask.
+	expect(slow.events.some((event) => event.type === "tool_start")).toBe(true);
+	slow.clock.advance(1_000);
+	const result = await running;
 	expect(result.reason).toBe("done");
 	const record = await readRecord(slow.storage);
 	const first = record.entries.find((entry) => entry.type === "tool_message");
@@ -374,9 +318,7 @@ test("LOOP06 stopped during the model call parks as stopped", async () => {
 	]);
 
 	const running = waiting.run({ signal: controller.signal });
-	for (let tick = 0; tick < 10; tick += 1) {
-		await Promise.resolve();
-	}
+	await until(() => waiting.model.requests.length === 1);
 	// The request is in flight, so this is the case it claims to be.
 	expect(waiting.model.requests).toHaveLength(1);
 	controller.abort();
@@ -407,9 +349,8 @@ test("LOOP06 stopped during a tool answers every call of the batch and parks", a
 	);
 
 	const running = tooling.run({ signal: controller.signal });
-	for (let tick = 0; tick < 10; tick += 1) {
-		await Promise.resolve();
-	}
+	await until(() => tooling.events.some((event) => event.type === "tool_start"));
+	expect(tooling.events.some((event) => event.type === "tool_start")).toBe(true);
 	controller.abort();
 
 	const result = await running;
@@ -465,7 +406,9 @@ test("LOOP07 a model error ends the run failed once", async () => {
 		[
 			{
 				toolCalls: [{ id: "c1", name: "finish" }],
-				failures: [{ code: "provider_error", message: "the provider is down" }],
+				failures: [
+					{ code: "provider_error", message: "the provider is down", retryable: false },
+				],
 			},
 		],
 		() => [createFinishTool()],
@@ -522,29 +465,31 @@ test("LOOP07 a save that fails ends the run failed, once, without throwing", asy
 	}
 });
 
-test("LOOP08 a reply with text and no tool call parks the run as stuck", async () => {
-	const quiet = harness([{ text: "I think that is everything." }], () => [createFinishTool()]);
+test("LOOP08 a reply with text and no tool call is reminded, not parked", async () => {
+	const quiet = harness(
+		[{ text: "I think that is everything." }, { toolCalls: [{ id: "c1", name: "finish" }] }],
+		() => [createFinishTool()],
+	);
 
+	// The safeguard nudges a model that stops without finishing (STK01), so this
+	// run continues instead of parking on the first silence.
 	const result = await quiet.run();
-	expect(result).toMatchObject({ reason: "parked", parkedReason: "stuck" });
+	expect(result).toMatchObject({ reason: "done", turns: 2 });
 
 	const record = await readRecord(quiet.storage);
-	expect(record.entries.map((entry) => entry.type)).toEqual([
-		"user_message",
+	expect(
+		record.entries.map((entry) =>
+			entry.type === "user_message" ? `user:${entry.label}` : entry.type,
+		),
+	).toEqual([
+		"user:task",
 		"status",
 		"assistant_message",
+		"user:reminder",
+		"assistant_message",
+		"tool_message",
 		"status",
 	]);
-	expect(record.entries.at(-1)).toMatchObject({
-		type: "status",
-		state: "parked",
-		reason: "stuck",
-	});
-	expect(quiet.events.at(-1)).toMatchObject({
-		type: "run_end",
-		reason: "parked",
-		parkedReason: "stuck",
-	});
 });
 
 test("LOOP09 arguments that are not a JSON object are refused, and the tool does not run", async () => {
@@ -560,7 +505,9 @@ test("LOOP09 arguments that are not a JSON object are refused, and the tool does
 		createFinishTool(),
 	];
 
-	const invalid = ["{oops", "", "null", "[]", '"a string"', "42"];
+	// Two kinds of refusal, interleaved: the same one three times in a row is the
+	// stuck safeguard's business (STK03), not this row's.
+	const invalid = ["{oops", "null", "", "[]", "42"];
 	const script: ScriptedTurn[] = [
 		{
 			toolCalls: invalid.map((args, index) => ({ id: `bad${index}`, name: "read", args })),
@@ -1032,11 +979,16 @@ test("LOOP15 no ending leaves a timer waiting, and a run with no listener still 
 	expect(unwatched.reason).toBe("done");
 	expect(clock.pending()).toBe(0);
 
-	const parked = harness([{ text: "nothing to do" }], () => [createFinishTool()]);
+	const parked = harness(
+		[{ text: "nothing to do" }, { text: "still nothing" }, { text: "nothing at all" }],
+		() => [createFinishTool()],
+	);
 	expect((await parked.run()).reason).toBe("parked");
 	expect(parked.clock.pending()).toBe(0);
 
-	const broken = harness([{ toolCalls: [], failures: [{}] }], () => [createFinishTool()]);
+	const broken = harness([{ toolCalls: [], failures: [{ retryable: false }] }], () => [
+		createFinishTool(),
+	]);
 	expect((await broken.run()).reason).toBe("failed");
 	expect(broken.clock.pending()).toBe(0);
 
@@ -1075,8 +1027,11 @@ test("LOOP16 a tool that never settles does not hold the run", async () => {
 		],
 	);
 
-	const result = await drive(stuck.clock, stuck.run({ toolDeadlineMs: 1_000 }), 500);
+	const running = stuck.run({ toolDeadlineMs: 1_000 });
+	await until(() => started);
 	expect(started).toBe(true);
+	stuck.clock.advance(1_000);
+	const result = await running;
 	expect(result.reason).toBe("done");
 
 	const record = await readRecord(stuck.storage);
@@ -1084,4 +1039,68 @@ test("LOOP16 a tool that never settles does not hold the run", async () => {
 	expect(first).toMatchObject({ toolCallId: "c1", isError: true });
 	expect(first?.type === "tool_message" ? first.content : "").toMatch(/deadline/);
 	expect(stuck.clock.pending()).toBe(0);
+});
+
+test("REC03 a task input bigger than an entry can hold is refused, and nothing is saved", async () => {
+	const tooBig = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }], () => [
+		createFinishTool(),
+	]);
+	const result = await tooBig.run({ input: "x".repeat(5_000), entryCapBytes: 1_024 });
+
+	expect(result).toMatchObject({ reason: "failed" });
+	expect(result.reason === "failed" ? result.error?.code : "").toBe("bad_request");
+	// Nothing at all: not the header, not the message it refused.
+	const saved = await tooBig.storage.read();
+	expect(saved).toEqual({ ok: true, value: [] });
+	expect(tooBig.model.requests).toHaveLength(0);
+	expect(tooBig.events.filter((event) => event.type === "run_end")).toHaveLength(1);
+});
+
+test("REC04 a huge tool result is truncated and the run still finishes", async () => {
+	const huge = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "y".repeat(200_000)), createFinishTool()],
+	);
+
+	const result = await huge.run({ entryCapBytes: 50_000 });
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(huge.storage);
+	expect(record.notes).toEqual([]);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first?.type === "tool_message" ? first.truncated : undefined).toBeDefined();
+	expect(first?.type === "tool_message" ? first.truncated?.field : "").toBe("content");
+	expect(
+		first?.type === "tool_message" ? (first.truncated?.droppedBytes ?? 0) : 0,
+	).toBeGreaterThan(0);
+	// The model was handed the whole thing, though: only what was saved was cut.
+	const asked = huge.model.requests.at(-1)?.messages.find((message) => message.role === "tool");
+	expect(asked?.role === "tool" ? asked.content.length : 0).toBe(200_000);
+});
+
+test("REC04 a storage limit below the record cap lowers it, so the save never fails", async () => {
+	const tiny = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		() => [toolReturning("read", "z".repeat(10_000)), createFinishTool()],
+	);
+	const limited = memoryStorage({ maxLineBytes: 2_000 });
+
+	const result = await tiny.run({ storage: limited });
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(limited);
+	expect(record.notes).toEqual([]);
+	const first = record.entries.find((entry) => entry.type === "tool_message");
+	expect(first?.type === "tool_message" ? first.truncated : undefined).toBeDefined();
+	const saved = await limited.read();
+	expect(saved.ok).toBe(true);
+	if (saved.ok) {
+		expect(saved.value.every((line) => line.length <= 2_000)).toBe(true);
+	}
 });

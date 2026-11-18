@@ -1,0 +1,243 @@
+/**
+ * The runtime: the runs this process is driving (docs/limits-and-interruptions.md,
+ * RSM03, RSM04 and RSM06; decisions 12, 20 and 23).
+ *
+ * One registry, because "does anything own this run right now" is the question that
+ * makes a late, duplicate or concurrent wake harmless. A run this process is driving
+ * is in `runs`; a resume that is still reading the record is in flight; anything else
+ * is the record's business, and `resume` and `wake` differ only in who is asking:
+ *
+ * - a wake may continue a run that was `running` when its host died, and must leave
+ *   every parked run alone (decision 23);
+ * - a person may continue anything.
+ *
+ * The runtime does not schedule wakes. The host's Waking slot does that, and passes
+ * the alarm back to `wake`, so the same run is never driven twice.
+ */
+
+import type { LoadedRecord } from "../record/load.js";
+import { loadRecord } from "../record/load.js";
+import { activePath } from "../record/replay.js";
+import type { Clock, Ids } from "./clock.js";
+import type { Limits } from "./limits.js";
+import type { ModelSlot } from "./model.js";
+import { fail, ok, type Result } from "./result.js";
+import type { RunConfig, StuckSettings } from "./run.js";
+import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
+import type { StorageSlot, WakingSlot } from "./slots.js";
+import type { Tool } from "./tool.js";
+
+/** The minimal recipe this step needs. Step 3 grows it (decision 5). */
+export interface RunDefinition {
+	name: string;
+	version: number;
+	instructions: string;
+	tools: readonly Tool[];
+	limits?: Limits;
+	fallbackModel?: string;
+	stuck?: StuckSettings;
+}
+
+export interface RuntimeOptions {
+	storage: StorageSlot;
+	clock: Clock;
+	ids: Ids;
+	model: ModelSlot;
+	/** The model the recipe names, when it names one. */
+	modelName?: string;
+	host: string;
+	/**
+	 * How a host wakes a run whose process died. The runtime schedules one ahead as
+	 * each step begins, re-arms it, and cancels it when the run ends, so an accident
+	 * resumes on its own (decisions 12, 23).
+	 */
+	waking?: WakingSlot;
+	/** How far ahead a wake is set, in milliseconds. Sixty seconds by default. */
+	wakeAfterMs?: number;
+}
+
+export interface StartRequest {
+	runId: string;
+	task: string;
+	input: string;
+	definition: RunDefinition;
+}
+
+export interface ResumeRequest {
+	runId: string;
+	task: string;
+	/** The recipe as it is now, which is what a resume is checked against. */
+	definition: RunDefinition;
+	/** Who is asking. A wake may only continue an accident (decision 23). */
+	by?: "wake" | "person";
+	/** New limits for a resumed run, which is how a park is lifted (decision 22). */
+	limits?: Limits;
+}
+
+export interface Runtime {
+	/** Begin a run, and hand back the handle a person steers. */
+	start(request: StartRequest): RunHandle;
+	/** Continue a run from its record. Refused with `not_found` when there is none. */
+	resume(request: ResumeRequest): Promise<Result<RunHandle>>;
+	/** The host's alarm, which is a resume that may not overrule a person. */
+	wake(request: ResumeRequest): Promise<Result<RunHandle>>;
+	/** The handle for a run this process is driving, if it is. */
+	active(runId: string): RunHandle | undefined;
+}
+
+/** The job text a record already holds, which a resume with no input of its own needs. */
+function firstUserText(record: LoadedRecord): string | undefined {
+	for (const entry of activePath(record.entries)) {
+		if (entry.type === "user_message") {
+			return entry.text;
+		}
+	}
+	return undefined;
+}
+
+export function createRuntime(options: RuntimeOptions): Runtime {
+	const runs = new Map<string, RunHandle>();
+	/** Resumes still reading the record, so two calls share one run. */
+	const inFlight = new Map<string, Promise<Result<RunHandle>>>();
+
+	const wakeAfterMs = options.wakeAfterMs ?? 60_000;
+
+	/**
+	 * Keep one wake scheduled for as long as a run is alive. A step re-arms it, so a
+	 * late alarm is always about a run that is still working, and the end cancels it
+	 * so a finished run is not woken.
+	 */
+	const armsWake = (runId: string, handle: RunHandle): void => {
+		const waking = options.waking;
+		if (waking === undefined) {
+			return;
+		}
+		handle.subscribe((event) => {
+			if (event.type === "turn_start") {
+				void waking
+					.schedule(runId, options.clock.now() + wakeAfterMs)
+					.catch(() => undefined);
+			}
+			if (event.type === "run_end") {
+				void waking.cancel(runId).catch(() => undefined);
+			}
+		});
+	};
+
+	const track = (runId: string, handle: RunHandle): void => {
+		runs.set(runId, handle);
+		void handle.outcome.finally(() => {
+			// The run is over, so the registry no longer owns it: a later wake goes back
+			// to the record, where the ending is.
+			if (runs.get(runId) === handle) {
+				runs.delete(runId);
+			}
+		});
+	};
+
+	const setupFor = (
+		request: ResumeRequest,
+		extra: Pick<RunConfig, "input" | "resume">,
+	): RunSetup => {
+		const definition = request.definition;
+		const setup: RunSetup = {
+			runId: request.runId,
+			task: request.task,
+			host: options.host,
+			input: extra.input,
+			system: definition.instructions,
+			tools: definition.tools,
+			model: options.model,
+			storage: options.storage,
+			clock: options.clock,
+			ids: options.ids,
+			recipe: { name: definition.name, version: definition.version },
+			...((request.limits ?? definition.limits) === undefined
+				? {}
+				: { limits: request.limits ?? definition.limits }),
+			...(definition.fallbackModel === undefined
+				? {}
+				: { fallbackModel: definition.fallbackModel }),
+			...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
+			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
+			...(extra.resume === undefined ? {} : { resume: extra.resume }),
+		};
+		return setup;
+	};
+
+	const resume = (request: ResumeRequest): Promise<Result<RunHandle>> => {
+		const existing = runs.get(request.runId);
+		if (existing !== undefined) {
+			// Something here is already driving it, so a second wake or resume joins it
+			// rather than starting a rival run (RSM03).
+			return Promise.resolve(ok(existing));
+		}
+		const pending = inFlight.get(request.runId);
+		if (pending !== undefined) {
+			return pending;
+		}
+		const started = beginResume(request).finally(() => {
+			inFlight.delete(request.runId);
+		});
+		inFlight.set(request.runId, started);
+		return started;
+	};
+
+	const beginResume = async (request: ResumeRequest): Promise<Result<RunHandle>> => {
+		const read = await options.storage.read();
+		if (!read.ok) {
+			return read;
+		}
+		if (read.value.length === 0) {
+			return fail("not_found", `there is no record for run ${request.runId}`);
+		}
+		const loaded = loadRecord(read.value);
+		// A record with no readable header has no task message to offer, and the run
+		// then fails through the same path as any other unusable record.
+		const input = loaded.ok ? (firstUserText(loaded.value) ?? "") : "";
+		const handle = createRun(
+			setupFor(request, {
+				input,
+				resume: { lines: read.value, by: request.by ?? "person" },
+			}),
+		);
+		track(request.runId, handle);
+		armsWake(request.runId, handle);
+		return ok(handle);
+	};
+
+	return {
+		active: (runId) => runs.get(runId),
+
+		start(request) {
+			const definition = request.definition;
+			const setup: RunSetup = {
+				runId: request.runId,
+				task: request.task,
+				host: options.host,
+				input: request.input,
+				system: definition.instructions,
+				tools: definition.tools,
+				model: options.model,
+				storage: options.storage,
+				clock: options.clock,
+				ids: options.ids,
+				recipe: { name: definition.name, version: definition.version },
+				...(definition.limits === undefined ? {} : { limits: definition.limits }),
+				...(definition.fallbackModel === undefined
+					? {}
+					: { fallbackModel: definition.fallbackModel }),
+				...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
+				...(options.modelName === undefined ? {} : { modelName: options.modelName }),
+			};
+			const handle = createRun(setup);
+			track(request.runId, handle);
+			armsWake(request.runId, handle);
+			return handle;
+		},
+
+		resume,
+
+		wake: (request) => resume({ ...request, by: "wake" }),
+	};
+}

@@ -32,9 +32,5 @@
 			"REQ05",
 			"REQ06"
 		]
-	},
-	"docs/run-record.md": {
-		"step": 2,
-		"rows": ["REC01", "REC02", "REC03", "REC04", "REC05", "REC06", "REC07", "REC08", "REC09"]
 	}
 }

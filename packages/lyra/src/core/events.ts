@@ -16,8 +16,8 @@ import type { LyraError } from "./result.js";
 
 export type RunEndReason = "done" | "parked" | "failed";
 
-/** Why a run parked. Step 1 knows two; step 2 adds the rest (decision 84). */
-export type ParkedReason = "stopped" | "stuck";
+/** Why a run parked. Approvals join in a later slice (decision 84). */
+export type ParkedReason = "stopped" | "stuck" | "limit" | "model_unavailable";
 
 interface EventBase {
 	/** The run this event belongs to. Constant for every event of a run. */
@@ -55,7 +55,20 @@ export type RunEvent =
 			cost?: Usage["cost"];
 	  })
 	| (EventBase & { type: "error"; error: LyraError })
-	| (EventBase & { type: "run_end"; reason: RunEndReason; parkedReason?: ParkedReason });
+	/**
+	 * A retryable model failure, and how long the run will wait before trying that
+	 * turn again (decision 26).
+	 */
+	| (EventBase & { type: "retry"; attempt: number; delayMs: number; error: LyraError })
+	/** The run moved to another model after the first failed its retries (decision 58). */
+	| (EventBase & { type: "fallback"; from: string; to: string; reason: string })
+	| (EventBase & {
+			type: "run_end";
+			reason: RunEndReason;
+			parkedReason?: ParkedReason;
+			/** Which part of the reason, when it has one: a limit's `steps`, `tokens`, `time` or `cost`. */
+			detail?: string;
+	  });
 
 /** A listener is never allowed to be the reason a run fails. */
 export type RunEventListener = (event: RunEvent) => void;

@@ -30,6 +30,10 @@ declare function clearTimeout(handle: number): void;
 
 declare const crypto: {
 	getRandomValues<T extends Uint8Array>(array: T): T;
+	/** The recipe pin's hashes, in step 2 (decision 91); web-standard on Workers and Node. */
+	subtle: {
+		digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer>;
+	};
 };
 
 declare class TextEncoder {

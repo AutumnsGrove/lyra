@@ -8,6 +8,13 @@ category: features
 
 Last updated: 2026-11-16. Read [`README.md`](README.md) first. Branch: `feat/step-02-limits-retries-resume`, cut from a `main` that has step 1 merged (both 1a and 1b). Builds decisions 10, 15, 18 to 27, 58, 90, 91, and the matching parts of 62 to 64. It makes the core safe to leave running: bounded, interruptible, and able to pick up where it stopped.
 
+**Where the step stands (2026-11-17):** all seven slices are committed on
+`feat/step-02-limits-retries-resume` and the pull request is open. The rows built here are `REC01` to
+`REC09`, `LIM01` to `LIM07`, `STP01` to `STP05`, `RTY01` to `RTY07`, `STK01` to `STK06`, `RSM01` to
+`RSM06`, and `WAK01`, `WAK02`; `KIT07` and `KIT08` joined the testkit's rows. `scripts/unbuilt-rows.json`
+now holds only the 28 protocol rows, which step 6 builds. The step's "Done when" list is met, and the
+pull request says how each line is true.
+
 Read: `docs/limits-and-interruptions.md` (the owner of this step's behavior), `docs/run-record.md` (its rows `REC01` to `REC09` are this step's, and are currently listed in `scripts/unbuilt-rows.json`), `docs/adapters.md` (the Waking slot), `docs/engineering-practices.md` (catalog: "The loop", "The record and resume"), `docs/implementation/notes.md` (what step 1 decided), and step 1's code, in particular `core/run.ts`, the record, and the testkit.
 
 ## Goal and done when

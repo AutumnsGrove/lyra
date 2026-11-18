@@ -28,11 +28,14 @@ Every entry has four fields: `type`, `id`, `parent`, and `ts` (the time). The he
 
 | Entry | What it holds | Written when |
 |---|---|---|
-| header | Record version, run id, task name, recipe name, version and tool-set hash, start time, host | At the start |
+| header | Record version, run id, task name, recipe name, version, tool-set hash, instructions hash and one hash per tool, start time, host | At the start |
 | message from the user | The job, or a steer or a follow-up (labeled which) | When it arrives |
 | message from the assistant | The model's text and its tool requests, plus the model, tokens, cost and its source, finish reason, time taken, and retries | Right after the model replies, before any tool runs |
 | message from a tool | The result: ok or error, what the model sees, and optional details for people | Right after the tool finishes |
-| status | running, parked (with its reason), resumed, done, or failed | On every change |
+| status | running, parked (with its reason, and the detail that names which part of it), resumed, done, or failed | On every change |
+| fallback | The model the run moved to, the one that failed, and why (decision 58) | When the run moves |
+| recipe_updated | The pin the run is held to from now on, and the one it was held to before (REC06, REC09) | When a resume finds a new version, reworded instructions, or a tool set a person accepted |
+| note | Something worth saying that is not a turn, with a `kind` a reader skips if it does not know it. The first is `limit_unenforceable`, for a cost limit with no reported cost (decision 15) | When it happens |
 
 Other entry kinds are allowed. A reader skips kinds it does not know. A half-written or damaged last line is skipped and noted, never fatal (Nova does the same).
 
@@ -107,6 +110,7 @@ the format (decision 30).
 | RCD06 | Property: any valid sequence | For any generated header and chain of entries, loading their encoding returns them unchanged and the active path is a path from the root to the last entry |
 | RCD08 | Bad: a turn the model saved badly | An assistant turn whose call has an empty name or id, or two calls with one id, still loads and still replays, because the record keeps what happened; the strict reading of a reply (the adapter boundary) is what refuses those |
 | RCD07 | Bad: hostile bytes | Any mix of valid lines and hostile ones loads or refuses without throwing, and no valid line is lost |
+| RCD09 | Happy: the recipe's pin | A header's recipe keeps the instructions hash and one hash per tool through a save and a load, and a header from before those fields existed still loads without them |
 
 ## Spec rows
 
@@ -115,9 +119,9 @@ the format (decision 30).
 | REC01 | A tool result larger than the entry cap | Saved truncated, with a marker giving the bytes dropped |
 | REC02 | Reasoning text or proposal evidence larger than the cap | Saved truncated, with a marker |
 | REC03 | A user message larger than the cap | `bad_request`, nothing saved |
-| REC04 | Any oversized input | The save never fails, and the run does not fail for size |
-| REC05 | Resume with the same tool-set hash and version | Continues, with no extra entry |
-| REC06 | Resume with the same hash and a new version or reworded instructions | Continues, and saves a `recipe_updated` entry |
+| REC04 | Any oversized input | The save never fails and the run does not fail for size: content is cut to fit, and only an entry whose *structure* alone is over the cap (thousands of calls in one turn) is refused, with the reason said out loud |
+| REC05 | Resume with the same tool-set hash, version and instructions hash | Continues, with no extra entry |
+| REC06 | Resume with the same tool-set hash and a new version or reworded instructions | Continues, and saves a `recipe_updated` entry naming both pins |
 | REC07 | Resume with a tool removed that the record already used | Parks as stuck with detail `recipe_changed`, naming the tool |
 | REC08 | Resume with a tool's arguments changed | Parks as stuck with detail `recipe_changed`, naming the tool |
 | REC09 | `resume` after a `recipe_changed` park | Continues with the new tools, and the record notes the change |

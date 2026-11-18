@@ -52,7 +52,10 @@ function turns(): fc.Arbitrary<ScriptedTurn[]> {
 					fc.array(
 						fc.record({
 							code: fc.constantFrom("provider_error", "timeout", "bad_request"),
-							retryable: fc.boolean(),
+							// Not retryable on purpose: a retry would wait 16 s of fake time for the
+							// third attempt, which this property has no budget for. The RTY rows
+							// drive the retries themselves, on a clock they move by hand.
+							retryable: fc.constant(false),
 						}),
 						{ maxLength: 1 },
 					),

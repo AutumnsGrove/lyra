@@ -58,6 +58,10 @@ new API and any breaking change, and a patch bump is fixes only.
 - A run's record now keeps what the run actually wrote: an assistant turn whose call has no name or id,
   or the same id twice, loads and replays instead of vanishing (RCD08), and nothing is written into a
   record whose header could not be saved.
+- Each record entry is capped at 1 MiB (or the storage adapter's own limit when that is lower). Content
+  that would exceed it is cut at a character boundary with a marker in the text and a `truncated` field
+  saying which field and how many bytes, so a save never fails for size; a task input too big is refused
+  with `bad_request` and nothing is written (decision 90).
 - A tool call the model gave no id, or a repeated id, is given one that no other call in the reply uses,
   before anything is written, so the assistant turn, its results, the conversation and the record all pair
   on the same ids. Previously the result was renamed and the turn was not, which a provider rejects and a
@@ -72,6 +76,41 @@ new API and any breaking change, and a patch bump is fixes only.
   does not have (the error names the ones it does), the same call id twice, and a call after `finish`
   are all error results, and a tool result that tells the model what to do is stored as data and
   changes nothing.
+- The record's entries are capped at 1 MiB by default (lowered to a storage adapter's own limit when
+  that is smaller): content is cut to fit, with a marker and a `truncated` field, so no input of any
+  size makes a save fail, and a task input over the cap is refused with nothing written (decision 90).
+- A run can be bounded by steps, tokens, active time and cost, all optional and none by default. Reaching
+  one parks it as `limit` with a status `detail` naming which, keeping everything done so far. A cost
+  limit that a reply cannot measure stops being enforced and writes one `note` entry, rather than
+  pretending it works (decisions 15, 18, 22).
+- The runtime sets a wake a step ahead through the Waking slot, re-arms it each step, and cancels it when
+  the run ends, so an evicted run resumes on its own and a finished one is not woken. The in-memory
+  adapter records and fires wakes on demand (WAK01, WAK02).
+- `createRuntime` owns the runs a process is driving: `start`, `resume`, `wake` and the handle per run.
+  A wake continues only a run that was killed while running, joins a run this process already owns, and
+  two alarms for the same run resume it once; a person may resume any park, with new limits (decisions
+  20, 23).
+- A resume checks the recipe against the header's pin: the same tools and instructions continue, a new
+  version or reworded instructions are noted in a `recipe_updated` entry, and a changed tool set parks
+  as `stuck` with `recipe_changed` and the tools named, until a person resumes it (decision 91).
+- `runTask` can resume a record: the conversation, the turns, the usage and the active time of a run
+  are read back from what it saved, the last turn's unanswered calls are answered instead of assumed
+  (a call that is safe to repeat runs again; one that is not is reported as an unknown outcome), and a
+  record whose tool result passed the done-check ends `done` without asking for another turn (decisions
+  20, 24). The package's size ceiling moves from 40 to 52 KiB (decision 109).
+- The stuck safeguard, on by default and configurable per run: a model that stops without finishing
+  is reminded twice and then the run parks `stuck`, and a tool that fails the same way three times in
+  a row parks it too, naming the tool. A cut-off reply counts as a failure of its own kind, and the
+  `reminder` label now loads from a record (decision 25).
+- A retryable model failure is retried three times with growing delays (1 s, 4 s, 16 s, with the
+  provider's own `retryAfterMs` as a floor), then the recipe's fallback model if it names one, and
+  otherwise the run parks `model_unavailable` instead of failing, so an outage is a pause. A
+  non-retryable error still ends the run `failed` (decisions 26, 58).
+- `createRun` returns a handle for a run in flight: `abort()` stops it (a second call does nothing),
+  `steer(text)` redirects it at the next gap between steps, and `followUp(text)` is read where the run
+  would otherwise end. Both texts are queued, never written on arrival, so a tool call and its result
+  are never split; a text too big for one record entry is refused with `bad_request`, and a command after
+  the run ended with `conflict` (decisions 19, 27).
 
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,

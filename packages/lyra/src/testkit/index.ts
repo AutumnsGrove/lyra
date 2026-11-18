@@ -18,10 +18,17 @@ export {
 } from "./model.js";
 export { failingStorage, type FailingStorage, type FailingStorageOptions } from "./storage.js";
 export {
+	crashingStorage,
+	type CrashingStorage,
+	type CrashingStorageOptions,
+} from "./crashing-storage.js";
+export {
 	createFinishTool,
+	executionCounter,
 	toolReturning,
 	toolReturningError,
 	toolTakingTime,
 	toolThatThrows,
+	type Executions,
 	type ScriptedToolOptions,
 } from "./tools.js";

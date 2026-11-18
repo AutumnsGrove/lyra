@@ -2,7 +2,7 @@ import fc from "fast-check";
 
 import type { JsonObject, JsonValue } from "../core/json.js";
 import type { FinishReason, ToolCall, Usage } from "../core/model.js";
-import type { MessageLabel, RecordEntry, RecordHeader, RunState } from "./entries.js";
+import type { MessageLabel, RecipeStamp, RecordEntry, RecordHeader, RunState } from "./entries.js";
 
 /**
  * Generators for the record's property and fuzz tests (RCD06 and RCD07 in
@@ -16,7 +16,7 @@ import type { MessageLabel, RecordEntry, RecordHeader, RunState } from "./entrie
 
 const text = fc.string({ maxLength: 20 });
 const word = fc.stringMatching(/^[a-z_]{1,10}$/);
-const LABELS: MessageLabel[] = ["task", "steer", "follow_up"];
+const LABELS: MessageLabel[] = ["task", "steer", "follow_up", "reminder"];
 const STATES: RunState[] = ["running", "parked", "done", "failed", "resumed"];
 const FINISH_REASONS: FinishReason[] = ["stop", "length", "tool_calls", "content_filter", "other"];
 
@@ -68,6 +68,28 @@ const toolCallsArbitrary = (index: number): fc.Arbitrary<ToolCall[]> =>
 		.array(fc.record({ name: word, arguments: fc.string({ maxLength: 20 }) }), { maxLength: 3 })
 		.map((calls) => calls.map((call, position) => ({ id: `e${index}c${position}`, ...call })));
 
+/** One recipe pin, with the fields step 2 added either present or absent. */
+export function stampArbitrary(): fc.Arbitrary<RecipeStamp> {
+	return fc
+		.record({
+			name: word,
+			version: fc.nat({ max: 99 }),
+			toolSetHash: fc.stringMatching(/^[0-9a-f]{1,16}$/),
+			instructionsHash: fc.option(fc.stringMatching(/^[0-9a-f]{1,16}$/), { nil: undefined }),
+			tools: fc.option(
+				fc.array(fc.record({ name: word, hash: fc.stringMatching(/^[0-9a-f]{1,16}$/) }), {
+					maxLength: 3,
+				}),
+				{ nil: undefined },
+			),
+		})
+		.map(({ instructionsHash, tools, ...rest }) => ({
+			...rest,
+			...(instructionsHash === undefined ? {} : { instructionsHash }),
+			...(tools === undefined ? {} : { tools }),
+		}));
+}
+
 export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 	return fc
 		.record({
@@ -75,14 +97,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 			task: text,
 			startedAt: fc.nat({ max: 2 ** 41 }),
 			host: text,
-			recipe: fc.option(
-				fc.record({
-					name: word,
-					version: fc.nat({ max: 99 }),
-					toolSetHash: fc.stringMatching(/^[0-9a-f]{1,16}$/),
-				}),
-				{ nil: undefined },
-			),
+			recipe: fc.option(stampArbitrary(), { nil: undefined }),
 		})
 		.map(({ recipe, ...rest }) =>
 			recipe === undefined
@@ -92,7 +107,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status",
+	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -114,12 +129,19 @@ function entryArbitrary(
 					model: word,
 					usage: usageArbitrary(),
 					finishReason: fc.constantFrom(...FINISH_REASONS),
+					retries: fc.option(fc.nat({ max: 3 }), { nil: undefined }),
 				})
-				.map(({ reasoning, ...rest }) =>
-					reasoning === undefined
-						? { type: "assistant_message" as const, ...base, ...rest }
-						: { type: "assistant_message" as const, ...base, ...rest, reasoning },
-				);
+				.map(({ reasoning, retries, ...rest }) => {
+					const entry = { type: "assistant_message" as const, ...base, ...rest };
+					if (reasoning !== undefined) {
+						return {
+							...entry,
+							reasoning,
+							...(retries === undefined ? {} : { retries }),
+						};
+					}
+					return retries === undefined ? entry : { ...entry, retries };
+				});
 		case "tool":
 			return fc
 				.record({
@@ -127,22 +149,46 @@ function entryArbitrary(
 					isError: fc.boolean(),
 					content: text,
 					details: fc.option(jsonValueArbitrary(), { nil: undefined }),
+					done: fc.option(fc.constant(true), { nil: undefined }),
 				})
-				.map(({ details, ...rest }) =>
-					details === undefined
-						? { type: "tool_message" as const, ...base, ...rest }
-						: { type: "tool_message" as const, ...base, ...rest, details },
-				);
+				.map(({ details, done, ...rest }) => ({
+					type: "tool_message" as const,
+					...base,
+					...rest,
+					...(details === undefined ? {} : { details }),
+					...(done === true ? { done: true as const } : {}),
+				}));
 		case "status":
 			return fc
 				.record({
 					state: fc.constantFrom(...STATES),
 					reason: fc.option(word, { nil: undefined }),
+					detail: fc.option(word, { nil: undefined }),
 				})
-				.map(({ reason, ...rest }) =>
-					reason === undefined
-						? { type: "status" as const, ...base, ...rest }
-						: { type: "status" as const, ...base, ...rest, reason },
+				.map(({ reason, detail, ...rest }) => {
+					const withReason = reason === undefined ? rest : { ...rest, reason };
+					return detail === undefined
+						? { type: "status" as const, ...base, ...withReason }
+						: { type: "status" as const, ...base, ...withReason, detail };
+				});
+		case "note":
+			return fc
+				.record({ kind: word, text })
+				.map((rest) => ({ type: "note" as const, ...base, ...rest }));
+		case "fallback":
+			return fc
+				.record({ from: word, to: word, reason: text })
+				.map((rest) => ({ type: "fallback" as const, ...base, ...rest }));
+		case "recipe":
+			return fc
+				.record({
+					from: fc.option(stampArbitrary(), { nil: undefined }),
+					to: stampArbitrary(),
+				})
+				.map(({ from, to }) =>
+					from === undefined
+						? { type: "recipe_updated" as const, ...base, to }
+						: { type: "recipe_updated" as const, ...base, from, to },
 				);
 	}
 }
@@ -150,7 +196,10 @@ function entryArbitrary(
 /** A whole valid record chain, in the order it would be saved. */
 export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 	return fc
-		.array(fc.constantFrom("user", "assistant", "tool", "status"), { maxLength: 5 })
+		.array(
+			fc.constantFrom("user", "assistant", "tool", "status", "note", "fallback", "recipe"),
+			{ maxLength: 5 },
+		)
 		.chain((kinds) =>
 			kinds.length === 0
 				? fc.constant<RecordEntry[]>([])

@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { decodeToolCalls } from "../core/decode-reply.js";
 import {
 	decodeEntry,
+	decodeHeader,
 	encodeEntry,
 	encodeHeader,
 	type RecordEntry,
@@ -456,4 +457,48 @@ test("RCD08 a turn the model saved with a nameless or repeated call still loads 
 	const first = replayConversation(loaded.value.entries);
 	expect(first).toHaveLength(1);
 	expect(first[0]).toMatchObject({ role: "assistant", toolCalls: calls });
+});
+
+test("RCD09 a header's recipe keeps the instructions hash and one hash per tool", () => {
+	const header: RecordHeader = {
+		type: "header",
+		v: 1,
+		run: "run-1",
+		task: "test-task",
+		startedAt: 1_700_000_000_000,
+		host: "test-host",
+		recipe: {
+			name: "timeline",
+			version: 3,
+			toolSetHash: "a".repeat(64),
+			instructionsHash: "b".repeat(64),
+			tools: [
+				{ name: "read", hash: "c".repeat(64) },
+				{ name: "write", hash: "d".repeat(64) },
+			],
+		},
+	};
+	const line = encodeHeader(header);
+	const decoded = decodeHeader(JSON.parse(line));
+	expect(decoded.ok).toBe(true);
+	expect(decoded.ok ? decoded.value : undefined).toEqual(header);
+
+	// A record from before step 2 has no instructions hash and no per-tool hashes,
+	// and still loads: the pin's additions are optional.
+	const old = encodeHeader({
+		type: "header",
+		v: 1,
+		run: "run-2",
+		task: "test-task",
+		startedAt: 1_700_000_000_000,
+		host: "test-host",
+		recipe: { name: "timeline", version: 2, toolSetHash: "e".repeat(64) },
+	});
+	const oldDecoded = decodeHeader(JSON.parse(old));
+	expect(oldDecoded.ok).toBe(true);
+	expect(oldDecoded.ok ? oldDecoded.value.recipe : undefined).toEqual({
+		name: "timeline",
+		version: 2,
+		toolSetHash: "e".repeat(64),
+	});
 });

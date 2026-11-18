@@ -32,6 +32,9 @@ export function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage
 	const lines: string[] = [];
 
 	return {
+		// The core lowers its own cap to this when it is smaller, so nothing it saves
+		// can be refused here for size.
+		maxEntryBytes: limit,
 		saved: () => [...lines],
 
 		async append(line) {

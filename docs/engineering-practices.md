@@ -309,6 +309,8 @@ nothing else, and no production file in the core may import it.
 | KIT04 | Bad: storage that fails | Exactly the chosen append fails, nothing is stored for it, and every other append and read behaves as the wrapped adapter does |
 | KIT05 | Bad: a leaked timer | The clock reports what is still pending, so a test can fail on a timer that was never resolved or cancelled |
 | KIT06 | Happy: the scripted tools | A tool made from data answers as its name says (a result, an error result, a throw), a slow one finishes only when the clock is advanced, and `finish` returns `done` |
+| KIT07 | Sad: the host dies at an append | At the chosen append the storage returns a promise that never settles, once without writing the line and once after it, and neither throws, so an abandoned run can do nothing more |
+| KIT08 | Happy: execution counters | A scripted tool records the call id of every execution, so a test can assert how many times a tool really ran across a run and its resume |
 
 ## Spec rows: the scenario runner
 

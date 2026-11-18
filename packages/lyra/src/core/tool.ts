@@ -15,6 +15,12 @@ export interface ToolContext {
 	signal: AbortSignal;
 	runId: string;
 	callId: string;
+	/**
+	 * A stable name for this call across an interruption: `runId` and `callId`, so a
+	 * tool that changes something can make repeating it harmless by deduping on this
+	 * (decision 24).
+	 */
+	callKey: string;
 }
 
 export interface ToolOutcome {
