@@ -112,6 +112,11 @@ new API and any breaking change, and a patch bump is fixes only.
   are never split; a text too big for one record entry is refused with `bad_request`, and a command after
   the run ended with `conflict` (decisions 19, 27).
 
+- `compileSchema` and `validateValue`: the small JSON Schema subset a tool's arguments are checked
+  against (`type`, `properties`, `required`, `additionalProperties`, `enum`, `items`, `minItems`,
+  `maxItems`, `minLength`, `maxLength`, `minimum`, `maximum`). A tool author's schema is refused at
+  definition time if it uses anything else, and a model's arguments are refused with a specific message
+  that never throws, never runs past a depth cap, and never lists more than ten errors (decision 111).
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
   plus briefs for the three steps that live in Lattice. They add no decisions.

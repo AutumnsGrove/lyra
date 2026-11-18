@@ -358,6 +358,21 @@ Raised from 40 KiB on 2026-11-17, at step 2 slice 6, when the gzipped package re
 ### 110. Step 2's numbers, and what the record gained
 The values step 2 had to pick, all provisional and to be tuned after real runs: retryable model failures are retried three times with delays of 1 s, 4 s and 16 s, each a floor under the provider's own `retryAfterMs`; a model that stops without finishing gets two reminders; three failures of the same tool the same way, meaning the same name and the same first 200 characters, park the run; a wake is set 60 s ahead as each step begins; `timeMs` counts active time, never calendar time; a steer is written at the gap before the next request, not on arrival, so it can be lost when a run ends; an unanswered call that is not safe to repeat is never re-run; and the tool-set hash covers names and argument schemas but not descriptions, so rewording a tool's description does not stop a run. The record gained five backwards-compatible fields for the same step: `done: true` on a tool result, so a resume can tell an accepted finish from any other answer; a `note` entry with a `kind` a reader may skip; a `fallback` entry; a `recipe_updated` entry; and, in the header's pin, an instructions hash and one hash per tool, which is what lets a resume name the tool that moved. Every one is optional, so a record written before them still loads. Decided 2026-11-17.
 
+### 111. Tool arguments are validated by a small, in-house JSON Schema subset
+Written and decided at step 3, slice 1. A tool's `parameters` already had to be what the model is shown and
+what the tool-set hash covers (decision 91), so it is also what the arguments are checked against, and it
+stays plain JSON Schema rather than becoming a library's own object with a second representation to drift.
+The subset is `type`, `properties`, `required`, `additionalProperties`, `enum`, `items`, `minItems`,
+`maxItems`, `minLength`, `maxLength`, `minimum` and `maximum`, and nothing else. `pattern` is left out on
+purpose: a regular expression written by a tool author is a denial-of-service door on a model's hostile
+input. `$ref` and `oneOf` are left out because a flat schema is enough for tool arguments. A schema using
+any other keyword is refused when the tool is defined, so a mistake surfaces once rather than never. The
+validator is pure, caps depth at 32, errors at ten and the message at 2 KiB, and the inferred TypeScript
+type is a type-level mapping of the same subset, so `execute` gets checked arguments with no cast. The
+time-box from `implementation/03-recipes-and-tools.md` still stands: if this had passed 250 lines or the
+fuzz target kept finding one class of bug, it would have been swapped for TypeBox or Valibot and Autumn's
+word would have been needed for the new dependency. Decided 2026-11-18.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

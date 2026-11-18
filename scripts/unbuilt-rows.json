@@ -32,5 +32,40 @@
 			"REQ05",
 			"REQ06"
 		]
+	},
+	"docs/recipes-and-tools.md": {
+		"step": 3,
+		"rows": [
+			"TOL01",
+			"TOL02",
+			"TOL03",
+			"TOL04",
+			"TOL05",
+			"TOL06",
+			"TOL07",
+			"TOL08",
+			"TOL09",
+			"TOL10",
+			"TOL11",
+			"TOL12",
+			"HND01",
+			"HND02",
+			"HND03",
+			"HND04",
+			"HND05",
+			"HND06",
+			"FIN01",
+			"FIN02",
+			"FIN03",
+			"FIN04",
+			"FIN05",
+			"FIN06",
+			"RCP01",
+			"RCP02",
+			"RCP03",
+			"RCP04",
+			"RCP05",
+			"RCP06"
+		]
 	}
 }
