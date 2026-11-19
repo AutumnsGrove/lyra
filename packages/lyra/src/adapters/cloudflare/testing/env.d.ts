@@ -12,6 +12,7 @@ declare global {
 	namespace Cloudflare {
 		interface Env {
 			FIXTURE_SESSION: DurableObjectNamespace;
+			FIXTURE_TOKEN: string;
 		}
 	}
 }
