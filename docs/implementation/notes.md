@@ -8,6 +8,45 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step R, 2026-11-19
+
+- **npm has no pending publisher, so the first publish is a person's.** The trusted-publisher settings
+  live on a package's own page, so a package has to exist before OIDC can be configured for it
+  (npm/cli#8544 is the open request to change that). Read from npm's docs and three independent
+  write-ups, all saying the same thing. Autumn's decision (121): she publishes once by hand from her
+  machine, then adds the trusted publisher for `AutumnsGrove/lyra` and `release.yml`. No token enters
+  the repository and decision 99 stands. Two things to remember at the release: a new trusted publisher
+  expires unless it completes a publish within **two days**, and the publish step now asks the registry
+  first and leaves an existing version alone, so the hand-made publish and the tag push cannot fight.
+- **`workflow_dispatch` only lists a workflow that exists on the default branch.** So the dry run this
+  step's "Done when" asks for cannot be dispatched from the branch; it is the first thing to do on
+  `main` after the merge. Everything else was rehearsed locally: `--prompt-only` against this
+  repository, `--check` in both modes, and the fallback paths with the fake agent in the tests.
+- **`--check` is in the notes script, not a second one.** It reads the same two things the body does (the
+  changelog section, and the tag without its `v`), so a separate script would be the copy that drifts
+  (decision 122). A dry run lowers its failures to warnings and returns `0`: a rehearsal for a version
+  the changelog has not caught up with yet is the normal case, not an error.
+- **Node 26 runs the script with no build step, and the typecheck is a separate program.**
+  `scripts/tsconfig.json` extends the root one, adds `types: ["node"]` and
+  `allowImportingTsExtensions`, and joins `pnpm typecheck`. `src/` still has `types: []`, and
+  `importcheck` still refuses `node:*` there: the script is outside the package on purpose, because it
+  is the one thing in this repository that needs a filesystem and a child process. The CI runner gets
+  Node 22 from `.nvmrc`, where type stripping is on by default from 22.18.
+- **`matrixcheck` now walks `scripts/` too**, and was tried against both violations before it was
+  trusted: a row with no test, and a test citing an ID no spec defines. Both failed for the right
+  reason, and the second named the file and title.
+- **The workflow's shape is tested as text.** A workflow cannot be run from a test, so `RN19` and
+  `RN20` parse `.github/workflows/release.yml` with the `yaml` dev dependency already in the tree
+  (decision 108) and assert what a green release would hide: the notes key appears once, nothing sets
+  an npm token, only the release job may write or mint a token, the publish is guarded by a tag ref and
+  `inputs.dry_run != true`, and the notes steps are allowed to fail inside their own deadline.
+  `actionlint` passes on the file.
+- **The agent command was checked against `pi --help` for 1.5.2**, not copied blind from Nova: every
+  flag in the pinned list exists, including `-na` and `-nc`, and `-np` is `--no-prompt-templates`
+  rather than a session flag.
+- **The pinned toolset kept `bash`** (decision 76). The prompt says the tools are read-only plus a shell
+  on a runner that is thrown away, and the key is on that step only.
+
 ## Step 4, steps 4 to 7, 2026-11-18
 
 - **Eviction is the test, and a frozen append is the gate.** A run is held either on the fake clock

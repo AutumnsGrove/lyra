@@ -1,0 +1,191 @@
+name: release
+
+# A version is a tag `vX.Y.Z` on `main`, and the tag is the release: it runs the
+# gate a pull request already ran, publishes, and writes the release page. A
+# manual dispatch rehearses the whole path without publishing, because the body
+# can only be judged by reading it, and a tag is the worst place to find out it
+# cannot be written. Nova learned that one first: every release before its notes
+# script had an empty body.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run the release job without publishing (the body goes to the summary)"
+        type: boolean
+        default: false
+      tag:
+        description: "Version to write notes for (defaults to the ref name)"
+        type: string
+        required: false
+
+# Nothing here writes to the repository unless a job says so. The job that says
+# so is the one that publishes, and no other job may mint a token.
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The command a pull request runs, from the same commit, so a tag cannot
+      # publish what a pull request would have failed (AGENTS.md, "Definition of
+      # done").
+      - run: pnpm run ci
+
+  release:
+    needs: gate
+    # A dispatch has no tag to release unless the box is ticked: on a branch, a
+    # dispatch is a rehearsal and nothing else. A dispatch that is neither a tag
+    # nor a dry run therefore stops here rather than spending ten minutes on a
+    # body for a version nobody asked about.
+    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.dry_run == true }}
+    # The only job that publishes, so the only one that may write or mint a token.
+    # Publishing uses trusted publishing over OIDC, so there is no npm token in
+    # the repository at all (decision 99).
+    permissions:
+      contents: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The body is written from the tag range, so every tag and the whole
+          # history have to be here.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      # Before anything else can happen: a publish that disagrees with its tag is
+      # worse than a failed release, and a changelog with no section for the
+      # version cannot produce a body (decision 122). A dry run says the same
+      # things as warnings, because it rehearses a version that may not be ready.
+      - name: Check the tag, the package and the changelog agree
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -eu
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            node scripts/release-notes/main.ts --check --dry-run --tag "$TAG"
+          else
+            node scripts/release-notes/main.ts --check --tag "$TAG"
+          fi
+      - run: pnpm build
+      # Trusted publishing needs npm 11.5.1 or later, and Node 22's own npm is
+      # older; there is no token to fall back to, so this is not optional.
+      - name: Upgrade npm for trusted publishing
+        run: |
+          set -eu
+          npm install -g npm@latest
+          npm --version
+      # Publish before the release page exists (AGENTS.md, "Releasing"). A re-run
+      # of a tag, or a first publish made by hand, must not turn into a failed
+      # release: a version already on the registry is left alone, loudly.
+      - name: Publish to npm
+        if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true }}
+        run: |
+          set -eu
+          cd packages/lyra
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@autumnsgrove/lyra@${version}" version >/dev/null 2>&1; then
+            echo "::notice::@autumnsgrove/lyra@${version} is already on the registry; leaving it alone"
+            exit 0
+          fi
+          npm publish --provenance --access public
+      # The toolchain below exists only for the release body, so none of it may
+      # fail the release: a bad install leaves the script to fall back on its own,
+      # and the body becomes the changelog section instead.
+      - name: Install pi
+        continue-on-error: true
+        run: npm install -g @earendil-works/pi-coding-agent@1.5.2
+      - name: Write the release body
+        id: notes
+        # A body is a courtesy, so nothing here may stop a release; the script
+        # falls back to the changelog section on its own, and this step warns
+        # rather than failing when even that is missing. Status 3 is how the
+        # script says the fallback produced the body, and a warning keeps that
+        # from being silent.
+        continue-on-error: true
+        # The script's own deadline is 12 minutes; this is the backstop above it.
+        timeout-minutes: 15
+        env:
+          OPENCODE_API_KEY: ${{ secrets.PI_REVIEW_API_KEY }}
+          # A tag push names the tag; a dry run names the branch, or the version
+          # typed into the dispatch form.
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -u
+          # The version and the ref are separate: a rehearsal is for a version
+          # that may not be tagged yet, so the range ends at HEAD when the name
+          # does not resolve, while the changelog lookup still uses the name.
+          to="$TAG"
+          if ! git rev-parse --verify --quiet "${TAG}^{commit}" >/dev/null; then
+            to=HEAD
+            echo "::warning::${TAG} is not a ref yet; the range ends at HEAD"
+          fi
+          previous="$(git describe --tags --abbrev=0 "${to}^" 2>/dev/null || true)"
+          echo "release-notes range: ${previous:-<first release>}..${to} for ${TAG}"
+          status=0
+          if [ -n "$previous" ]; then
+            node scripts/release-notes/main.ts --out body.md --version "$TAG" "$previous" "$to" || status=$?
+          else
+            node scripts/release-notes/main.ts --out body.md --version "$TAG" "$to" || status=$?
+          fi
+          if [ "$status" = 3 ]; then
+            echo "::warning::the release body is the changelog fallback, not a summary: see release-notes above"
+          elif [ "$status" != 0 ]; then
+            echo "::warning::release-notes exited $status"
+          fi
+          if [ -s body.md ]; then
+            echo "body=body.md" >>"$GITHUB_OUTPUT"
+          else
+            echo "::warning::no release body: the agent failed and the changelog has no section for ${TAG}"
+          fi
+      # A dry run shows the body where a reviewer reads it and keeps it as an
+      # artifact, so the only thing left unproven is the publish call itself.
+      - name: Show the body
+        if: ${{ inputs.dry_run }}
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          {
+            echo "## Release body for ${TAG}"
+            echo
+            if [ -s body.md ]; then
+              cat body.md
+            else
+              echo "No body: the agent failed and the changelog has no section for ${TAG}."
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: ${{ inputs.dry_run }}
+        with:
+          name: release-notes
+          path: body.md
+          if-no-files-found: ignore
+      - uses: softprops/action-gh-release@v3
+        # The ref is checked here as well: the release page is the one thing a tag
+        # must always reach, so it does not rest on input handling alone.
+        if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.dry_run != true }}
+        with:
+          # Empty when there is nothing to say, and action-gh-release ignores an
+          # empty body_path, so the release publishes with no body rather than
+          # waiting for one.
+          body_path: ${{ steps.notes.outputs.body }}

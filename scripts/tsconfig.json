@@ -1,0 +1,12 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		// The release script is TypeScript run by Node's type stripping, so its
+		// relative imports name `.ts` files, and it may use the Node builtins that
+		// `src/` is forbidden: it is outside the package and never published.
+		"allowImportingTsExtensions": true,
+		"types": ["node"]
+	},
+	"include": ["release-notes/**/*.ts"],
+	"exclude": []
+}

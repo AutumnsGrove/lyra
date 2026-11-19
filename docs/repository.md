@@ -88,7 +88,7 @@ Read from `.github/workflows/release.yml`, `scripts/release-notes/`, and `AGENTS
 
 ### How it would be adapted for Lyra
 
-- **A TypeScript script** in `scripts/release-notes`, since Lyra has no Go. Same behavior: the range, the two kinds of evidence, the fallback chain, the exit codes, the size cap, the dry run. Nova's prompt is reused with its wording changed for a library that people install from npm.
+- **A TypeScript script** in `scripts/release-notes`, since Lyra has no Go. Same behavior: the range, the two kinds of evidence, the fallback chain, the exit codes, the size cap, the dry run. Nova's prompt is reused with its wording changed for a library that people install from npm. Built in step R, with its rows in `release-notes.md`; it also runs by hand for a rehearsal, which is what makes the prompt reviewable before a tag exists.
 - **Written test-first** like everything else (decision 62): a fake agent executable stands in for Pi, so the fallback paths (agent crashes, times out, returns an empty or oversized body, no changelog section) are all tested without a model.
 - **Same provider and key** as Nova's, OpenCode Go, so it draws on the allowance you already have. The key lives in the repository's secrets.
 - **The release procedure carries over** (decision 75), with npm publishing added to the tag job, after the gate and before the release is created.

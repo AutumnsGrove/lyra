@@ -6,7 +6,7 @@ import { defineConfig } from "vitest/config";
 // Cloudflare adapter in step 4 of `docs/first-slice.md`.
 export default defineConfig({
 	test: {
-		include: ["packages/*/src/**/*.test.ts"],
+		include: ["packages/*/src/**/*.test.ts", "scripts/**/*.test.ts"],
 		exclude: ["**/*.fuzz.test.ts", "**/*.workers.test.ts", "**/node_modules/**"],
 		environment: "node",
 		coverage: {
