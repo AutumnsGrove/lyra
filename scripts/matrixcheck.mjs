@@ -22,6 +22,9 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS_DIR = join(ROOT, "docs");
 const PACKAGE_DIR = join(ROOT, "packages");
+// The release-notes script lives outside the package, on purpose, because it uses
+// Node builtins the core may not; its tests cite rows like every other test.
+const SCRIPTS_DIR = join(ROOT, "scripts");
 const ID = /^[A-Z]{2,6}\d{1,3}$/;
 
 const unbuilt = JSON.parse(await readFile(join(ROOT, "scripts/unbuilt-rows.json"), "utf8"));
@@ -71,10 +74,8 @@ async function testCitations() {
 	const pattern = /\b(?:test|it|describe)(?:\.\w+)?\s*\(\s*(["'`])(.*?)\1/gs;
 	// `*.testing.ts` is test support, but a shared contract there registers test
 	// cases that run in more than one adapter, so its titles are claims too.
-	const tests = await walk(
-		PACKAGE_DIR,
-		(name) => name.endsWith(".test.ts") || name.endsWith(".testing.ts"),
-	);
+	const filter = (name) => name.endsWith(".test.ts") || name.endsWith(".testing.ts");
+	const tests = [...(await walk(PACKAGE_DIR, filter)), ...(await walk(SCRIPTS_DIR, filter))];
 	for (const file of tests) {
 		const source = await readFile(file, "utf8");
 		for (const match of source.matchAll(pattern)) {

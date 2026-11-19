@@ -10,6 +10,13 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- `scripts/release-notes/`, the script that writes the body, run by hand as
+  `node scripts/release-notes/main.ts [flags] [previous-tag] <tag>`: no build step, a fake agent in
+  its tests, every fallback path covered, a cap on the body, and a refusal to publish anything that
+  looks like a key. Its rows are in `docs/release-notes.md`.
+- `scripts/matrixcheck.mjs` now reads test names under `scripts/` as well, so the release script's
+  rows are held to the same rule as the core's, and `scripts/tsconfig.json` joins `pnpm typecheck`.
+
 - The planning record, moved from Lattice: the overview, the decisions, and one document per topic
   in `docs/`, with the raw research in `docs/research/`.
 - `AGENTS.md`, the instructions for people and agents working here, from the draft in
