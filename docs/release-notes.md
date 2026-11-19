@@ -86,6 +86,29 @@ key-shaped string (`sk-`, `Bearer `, or a long run that looks like base64), beca
 published to a public page and a leak there cannot be taken back. Every refusal falls back with a
 warning naming the reason.
 
+## The workflow
+
+`.github/workflows/release.yml` runs on a `v*` tag and on a manual dispatch. It reads Nova's, whose
+comments each name a failure it hit, with four differences: npm instead of GoReleaser-style archives,
+the version check above, publish-before-release, and a dry run that never publishes.
+
+- **`gate`** runs the same command `ci.yml` runs, from the same commit, so a tag cannot publish what a
+  pull request would have failed.
+- **`release`** needs the gate, and is the only job with `contents: write` and `id-token: write` and
+  nothing else, because it is the only job that may publish. It checks the version, builds, publishes
+  with `npm publish --provenance --access public` and no token (decision 99), then writes the body and
+  creates the release with `body_path`. Publish comes before the release page (decision 75).
+- **The npm skip.** A tag re-run, or a bootstrap publish made by hand, must not turn into a failed
+  release: if that exact version is already on the registry the step says so and carries on to the
+  release page (decision 121).
+- **The notes steps are allowed to fail.** Installing Pi, and running the script, are
+  `continue-on-error`, the notes step maps status `3` to a warning, and its own deadline is 12 minutes
+  inside a 15 minute step, so nothing about the body can stop a publish.
+- **The key reaches one step.** `secrets.PI_REVIEW_API_KEY` is mapped to `OPENCODE_API_KEY` on the
+  notes step and nowhere else, and `RN19` reads the workflow file to keep it that way.
+- **A dry run** runs everything except the publish and the release page, prints the version check's
+  findings as warnings, and writes the body to the job summary and as an artifact.
+
 ## Spec rows
 
 | ID | Case | Expected |
@@ -108,6 +131,8 @@ warning naming the reason.
 | RN16 | Bad: a body with a secret in it | An answer containing a key-shaped string is refused and the changelog section is the body, so a secret cannot reach a public page |
 | RN17 | Happy: the default cap fits a large release | A 12 KiB answer is the body and a 17 KiB one falls back, so the cap refuses a commit dump without refusing a real release |
 | RN18 | Happy: `--out` writes the file | With `--out` stdout is empty, the file holds the body byte for byte, and stderr says how many bytes were written |
+| RN19 | Bad: the key reaches one step | `release.yml` names `PI_REVIEW_API_KEY` exactly once, on the notes step, and no step sets a token for npm |
+| RN20 | Bad: a dry run never publishes | The publish step is guarded by a tag ref and not being a dry run, only the release job may write or mint a token, and the notes step is allowed to fail inside its own deadline |
 | RN21 | Happy: the release check passes | `--check` returns `0` when the tag, the package version and the changelog section all agree, with or without the `v` |
 | RN22 | Sad: the release check fails | A tag that disagrees with the package version, and a changelog with no section for it, each return `1` and name both sides |
 | RN23 | Happy: a dry run's check only warns | The same disagreements in a dry run are warnings on stderr with status `0`, so a rehearsal is never blocked by a version it has not released yet |

@@ -10,6 +10,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- The release workflow and its notes script (step R): a `vX.Y.Z` tag runs the gate, checks that the
+  tag, `packages/lyra/package.json` and `CHANGELOG.md` agree, publishes
+  `@autumnsgrove/lyra` to npm over trusted publishing with provenance, and writes the GitHub release
+  body from the changelog section and the commit log, with a fallback to the changelog section so a
+  release never waits on the agent. A manual dispatch rehearses everything but the publish and puts
+  the body in the job summary (decisions 99, 120 to 122).
 - `scripts/release-notes/`, the script that writes the body, run by hand as
   `node scripts/release-notes/main.ts [flags] [previous-tag] <tag>`: no build step, a fake agent in
   its tests, every fallback path covered, a cap on the body, and a refusal to publish anything that
