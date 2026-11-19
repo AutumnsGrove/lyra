@@ -55,8 +55,9 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 - **Step 3's gate** (on `9369f03`): 251 Node tests, 4 fuzz/property targets, coverage 94.22% statements
   and 88.88% branches, budget 63,216 B of 65,536 B (decision 113), and `matrixcheck` 176 rows (148 tested,
   28 unbuilt, all protocol).
-- **The next step is 4**, [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md), from the merged
-  `main`. It brings the workerd half of the gate with it.
+- **Step 4 brought the workerd half of the gate**: the storage contract and the kill-and-resume tests run
+  in the real runtime, and the example Worker's dry-run build is measured by the budget. What the adapter
+  chose is in decisions 117 to 119 and in `notes.md` under "Step 4".
 - **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
   went through `pi-review` and the agent merged them, on Autumn's instruction (decision 107).
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
