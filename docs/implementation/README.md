@@ -14,7 +14,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 
 | Step | Document | Where | Depends on | Status |
 |---|---|---|---|---|
-| R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | in review |
+| R | [`R-release-workflow.md`](R-release-workflow.md) | Lyra | the gate | merged |
 | 0 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | nothing | done in Lattice, 2026-11-17 |
 | 1a | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 1 to 5) | Lyra | the gate, and step 0 landed or waived by Autumn | merged |
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
@@ -31,14 +31,17 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
 
-- **Step R is in review**, pull request #13, on `feat/step-R-release-workflow`. It adds
+- **Step R is merged**, pull request #13 and the merge commit `ad99ef5`. It added
   `.github/workflows/release.yml` (a `v*` tag and a manual dry run), `scripts/release-notes/` (the
   release body, with 23 rows in `docs/release-notes.md`), a `--check` mode that the release job runs
   before anything else, `scripts/tsconfig.json` in the gate's typecheck, and `scripts/matrixcheck.mjs`
   reading test names under `scripts/`. Decisions 120 to 122 are its own. What it cannot finish alone:
   the dry run needs the workflow on the default branch, so Autumn dispatches it after the merge, and
   the first publish is hers because npm cannot take a trusted publisher for a package that does not
-  exist yet (decision 121).
+  exist yet (decision 121). `main`'s gate on `ad99ef5`: 274 Node tests, 28 workerd tests, 4
+  fuzz/property targets, coverage 94.22% statements and 88.88% branches, the package at 66,817 B of
+  69,632 B and the example at 22,194 B of 28,672 B, and `matrixcheck` 221 rows (193 tested, 28 unbuilt,
+  all protocol).
 - **Step 4 is merged**, as pull request #11 and the merge commit `0486e0d`, after two review rounds (the
   first found the changelog's `### Changed` heading replaced, an example namespace that did not typecheck,
   and an example that started a second run in one object; all fixed test-first where a test applied). It

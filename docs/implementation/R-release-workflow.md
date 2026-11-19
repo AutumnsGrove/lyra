@@ -1,22 +1,24 @@
 ---
 title: "Step R: the release workflow and the release-notes script"
-status: in review
+status: done
 category: features
 ---
 
 # Step R: the release workflow
 
-Last updated: 2026-11-19, at review. Read [`README.md`](README.md) first. Branch: `feat/step-R-release-workflow`. Builds decisions 71, 74, 75, 76, 99 and the "Releasing" section of `AGENTS.md`. Source material is Nova's, read-only, at `~/Documents/Projects/nova/.github/workflows/release.yml` and `~/Documents/Projects/nova/scripts/release-notes/` (`main.go`, `prompt.md`, `main_test.go`). Nova's script is Go, and Lyra has no Go, so this is a port of its behavior, with its tests ported first.
+Last updated: 2026-11-19. Read [`README.md`](README.md) first. Branch: `feat/step-R-release-workflow`. Builds decisions 71, 74, 75, 76, 99 and the "Releasing" section of `AGENTS.md`. Source material is Nova's, read-only, at `~/Documents/Projects/nova/.github/workflows/release.yml` and `~/Documents/Projects/nova/scripts/release-notes/` (`main.go`, `prompt.md`, `main_test.go`). Nova's script is Go, and Lyra has no Go, so this is a port of its behavior, with its tests ported first.
 
 ## Goal and done when
 
 A tag `vX.Y.Z` on `main` runs the gate, publishes `@autumnsgrove/lyra` to npm over OIDC with provenance, and creates a GitHub release whose body an agent wrote from the changelog section and the commit log, with a fallback chain so the body never blocks the release. A manual dry run rehearses everything except publishing.
 
-**State at review (2026-11-19).** Slices 1 to 3 are built: the script with its rows in
-`docs/release-notes.md` and a fake agent, the workflow, and the docs. The gate is green. Two items in
-"Done when" are Autumn's and wait on the merge: `workflow_dispatch` only lists a workflow that exists on
-the default branch, so the dry run cannot be dispatched from the branch, and it is the first thing to do
-on `main` afterwards. Nothing was published, no tag was pushed, and no npm setting was touched.
+**State (2026-11-19).** Merged as pull request #13 and `ad99ef5`, with slices 1 to 3 in it: the script
+with its rows in `docs/release-notes.md` and a fake agent, the workflow, and the docs. The gate is green
+and `pi-review` found nothing blocking. Two items in "Done when" are Autumn's and wait on the merge:
+`workflow_dispatch` only lists a workflow that exists on the default branch, so the dry run could not be
+dispatched from the branch and is the first thing to do on `main`; and the first publish, which npm will
+not accept over OIDC for a package that does not exist yet (decision 121). Nothing was published, no tag
+was pushed, and no npm setting was touched.
 
 Done when:
 - the script's tests pass, covering every fallback path with a fake agent and no model;
