@@ -6,7 +6,7 @@ Read `docs/overview.md` first. It says what Lyra is and where each detail lives.
 
 ## Where the work stands
 
-Planning is finished as far as the first slice. Step 1 is complete and merged (`0e02714` for 1a, `24df026` for 1b), and step 2 is merged (`d278c82`, pull request #6): the entry cap, limits, stop and steer, retries with a fallback, the stuck safeguard, resume with the recipe pin, and waking. Step 3, recipes and tools, is merged (pull request #9, `9369f03`): argument validation, `defineTool`, recipe state and replay, handles, `finish` with a done-check, `defineRecipe`, and the `timeline-test` recipe. Step 4, the Cloudflare adapter, is merged (pull request #11, `0486e0d`): Durable Object SQLite, the alarm as the wake, bindings as secrets, the workerd half of the gate, and an example Worker built in CI. Step 5, the model adapters, is next: the OpenAI-style one here, and the Lumen half in Lattice against a published Lyra. Step 0, the Lumen changes in Lattice, landed on 2026-11-17, so step 5's Lumen half has its dependency and still needs a published Lyra. The build order is in `docs/first-slice.md`, and the resumable state is the status table and "Where the last session stopped" in `docs/implementation/README.md`. Nothing is released, so the package is at `0.0.0` and not published.
+Planning is finished as far as the first slice. Step 1 is complete and merged (`0e02714` for 1a, `24df026` for 1b), and step 2 is merged (`d278c82`, pull request #6): the entry cap, limits, stop and steer, retries with a fallback, the stuck safeguard, resume with the recipe pin, and waking. Step 3, recipes and tools, is merged (pull request #9, `9369f03`): argument validation, `defineTool`, recipe state and replay, handles, `finish` with a done-check, `defineRecipe`, and the `timeline-test` recipe. Step 4, the Cloudflare adapter, is merged (pull request #11, `0486e0d`): Durable Object SQLite, the alarm as the wake, bindings as secrets, the workerd half of the gate, and an example Worker built in CI. Step R, the release workflow and its notes script, is in review: a `vX.Y.Z` tag runs the gate, checks that the tag, the package version and the changelog agree, publishes over trusted publishing with provenance, and writes the release body with a fallback that never blocks a release (pull request #13). Step 5, the model adapters, is next: the OpenAI-style one here, and the Lumen half in Lattice against a published Lyra. Step 0, the Lumen changes in Lattice, landed on 2026-11-17, so step 5's Lumen half has its dependency and still needs a published Lyra. The build order is in `docs/first-slice.md`, and the resumable state is the status table and "Where the last session stopped" in `docs/implementation/README.md`. Nothing is released: the package is at `0.0.0` and unpublished, and the first publish is Autumn's to make by hand, because npm cannot take a trusted publisher for a package that does not exist yet.
 
 **Building a step?** Read `docs/implementation/README.md` and then the one document for your step. They hold the branch, commit, pull request and `pi-review` rules, the slices, and the repo mechanics that bite. Until the core is built, those documents stand in for issues (Autumn's call, 2026-11-16): cite the step document instead of an issue number.
 
@@ -39,17 +39,17 @@ This is the rule that matters most. **No behavior change without a test that fai
 
 One pnpm workspace. One published package, `@autumnsgrove/lyra`, with these entry points.
 
-| Where                         | What lives there                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------------------- |
-| `packages/lyra/src/core/`     | the loop, recipes, tools, limits                                                         |
-| `packages/lyra/src/record/`   | record entries, replay, resume                                                           |
-| `packages/lyra/src/protocol/` | frames, commands, events                                                                 |
-| `packages/lyra/src/adapters/` | `memory`, `cloudflare`, `openai` (OpenRouter and OpenCode Go)                            |
-| `packages/lyra/src/testkit/`  | test support only, but public                                                            |
-| `scenarios/`                  | the YAML scenario files                                                                  |
-| `examples/workers-minimal/`   | a small Workers consumer, built in CI so the library stays embeddable                    |
-| `scripts/`                    | `importcheck`, `matrixcheck`, `budget` (`release-notes` comes with the release workflow) |
-| `docs/`                       | the specs, with a row table in each, and `decisions.md`                                  |
+| Where                         | What lives there                                                      |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `packages/lyra/src/core/`     | the loop, recipes, tools, limits                                      |
+| `packages/lyra/src/record/`   | record entries, replay, resume                                        |
+| `packages/lyra/src/protocol/` | frames, commands, events                                              |
+| `packages/lyra/src/adapters/` | `memory`, `cloudflare`, `openai` (OpenRouter and OpenCode Go)         |
+| `packages/lyra/src/testkit/`  | test support only, but public                                         |
+| `scenarios/`                  | the YAML scenario files                                               |
+| `examples/workers-minimal/`   | a small Workers consumer, built in CI so the library stays embeddable |
+| `scripts/`                    | `importcheck`, `matrixcheck`, `budget`, `release-notes`               |
+| `docs/`                       | the specs, with a row table in each, and `decisions.md`               |
 
 `packages/lyra/src/core/`, `src/record/`, `src/adapters/memory/` and `src/testkit/` exist today, with `docs/core-loop.md` as the loop's spec, and `scenarios/` holds the in-process scenario files. `src/protocol/` and the Cloudflare and OpenAI adapters arrive with the steps that need them: do not create a module or an entry point before its first test.
 
@@ -124,13 +124,13 @@ A version is a git tag `vX.Y.Z` on `main`. A release is a **changelog edit, a PR
 
 1. Settle the number. Lyra is `0.x`: a minor bump carries new API and any breaking change, and a patch bump is fixes only. Do not go to `1.0.0` unless told to.
 2. Branch `release/vX.Y.Z` from an up-to-date `main`.
-3. Edit `CHANGELOG.md`: rename `[Unreleased]` to the version and date, leave a new empty `[Unreleased]`, and write upgrade notes for anything that changes behavior for an existing caller. Never write "nothing breaks" without checking.
-4. Run `pnpm ci`, open a PR titled `release: vX.Y.Z`, and merge it with a merge commit.
+3. Edit `CHANGELOG.md`: rename `[Unreleased]` to the version and date, leave a new empty `[Unreleased]`, and write upgrade notes for anything that changes behavior for an existing caller. Never write "nothing breaks" without checking. Then set `packages/lyra/package.json`'s `version` to the same number: the tag publishes from it, and the release job fails when the tag and it disagree (decision 120).
+4. Run `pnpm run ci`, open a PR titled `release: vX.Y.Z`, and merge it with a merge commit.
 5. Tag the merge commit and push the tag. The tag runs the gate, builds, publishes to npm, and writes the GitHub release body.
-6. The body is written by an agent from the changelog section and the commit log, with a fallback to the changelog section, so a release never waits on the model. Rehearse it without publishing by running the release workflow with its dry-run input.
+6. The body is written by an agent from the changelog section and the commit log, with a fallback to the changelog section, so a release never waits on the model. Rehearse it without publishing by running the release workflow with its dry-run input; the body appears in the job summary and as an artifact.
 7. Verify the package installs from a scratch project, and tell the consumers what the upgrade notes require.
 
-The release workflow and the notes script do not exist yet; they are the change after the gate (decision 71). Nothing is published until then.
+The workflow is `.github/workflows/release.yml` and the script is `scripts/release-notes/main.ts`, specified in `docs/release-notes.md`. Two things about the first release are Autumn's and not an agent's: npm has no pending publisher, so the package has to exist before a trusted publisher can be added, and the first publish is made by hand from her machine; the trusted publisher for `AutumnsGrove/lyra` and `release.yml` then has to complete a publish within two days or it expires (decision 121). A version already on the registry is left alone by the publish step, so a re-run cannot fail a release.
 
 ## Where the design lives
 

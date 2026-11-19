@@ -114,7 +114,7 @@ Details are in [`engineering-practices.md`](engineering-practices.md).
 
 ## The repository and releases
 
-One package with subpath exports (`core`, `memory`, `cloudflare`, `openai`, `testkit`, and `node` later), each with its own allowed imports, enforced by a check. Semver at 0.x, published to npm from the start. A release is a changelog edit, a PR, and a tag. On the tag, CI runs the gate, builds, publishes, and a Pi agent writes the GitHub release body from the changelog and the commit log, with a fallback so a release never waits on the model. `pi-review` reviews pull requests, installed by Autumn as PR #1 (decisions 69 to 77). Details are in [`repository.md`](repository.md).
+One package with subpath exports (`core`, `memory`, `cloudflare`, `openai`, `testkit`, and `node` later), each with its own allowed imports, enforced by a check. Semver at 0.x, published to npm from the start. A release is a changelog edit, a PR, and a tag. On the tag, CI runs the gate, builds, publishes, and a Pi agent writes the GitHub release body from the changelog and the commit log, with a fallback so a release never waits on the model. That workflow and its script are built (step R, `docs/release-notes.md`); nothing is published yet, and the first publish is a person's because npm cannot take a trusted publisher for a package that does not exist. `pi-review` reviews pull requests, installed by Autumn as PR #1 (decisions 69 to 77). Details are in [`repository.md`](repository.md).
 
 ## The first slice
 
@@ -122,6 +122,7 @@ Version one is built whole, then the timeline runs on it (decision 59).
 
 | Step | What |
 |---|---|
+| R | The release workflow: a tag runs the gate, publishes to npm over trusted publishing, and writes the release body |
 | 0 | Lumen: tool turns in messages, and a finish reason (blocks everything). Issue #1693. |
 | 1 | The core with fakes: types, slots, record, loop, scenarios, `pnpm ci` |
 | 2 | Limits, retries, resume, with a test that kills a run at every point |
@@ -156,7 +157,7 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 119 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 122 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |
@@ -173,5 +174,6 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 | [`first-slice.md`](first-slice.md) | The build order. |
 | [`implementation/`](implementation/README.md) | How to build each step: the shared rules, and one document per step with slices and planned spec rows. |
 | [`repository.md`](repository.md) | The repository, releases, and moving over. |
+| [`release-notes.md`](release-notes.md) | The release body script and `.github/workflows/release.yml`. |
 | [`agents-guide.md`](agents-guide.md) | The draft the repository's `AGENTS.md` came from (decision 93). |
 | [`research/`](research/) | Raw research notes, written fast. Useful as source material, not as settled fact. |
