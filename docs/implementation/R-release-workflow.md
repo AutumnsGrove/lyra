@@ -14,11 +14,12 @@ A tag `vX.Y.Z` on `main` runs the gate, publishes `@autumnsgrove/lyra` to npm ov
 
 **State (2026-11-19).** Merged as pull request #13 and `ad99ef5`, with slices 1 to 3 in it: the script
 with its rows in `docs/release-notes.md` and a fake agent, the workflow, and the docs. The gate is green
-and `pi-review` found nothing blocking. Two items in "Done when" are Autumn's and wait on the merge:
-`workflow_dispatch` only lists a workflow that exists on the default branch, so the dry run could not be
-dispatched from the branch and is the first thing to do on `main`; and the first publish, which npm will
-not accept over OIDC for a package that does not exist yet (decision 121). Nothing was published, no tag
-was pushed, and no npm setting was touched.
+and `pi-review` found nothing blocking. Both items in "Done when" that were Autumn's are done: the dry run
+was dispatched on `main` the day it merged (run 44601092452, and its body in the job summary is what
+the agent wrote from the whole history, since no tag existed yet), and the first publish happened the
+same afternoon in the three steps decision 121 predicted: `0.0.0` by hand, the trusted publisher for
+`release.yml`, then `v0.1.0` from the tag. Nothing in this step published anything itself, pushed a tag,
+or touched an npm setting.
 
 Done when:
 - the script's tests pass, covering every fallback path with a fake agent and no model;

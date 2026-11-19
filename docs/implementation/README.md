@@ -35,10 +35,10 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   `.github/workflows/release.yml` (a `v*` tag and a manual dry run), `scripts/release-notes/` (the
   release body, with 23 rows in `docs/release-notes.md`), a `--check` mode that the release job runs
   before anything else, `scripts/tsconfig.json` in the gate's typecheck, and `scripts/matrixcheck.mjs`
-  reading test names under `scripts/`. Decisions 120 to 122 are its own. What it cannot finish alone:
-  the dry run needs the workflow on the default branch, so Autumn dispatches it after the merge, and
-  the first publish is hers because npm cannot take a trusted publisher for a package that does not
-  exist yet (decision 121). `main`'s gate on `ad99ef5`, as the CI run reported it: 274 Node tests, 28
+  reading test names under `scripts/`. Decisions 120 to 122 are its own. What it could not finish alone
+  happened the same day: the dry run was dispatched on `main` (run 44601092452, body in the job
+  summary and an artifact), the bootstrap `0.0.0` publish was made by hand, the trusted publisher was
+  added for `release.yml`, and `v0.1.0` published through the tag (decision 121). `main`'s gate on `ad99ef5`, as the CI run reported it: 274 Node tests, 28
   workerd tests, 4 fuzz/property targets, coverage 94.22% statements and 88.88% branches, the package
   at 66,412 B of 69,632 B and the example at 22,181 B of 28,672 B, and `matrixcheck` 221 rows (193
   tested, 28 unbuilt, all protocol). A budget figure in these notes is gzipped bytes, and a Linux

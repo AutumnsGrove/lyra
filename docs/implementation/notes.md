@@ -46,6 +46,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   rather than a session flag.
 - **The pinned toolset kept `bash`** (decision 76). The prompt says the tools are read-only plus a shell
   on a runner that is thrown away, and the key is on that step only.
+- **The bootstrap went as decision 121 predicted, and npm's own bookkeeping was the slowest part.** The
+  registry's package page was a 404 for about two minutes after `npm publish` succeeded, while
+  `npm access list packages` already listed the package: the access list turns over before the
+  packument does, so a 404 is not proof that a publish failed. `npm trust github ... --allow-publish`
+  wants its own one-time code, because every trusted-publishing change is an account operation now, and
+  the new config sits at "Pending validation" until a publish succeeds, with a two-day deadline. The
+  `v0.1.0` tag closed it within the hour, and the first version anyone should install is `0.1.0`; the
+  `0.0.0` publish exists only so the settings page could exist. `npm access` and `npm trust list` both
+  need a code too, which is why the config was checked in the browser rather than by a command.
 
 ## Step 4, steps 4 to 7, 2026-11-18
 
