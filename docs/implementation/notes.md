@@ -8,6 +8,36 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 4, steps 4 to 7, 2026-11-18
+
+- **Eviction is the test, and a frozen append is the gate.** A run is held either on the fake clock
+  (a tool that waits) or by freezing one append with `crashingStorage`; the object is evicted, a fresh
+  instance is configured with the same recipe (the way a deploy restores code), and its alarm resumes the
+  record. Workerd really drops the instance's memory, so a passing resume really came from SQLite.
+- **`runDurableObjectAlarm` only runs an alarm whose time has come.** A future alarm returns `false`. The
+  fake clock's epoch is 2023, so the runtime's own 60 s-ahead alarm is already due, which is convenient;
+  the one test that needs its own alarm sets it in the past, and the handler test calls `instance.alarm()`
+  directly, which decision 101's `import()` limit makes the normal way to reach a handler anyway.
+- **A kill before the first `turn_start` leaves no wake to fire.** The runtime arms its alarm as a step
+  begins, so a record killed between the `running` status and the first turn has an alarm set already;
+  a kill before *that* would not. The kill numbers start at the first assistant append, which is the
+  window the step asks about, and the fixture sets a wake by hand for any point that lacked one. If that
+  gap is ever worth closing, arming a wake at `run_start` too is a decision of its own.
+- **Counting had to sit outside the fault wrapper.** `crashingStorage` returns a promise that never
+  settles, so an append frozen "before" never reaches the wrapped adapter; counting inside meant a test
+  waiting for append 4 saw 3 and timed out. The fixture counts the attempt, then calls the guard.
+- **A record with no header is not rewritten.** A resume over a damaged record fails the run but writes
+  nothing, because `appendLine` refuses to write into a record that never started. `CFL13` checks the
+  handler returns and the run fails, not that a `failed` status appears.
+- **The package ceiling moved to 68 KiB (decision 119), and the example got its own.** The adapter added
+  about 3.6 KiB gzipped, which is its real cost, and the example bundle (21.9 KiB) is the number a Worker
+  pays, so it is measured directly. The budget script now takes a `dir` entry for a built bundle.
+- **The Cloudflare adapter is outside the Node coverage run.** V8 coverage does not exist in workerd
+  (decision 101), so its tests cannot contribute to the 85% floor; the floor measures the Node-tested core,
+  and the adapter's tests are the workerd suite. The exclusion is named in `vitest.config.ts`.
+- **The pinned tooling is three packages, all dev-only** (decision 117): the plugin, `wrangler` and
+  `@cloudflare/workers-types`. `pnpm install` brings the workerd binary, so CI needs no extra setup.
+
 ## Step 4, slice 1, 2026-11-18
 
 - **`"types"` cannot name either Cloudflare package.** TypeScript resolves the `types` option under

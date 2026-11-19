@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-18. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 116 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-18. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 119 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -108,7 +108,7 @@ Details are in [`consumers.md`](consumers.md) and [`timeline-first-job.md`](time
 - **End to end from the first commit.** The same scenario files run in-process first and over the real protocol later (decision 63).
 - **Property tests and fuzzing** where a rule can be stated or bytes are untrusted, and a fake model that misbehaves at random (decision 64).
 - **Local testing** with the real runtime, a small dev client, a live suite that uses OpenCode Go for bulk and OpenRouter for fidelity, and cassettes recorded from live runs and replayed free in CI. Two mock Lumens, kept honest by contract tests, cover the Lumen adapter (decisions 65, 67).
-- **One gate.** `pnpm ci` runs format, typecheck, build, tests, fuzz, import checks, the matrix check, size budgets, and an 85% coverage floor on the core (decision 66).
+- **One gate.** `pnpm run ci` runs format, typecheck, build, the Node tests, the workerd tests, fuzz, import checks, the matrix check, size budgets (the package and the example Worker's bundle), the example's dry-run build, and an 85% coverage floor on the Node-tested core (decisions 66, 101, 119).
 
 Details are in [`engineering-practices.md`](engineering-practices.md).
 
@@ -126,7 +126,7 @@ Version one is built whole, then the timeline runs on it (decision 59).
 | 1 | The core with fakes: types, slots, record, loop, scenarios, `pnpm ci` |
 | 2 | Limits, retries, resume, with a test that kills a run at every point |
 | 3 | Recipes and tools: validation errors back to the model, handles, the coverage check |
-| 4 | The Cloudflare adapter: Durable Object storage and alarms, tested in workerd |
+| 4 | The Cloudflare adapter: Durable Object storage, alarms and bindings, tested in workerd, plus an example Worker |
 | 5 | Models: the Lumen adapter and an OpenAI-style adapter for OpenRouter and OpenCode Go |
 | 6 | The protocol over HTTP, with a small test task run through the whole stack |
 | 7 | Compaction |
@@ -156,7 +156,7 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 116 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 119 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |

@@ -146,7 +146,22 @@ new API and any breaking change, and a patch bump is fixes only.
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
   plus briefs for the three steps that live in Lattice. They add no decisions.
 
-### Changed
+### Added
+
+- `@autumnsgrove/lyra/cloudflare`, the first adapter: `durableObjectStorage` (one row per record line in
+  a Durable Object's SQLite, `seq` from a synchronous transaction, a line over the adapter's limit refused
+  before SQLite sees it), `alarmWaking` (one row and one alarm per object, `scheduledWake` for the host's
+  handler) and `bindingSecrets` (own string bindings only). It imports the core and the runtime's own
+  modules and nothing else (decisions 72, 117).
+- `pnpm test:workers`, the workerd half of the gate through `@cloudflare/vitest-plugin`: the shared
+  storage contract runs against real Durable Object SQLite, a full 1 MiB entry saves and reads back byte
+  for byte (decision 118, closing decision 102), and a run is held, evicted and woken through its alarm at
+  every append, with the resumed record, page and handles matching an uninterrupted run's.
+- `examples/workers-minimal`, a Worker and Durable Object using the core and the adapter, built in CI with
+  `wrangler deploy --dry-run` (never a deploy) and measured by the size budget at 21,946 B of 28,672 B
+  (decision 119).
+- The package's size ceiling moves from 64 to 68 KiB with the adapter in it (decision 119), and the budget
+  now measures a built directory as well as a package.
 
 - `pnpm test:workers` runs the workerd half of the gate through `@cloudflare/vitest-plugin`
   1.8.5, with `wrangler` 4.165.0 and `@cloudflare/workers-types` 5.20261119.1 pinned for it.
