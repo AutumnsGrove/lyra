@@ -38,7 +38,7 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   `pnpm build:example` are in the gate.
 - **Step 4's gate** on the branch: 251 Node tests, 28 workerd tests, 4 fuzz/property targets, coverage
   94.22% statements and 88.88% branches on the Node-tested core (the workerd suite reports none, decision
-  101), the package at 66,817 B of 69,632 B and the example bundle at 21,946 B of 28,672 B (decision 119),
+  101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
 - **Step 5 is next**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`. Its Lumen half
   lives in Lattice and needs a published Lyra.

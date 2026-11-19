@@ -21,7 +21,10 @@ import {
 import { alarmWaking, durableObjectStorage, scheduledWake } from "@autumnsgrove/lyra/cloudflare";
 
 interface Env {
-	MINIMAL_SESSION: DurableObjectNamespace<MinimalSession>;
+	// Unparameterised: a namespace parameterised with the class would need the class
+	// to carry Workers' Durable Object brand, which the legacy global interface the
+	// example implements does not. The test fixture makes the same call.
+	MINIMAL_SESSION: DurableObjectNamespace;
 }
 
 const recipe: Recipe = {
@@ -59,6 +62,15 @@ export class MinimalSession implements DurableObject {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// One run per object, which is what the adapter's single record and single
+		// alarm assume. A second run would append a second header into the same table.
+		const existing = await durableObjectStorage(this.state.storage).read();
+		if (!existing.ok) {
+			return Response.json({ error: existing.error }, { status: 500 });
+		}
+		if (existing.value.length > 0) {
+			return Response.json({ error: "this session already holds a run" }, { status: 409 });
+		}
 		const started = this.#runtime().start({
 			runId: crypto.randomUUID(),
 			task: recipe.name,
@@ -92,7 +104,8 @@ export class MinimalSession implements DurableObject {
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		const id = env.MINIMAL_SESSION.idFromName("example");
+		// The URL names the session, so two callers do not share one object by accident.
+		const id = env.MINIMAL_SESSION.idFromName(new URL(request.url).pathname);
 		return env.MINIMAL_SESSION.get(id).fetch(request);
 	},
 } satisfies ExportedHandler<Env>;

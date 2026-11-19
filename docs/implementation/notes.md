@@ -37,6 +37,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   and the adapter's tests are the workerd suite. The exclusion is named in `vitest.config.ts`.
 - **The pinned tooling is three packages, all dev-only** (decision 117): the plugin, `wrangler` and
   `@cloudflare/workers-types`. `pnpm install` brings the workerd binary, so CI needs no extra setup.
+- **Review round one found three things, all right.** The changelog's `### Changed` heading had been
+  replaced rather than added to, so a breaking API change sat under "Added"; the example's namespace was
+  parameterised with a class that does not carry Workers' Durable Object brand; and every request went to
+  one object that started a new run each time, which appends a second header into the one table. The
+  changelog has its heading back, the example's namespace is unparameterised like the fixture's, the
+  example refuses a second run and names sessions by path, and the example is now typechecked in the gate
+  (`tsc -p examples/workers-minimal/tsconfig.json`), which is what would have caught the second one.
+- **The fuzz timeout went to 60 s.** RCD07 took 37 s on a loaded machine during this step's gate, past the
+  30 s set in step 3.
 
 ## Step 4, slice 1, 2026-11-18
 

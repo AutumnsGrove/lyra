@@ -11,6 +11,7 @@ export default defineConfig({
 		passWithNoTests: true,
 		// A fuzz target runs a high `numRuns` on purpose, so the default five-second
 		// test timeout measures the machine rather than the property (step 3, notes.md).
-		testTimeout: 30_000,
+		// It went to 60 s in step 4, when RCD07 took 37 s on a loaded machine.
+		testTimeout: 60_000,
 	},
 });

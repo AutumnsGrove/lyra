@@ -17,7 +17,7 @@
 	"scripts": {
 		"format": "prettier --check .",
 		"format:fix": "prettier --write .",
-		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.workers.json",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.workers.json && tsc --noEmit -p examples/workers-minimal/tsconfig.json",
 		"build": "pnpm --filter @autumnsgrove/lyra build",
 		"test": "vitest run",
 		"test:watch": "vitest",

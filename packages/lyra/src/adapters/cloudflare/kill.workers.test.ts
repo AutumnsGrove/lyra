@@ -223,10 +223,9 @@ test("CFL14 a run held mid-flight, evicted and woken, resumes and ends done", as
 	const outcome = await outcomeOf(stub);
 	expect(outcome.reason).toBe("done");
 	expect(executions.count("c1")).toBe(1);
+	// The call was cut off mid-tool, so the model is told its outcome is unknown.
 	const lines = await linesOf(stub);
-	const record = projection(lines);
-	expect(record.some((line) => line.startsWith("tool c1"))).toBe(false);
-	expect(record.some((line) => line.includes("outcome unknown"))).toBe(false);
+	expect(lines.some((line) => line.includes("outcome unknown"))).toBe(true);
 });
 
 test("CFL03 a run whose storage fails at an append ends failed once", async () => {
