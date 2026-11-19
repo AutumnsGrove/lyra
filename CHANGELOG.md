@@ -8,6 +8,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-19
+
+This is the first release anyone should install, and there is nothing to migrate to reach it. `0.0.0`
+was published only to create the package, because npm will not take a trusted publisher for a package
+that does not exist yet.
+
 ### Added
 
 - The release workflow and its notes script (step R): a `vX.Y.Z` tag runs the gate, checks that the
