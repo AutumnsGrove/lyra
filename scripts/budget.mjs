@@ -3,9 +3,16 @@
  * Size budgets, because a bundle that grows quietly is a design change nobody
  * decided (AGENTS.md, "Hard rules"; docs/engineering-practices.md).
  *
- * Measures the gzipped JavaScript each package ships, which is what a consumer
- * downloads, against the ceiling in scripts/budgets.json. Run `pnpm build`
- * first; `pnpm ci` does.
+ * Two kinds of measurement, both gzipped JavaScript:
+ *
+ * - a package under `packages/`, keyed by its published name, which is what a
+ *   consumer installs (`dist/` sums every entry point);
+ * - a directory, named with `dir`, which is a bundle a build left behind. The
+ *   example Worker's `wrangler deploy --dry-run` output is the step 4 one, and it
+ *   is the number a Worker actually pays.
+ *
+ * Run `pnpm build` (and `pnpm build:example` for the example) first; `pnpm ci`
+ * does, in that order.
  */
 import { gzipSync } from "node:zlib";
 import { readFile, readdir, stat } from "node:fs/promises";
@@ -61,14 +68,21 @@ for (const [name, budget] of Object.entries(budgets)) {
 	if (name.startsWith("_")) {
 		continue;
 	}
-	const packageDir = dirs.get(name);
-	if (packageDir === undefined) {
-		problems.push(`${name} has a budget but no package under packages/`);
-		continue;
+	let dist;
+	if (budget.dir !== undefined) {
+		dist = join(ROOT, budget.dir);
+	} else {
+		const packageDir = dirs.get(name);
+		if (packageDir === undefined) {
+			problems.push(`${name} has a budget but no package under packages/`);
+			continue;
+		}
+		dist = join(packageDir, "dist");
 	}
-	const dist = join(packageDir, "dist");
 	if (!(await exists(dist))) {
-		console.error(`budget: ${relative(ROOT, dist)} is missing. Run \`pnpm build\` first.`);
+		console.error(
+			`budget: ${relative(ROOT, dist)} is missing. Run \`pnpm build\` (and \`pnpm build:example\`) first.`,
+		);
 		process.exit(1);
 	}
 	const files = await walk(dist);

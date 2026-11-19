@@ -1,0 +1,16 @@
+{
+	"name": "@autumnsgrove/lyra-example-workers",
+	"version": "0.0.0",
+	"private": true,
+	"description": "A minimal Worker and Durable Object running Lyra, built in CI so the library stays embeddable",
+	"type": "module",
+	"scripts": {
+		"build": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+	},
+	"dependencies": {
+		"@autumnsgrove/lyra": "workspace:*"
+	},
+	"devDependencies": {
+		"wrangler": "4.165.0"
+	}
+}

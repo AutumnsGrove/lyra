@@ -26,8 +26,9 @@
 		"matrixcheck": "node scripts/matrixcheck.mjs",
 		"budget": "node scripts/budget.mjs",
 		"coverage": "vitest run --coverage",
-		"ci": "pnpm format && pnpm typecheck && pnpm build && pnpm test && pnpm test:workers && pnpm fuzz && pnpm importcheck && pnpm matrixcheck && pnpm budget && pnpm coverage",
-		"test:workers": "vitest run --config vitest.workers.config.ts"
+		"ci": "pnpm format && pnpm typecheck && pnpm build && pnpm test && pnpm test:workers && pnpm fuzz && pnpm importcheck && pnpm matrixcheck && pnpm build:example && pnpm budget && pnpm coverage",
+		"test:workers": "vitest run --config vitest.workers.config.ts",
+		"build:example": "pnpm --filter @autumnsgrove/lyra-example-workers build"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.8.5",

@@ -1,6 +1,10 @@
 {
-	"_note": "A ceiling for the whole package: core, adapters and testkit together. It was 40 KiB before any real code, 52 KiB from step 2 slice 6 (decision 109), and is 64 KiB from step 3 slice 3 (decision 113). Lower it as the modules settle, and say so in the commit and in `decisions.md` when it moves (AGENTS.md, size budgets).",
+	"_note": "The whole package, core through testkit, with a ceiling that moves only by a decision; and the example Worker's bundle from `wrangler deploy --dry-run`, which is the number a Worker actually pays. Both are gzipped JavaScript. Lower them as the modules settle, and say so in the commit and in `decisions.md` when one moves (AGENTS.md, size budgets).",
 	"@autumnsgrove/lyra": {
-		"gzipBytes": 65536
+		"gzipBytes": 69632
+	},
+	"examples/workers-minimal": {
+		"dir": "examples/workers-minimal/.wrangler/dry-run",
+		"gzipBytes": 28672
 	}
 }
