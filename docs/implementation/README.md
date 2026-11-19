@@ -38,10 +38,12 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   reading test names under `scripts/`. Decisions 120 to 122 are its own. What it cannot finish alone:
   the dry run needs the workflow on the default branch, so Autumn dispatches it after the merge, and
   the first publish is hers because npm cannot take a trusted publisher for a package that does not
-  exist yet (decision 121). `main`'s gate on `ad99ef5`: 274 Node tests, 28 workerd tests, 4
-  fuzz/property targets, coverage 94.22% statements and 88.88% branches, the package at 66,817 B of
-  69,632 B and the example at 22,194 B of 28,672 B, and `matrixcheck` 221 rows (193 tested, 28 unbuilt,
-  all protocol).
+  exist yet (decision 121). `main`'s gate on `ad99ef5`, as the CI run reported it: 274 Node tests, 28
+  workerd tests, 4 fuzz/property targets, coverage 94.22% statements and 88.88% branches, the package
+  at 66,412 B of 69,632 B and the example at 22,181 B of 28,672 B, and `matrixcheck` 221 rows (193
+  tested, 28 unbuilt, all protocol). A budget figure in these notes is gzipped bytes, and a Linux
+  runner compresses a few hundred bytes tighter than a macOS laptop: the same commit measured 66,817 B
+  locally, and earlier entries here record the local number.
 - **Step 4 is merged**, as pull request #11 and the merge commit `0486e0d`, after two review rounds (the
   first found the changelog's `### Changed` heading replaced, an example namespace that did not typecheck,
   and an example that started a second run in one object; all fixed test-first where a test applied). It
@@ -51,7 +53,8 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   `pnpm build:example` are in the gate.
 - **`main`'s gate** (on `0486e0d`): 251 Node tests, 28 workerd tests, 4 fuzz/property targets, coverage
   94.22% statements and 88.88% branches on the Node-tested core (the workerd suite reports none, decision
-  101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119),
+  101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119,
+measured locally; CI's gzip on the same commit runs a few hundred bytes smaller),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
 - **Step 5 is next**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`. Its Lumen half
   lives in Lattice and needs a published Lyra: step R lands the workflow, and the first publish is
