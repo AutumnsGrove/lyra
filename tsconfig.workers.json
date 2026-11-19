@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"include": [
+		"packages/lyra/src/adapters/cloudflare/**/*.workers.test.ts",
+		"packages/lyra/src/adapters/cloudflare/testing/**/*.ts",
+		"node_modules/@cloudflare/workers-types/index.d.ts",
+		"node_modules/@cloudflare/vitest-plugin/types/cloudflare-test.d.ts"
+	],
+	"exclude": []
+}

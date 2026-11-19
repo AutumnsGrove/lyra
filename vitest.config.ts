@@ -7,12 +7,20 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
 	test: {
 		include: ["packages/*/src/**/*.test.ts"],
-		exclude: ["**/*.fuzz.test.ts", "**/node_modules/**"],
+		exclude: ["**/*.fuzz.test.ts", "**/*.workers.test.ts", "**/node_modules/**"],
 		environment: "node",
 		coverage: {
 			provider: "v8",
 			include: ["packages/*/src/**/*.ts"],
-			exclude: ["**/*.test.ts", "**/*.fuzz.test.ts", "**/*.testing.ts", "**/dist/**"],
+			exclude: [
+				"**/*.test.ts",
+				"**/*.fuzz.test.ts",
+				"**/*.testing.ts",
+				"**/dist/**",
+				// The Cloudflare adapter is tested in workerd, where V8 coverage is not
+				// available (decision 101), so the 85% floor measures the Node-tested core.
+				"packages/lyra/src/adapters/cloudflare/**",
+			],
 			reporter: ["text"],
 			thresholds: {
 				lines: 85,

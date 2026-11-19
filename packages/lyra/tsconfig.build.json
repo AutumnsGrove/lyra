@@ -9,5 +9,10 @@
 		"rootDir": "src"
 	},
 	"include": ["src/**/*.ts"],
-	"exclude": ["src/**/*.test.ts", "src/**/*.fuzz.test.ts", "src/**/*.testing.ts"]
+	"exclude": [
+		"src/**/*.test.ts",
+		"src/**/*.fuzz.test.ts",
+		"src/**/*.testing.ts",
+		"src/adapters/cloudflare/testing/**"
+	]
 }

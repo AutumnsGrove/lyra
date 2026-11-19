@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["ES2023"],
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"types": [],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"paths": {
+			"@autumnsgrove/lyra": ["../../packages/lyra/src/index.ts"],
+			"@autumnsgrove/lyra/cloudflare": ["../../packages/lyra/src/adapters/cloudflare/index.ts"]
+		}
+	},
+	"include": ["src/**/*.ts", "../../node_modules/@cloudflare/workers-types/index.d.ts"]
+}

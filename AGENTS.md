@@ -6,7 +6,7 @@ Read `docs/overview.md` first. It says what Lyra is and where each detail lives.
 
 ## Where the work stands
 
-Planning is finished as far as the first slice. Step 1 is complete and merged (`0e02714` for 1a, `24df026` for 1b), and step 2 is merged (`d278c82`, pull request #6): the entry cap, limits, stop and steer, retries with a fallback, the stuck safeguard, resume with the recipe pin, and waking. Step 3, recipes and tools, is merged (pull request #9, `9369f03`): argument validation, `defineTool`, recipe state and replay, handles, `finish` with a done-check, `defineRecipe`, and the `timeline-test` recipe. Step 4, the Cloudflare adapter, is next, and it brings the workerd half of the gate with it. Step 0, the Lumen changes in Lattice, landed on 2026-11-17, so step 5's Lumen half has its dependency and still needs a published Lyra. The build order is in `docs/first-slice.md`, and the resumable state is the status table and "Where the last session stopped" in `docs/implementation/README.md`. Nothing is released, so the package is at `0.0.0` and not published.
+Planning is finished as far as the first slice. Step 1 is complete and merged (`0e02714` for 1a, `24df026` for 1b), and step 2 is merged (`d278c82`, pull request #6): the entry cap, limits, stop and steer, retries with a fallback, the stuck safeguard, resume with the recipe pin, and waking. Step 3, recipes and tools, is merged (pull request #9, `9369f03`): argument validation, `defineTool`, recipe state and replay, handles, `finish` with a done-check, `defineRecipe`, and the `timeline-test` recipe. Step 4, the Cloudflare adapter, is built and in review on `feat/step-04-cloudflare-adapter`: Durable Object SQLite, the alarm as the wake, bindings as secrets, the workerd half of the gate, and an example Worker built in CI. Step 0, the Lumen changes in Lattice, landed on 2026-11-17, so step 5's Lumen half has its dependency and still needs a published Lyra. The build order is in `docs/first-slice.md`, and the resumable state is the status table and "Where the last session stopped" in `docs/implementation/README.md`. Nothing is released, so the package is at `0.0.0` and not published.
 
 **Building a step?** Read `docs/implementation/README.md` and then the one document for your step. They hold the branch, commit, pull request and `pi-review` rules, the slices, and the repo mechanics that bite. Until the core is built, those documents stand in for issues (Autumn's call, 2026-11-16): cite the step document instead of an issue number.
 
@@ -62,6 +62,8 @@ pnpm install          # dependencies (pnpm, not npm or bun)
 pnpm test             # the fast loop: unit, component, scenarios in-process, cassettes
 pnpm test:watch       # the same, watching
 pnpm fuzz             # short fuzz and property runs, seeds printed on failure
+pnpm test:workers     # the workerd half: the Cloudflare adapter in the real runtime
+pnpm build:example    # the example Worker, bundled by wrangler --dry-run
 pnpm run ci           # the full gate (see below)
 pnpm format:fix       # rewrite formatting before you commit
 ```
@@ -69,7 +71,7 @@ pnpm format:fix       # rewrite formatting before you commit
 The documents say `pnpm ci`; pnpm reserves that name for an install, so the command on this
 repository is `pnpm run ci`, which runs the `ci` script in `package.json` (decision 98).
 
-These arrive with the step that needs them, and are not wired up yet: `pnpm test:workers` (step 4), `pnpm dev` and `pnpm lyra start <task>` (step 6).
+`pnpm dev` and `pnpm lyra start <task>` arrive with step 6.
 
 ## Hard rules
 
@@ -90,17 +92,17 @@ A change is done when **`pnpm run ci`** passes, and it runs the same checks as t
 ```
 pnpm run ci
   format       # prettier check
-  typecheck    # tsc --noEmit, strict
+  typecheck    # tsc --noEmit, strict, for the core and the workerd test program
   build        # tsc, to dist
   test         # unit through scenarios
+  test:workers # the Cloudflare adapter in the real runtime
   fuzz         # short fuzz and property runs, seeds printed on failure
   importcheck  # import rules, and no node:* in the core
   matrixcheck  # every spec row has a test
-  budget       # package and bundle size within budget
-  coverage     # 85% floor on the core
+  budget       # the package, and the example Worker's bundle
+  build:example # wrangler deploy --dry-run, never a deploy
+  coverage     # 85% floor on the Node-tested core
 ```
-
-The worker-runtime half (`L4 workerd`) joins the gate with the Cloudflare adapter in step 4.
 
 Beyond the gate: the tests for the change were written first and watched failing, the docs the change touches are updated, and anything unfinished is stated in the issue or the commit message. An empty list is a valid result. A silent gap is not.
 

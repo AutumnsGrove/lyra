@@ -6,7 +6,7 @@ category: features
 
 # Lyra adapters
 
-Last updated: 2026-11-17. Status: slots confirmed (decision 12). Model details confirmed (decisions 14 and 15). The shell slot is confirmed (decision 17). The Storage slot's cases are written down and the in-memory adapter passes them (step 1a, slice 4).
+Last updated: 2026-11-18. Status: slots confirmed (decision 12). Model details confirmed (decisions 14 and 15). The shell slot is confirmed (decision 17). The Storage slot's cases are written down and the in-memory adapter passes them (step 1a, slice 4). The Cloudflare adapter (step 4) fills Storage, Waking and Secrets over a Durable Object, and its own suite runs in workerd.
 
 ## The goal
 
@@ -111,9 +111,46 @@ step begins it sets one wake a configurable interval ahead (60 s by default),
 re-arms it on the next step, and cancels it when the run ends, so a finished or
 parked run is never woken. The in-memory adapter records what would have been
 scheduled and fires it on demand, which is how an interruption is exercised without
-waiting. On Cloudflare the same slot is a Durable Object alarm (step 4).
+waiting. On Cloudflare the same slot is a Durable Object alarm (step 4): there is one alarm per object and one active run per session, so one row says which run to wake and when, and `setAlarm` replaces any earlier one.
 
 | ID | Case | Expected |
 |---|---|---|
 | WAK01 | Happy: a wake follows the steps | A runtime with a Waking slot schedules one wake a step's interval ahead when a step begins, re-arms it for the next step, and cancels it when the run ends |
 | WAK02 | Sad: the host died | The wake a dead host left is fired, and a `wake` on the new host resumes the record, answers what was cut off, and finishes the run |
+
+## Spec rows: the Cloudflare adapter (step 4)
+
+The adapter fills three slots on Cloudflare: `StorageSlot` over a Durable Object's
+SQLite, `WakingSlot` over its alarm, and `SecretsSlot` over Worker bindings. Its
+production code imports the core, and names the runtime's modules (`cloudflare:workers`)
+only if it must; the worker test program gets Workers globals from a separate
+`tsconfig.workers.json`, so nothing here adds a global to the core's own program.
+
+Each case runs in workerd through Miniflare, so the storage is a real Durable
+Object's SQLite, the alarm is a real alarm, and eviction drops the instance's
+memory as a deploy would.
+
+| ID | Case | Expected |
+|---|---|---|
+| CFL00 | Happy: the workerd suite runs | A Durable Object in the test Worker answers a request over its real storage, and a fast-check property runs inside workerd, which settles decision 103's open item |
+| CFL01 | Happy: a full 1 MiB entry | A line of exactly 1 MiB saves to real Durable Object SQLite and reads back byte for byte, so decision 102's documented row limit is a fact rather than a page |
+| CFL02 | Bad: the adapter's own limit | A line at the limit saves and one byte over is refused with `bad_request`, nothing is stored, and the oversized text is not in the message |
+| CFL03 | Sad: a storage that fails | The adapter returns an error result rather than throwing, and a run whose append fails ends `failed` once, with nothing half-written |
+| CFL04 | Bad: appends issued together | Appends issued together get distinct, increasing `seq` values, because each one is a synchronous SQLite transaction |
+| CFL05 | Happy: eviction | What was written survives `evictDurableObject`, and the next append continues the sequence rather than starting again |
+| CFL06 | Bad: a damaged row | A malformed line inserted straight into the table is read as it is and loads through the record loader tolerantly |
+| CFL07 | Happy: a scheduled wake | `schedule` then `runDurableObjectAlarm` runs the handler once |
+| CFL08 | Happy: a second schedule | It replaces the first: the row names the new time, and the object holds one alarm |
+| CFL09 | Happy: a cancel | After `cancel`, no alarm runs |
+| CFL10 | Sad: after the run finished | The runtime cancelled the wake when the run ended, so firing the alarm has nothing to do |
+| CFL11 | Bad: an alarm delivered twice | Delivered twice for the same dead run, it resumes the run once: the second delivery joins, and the record holds one `resumed` |
+| CFL12 | Bad: an alarm while the run is live | It joins the run the object is already driving rather than starting a second loop, and the record holds no `resumed` |
+| CFL13 | Bad: an unreadable record | The handler returns without throwing when the record cannot be read, and the run it woke fails instead of the alarm being retried forever |
+| CFL14 | Happy: held, evicted and woken | A run held mid-tool, whose object is evicted, resumes through the alarm and ends `done` |
+| CFL15 | Happy: killed at every append | Killed at every append from the first reply on, before and after it, each run resumes and ends `done` |
+| CFL16 | Sad: an unsafe tool in flight | A call the kill left unanswered is never run twice, and the record tells the model its outcome is unknown |
+| CFL17 | Happy: the resumed record | For each kill point, the resumed record carries the same calls and results as the uninterrupted one, once statuses and unknown outcomes are set aside |
+| CFL18 | Happy: the half-built page | For each kill point, the resumed timeline page and handle table equal the uninterrupted run's |
+| CFL19 | Happy: a binding | A Worker binding is read by name |
+| CFL20 | Bad: a missing binding | It is `undefined`, and a tool that needs it returns an error naming the secret but never its value; a scan of the record finds no value, after the positive case proves one was held |
+| CFL21 | Bad: names that are not secrets | A non-string binding, `constructor`, `__proto__` and `toString` are each `undefined` |

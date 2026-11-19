@@ -1,0 +1,15 @@
+// A Worker with one Durable Object that runs Lyra (docs/implementation/04-cloudflare-adapter.md).
+//
+// It is never deployed: CI builds it with `wrangler deploy --dry-run`, which bundles
+// it exactly as a real deploy would and stops before touching an account. That is
+// the check that the library stays embeddable, and the bundle it leaves behind is
+// what the size budget measures.
+{
+	"name": "lyra-workers-minimal",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-11-01",
+	"durable_objects": {
+		"bindings": [{ "name": "MINIMAL_SESSION", "class_name": "MinimalSession" }],
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["MinimalSession"] }],
+}

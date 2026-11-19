@@ -21,15 +21,18 @@ export interface StorageUnderTest {
 	 * adapter's own: always under the host's hard limit and above the record's
 	 * 1 MiB entry cap (decision 90).
 	 */
-	create(options: { maxLineBytes: number }): StorageSlot;
+	create(options: { maxLineBytes: number }): StorageSlot | Promise<StorageSlot>;
 }
 
 export function storageContract(underTest: StorageUnderTest): void {
 	describe(`the storage contract: ${underTest.name}`, () => {
-		const fresh = (maxLineBytes = 1_048_576): StorageSlot => underTest.create({ maxLineBytes });
+		// A fresh storage per case, which on Cloudflare means a fresh Durable Object
+		// and so cannot be sync. The memory adapter answers immediately either way.
+		const fresh = async (maxLineBytes = 1_048_576): Promise<StorageSlot> =>
+			underTest.create({ maxLineBytes });
 
 		test("STO01 appends count up from zero and read returns them in order", async () => {
-			const storage = fresh();
+			const storage = await fresh();
 			const first = await storage.append('{"n":1}');
 			const second = await storage.append('{"n":2}');
 			const third = await storage.append('{"n":3}');
@@ -50,11 +53,11 @@ export function storageContract(underTest: StorageUnderTest): void {
 		});
 
 		test("STO02 read on empty storage is an empty list, not an error", async () => {
-			expect(await fresh().read()).toEqual({ ok: true, value: [] });
+			expect(await (await fresh()).read()).toEqual({ ok: true, value: [] });
 		});
 
 		test("STO03 awkward lines round-trip, and a line over the limit stores nothing", async () => {
-			const storage = fresh();
+			const storage = await fresh();
 			const awkward = 'a line with \n a newline, \u2028 a separator, and "quotes"';
 
 			expect(await storage.append(awkward)).toEqual({ ok: true, value: { seq: 0 } });
@@ -72,7 +75,7 @@ export function storageContract(underTest: StorageUnderTest): void {
 
 			// A line over this adapter's own limit is refused, and the refusal itself
 			// saves nothing: no gap in `seq`, no half-written record.
-			const small = fresh(64);
+			const small = await fresh(64);
 			const refused = await small.append("y".repeat(65));
 			expect(refused.ok).toBe(false);
 			if (!refused.ok) {
@@ -86,7 +89,7 @@ export function storageContract(underTest: StorageUnderTest): void {
 		});
 
 		test("STO04 appends issued together get distinct, increasing seq values", async () => {
-			const storage = fresh();
+			const storage = await fresh();
 			const lines = Array.from({ length: 10 }, (_, index) => `{"n":${index}}`);
 			const results = await Promise.all(lines.map((line) => storage.append(line)));
 

@@ -25,6 +25,10 @@
 		"./testkit": {
 			"types": "./dist/testkit/index.d.ts",
 			"default": "./dist/testkit/index.js"
+		},
+		"./cloudflare": {
+			"types": "./dist/adapters/cloudflare/index.d.ts",
+			"default": "./dist/adapters/cloudflare/index.js"
 		}
 	},
 	"files": [

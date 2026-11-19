@@ -145,9 +145,28 @@ new API and any breaking change, and a patch bump is fixes only.
 - `docs/implementation/`: the shared rules for building (branches, commits, one pull request per
   step with `pi-review` addressed, when to stop and ask) and one document per step, R and 1 to 8,
   plus briefs for the three steps that live in Lattice. They add no decisions.
+- `@autumnsgrove/lyra/cloudflare`, the first adapter: `durableObjectStorage` (one row per record line in
+  a Durable Object's SQLite, `seq` from a synchronous transaction, a line over the adapter's limit refused
+  before SQLite sees it), `alarmWaking` (one row and one alarm per object, `scheduledWake` for the host's
+  handler) and `bindingSecrets` (own string bindings only). It imports the core and the runtime's own
+  modules and nothing else (decisions 72, 117).
+- `pnpm test:workers`, the workerd half of the gate through `@cloudflare/vitest-plugin` 1.8.5, with
+  `wrangler` 4.165.0 and `@cloudflare/workers-types` 5.20261119.1 pinned for it: the shared storage
+  contract runs against real Durable Object SQLite, a full 1 MiB entry saves and reads back byte for byte
+  (decision 118, closing decision 102), and a run is held, evicted and woken through its alarm at every
+  append, with the resumed record, page and handles matching an uninterrupted run's. fast-check runs in
+  workerd too, which closes decision 103's last open item.
+- `examples/workers-minimal`, a Worker and Durable Object using the core and the adapter, built in CI with
+  `wrangler deploy --dry-run` (never a deploy) and measured by the size budget at 22,194 B of 28,672 B
+  (decision 119).
+- The package's size ceiling moves from 64 to 68 KiB with the adapter in it (decision 119), and the budget
+  now measures a built directory as well as a package.
 
 ### Changed
 
+- The core keeps its own narrow platform declarations and the Workers globals reach only
+  `tsconfig.workers.json` (decision 117). `pnpm run ci` runs the workerd suite after the Node tests, and
+  the example Worker's dry-run build before the budget.
 - `Runtime.start` returns a `Result<RunHandle>`, because a recipe's input schema is checked before a run
   begins and a refused input is `bad_request` with nothing written. A caller that used the handle directly
   now unwraps the result. Step 2's minimal definition still works: without an `input` schema, nothing is

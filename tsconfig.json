@@ -15,5 +15,9 @@
 		"noImplicitOverride": true,
 		"forceConsistentCasingInFileNames": true
 	},
-	"include": ["packages/*/src/**/*.ts", "packages/lyra/testing/*.d.ts"]
+	"include": ["packages/*/src/**/*.ts", "packages/lyra/testing/*.d.ts"],
+	"exclude": [
+		"packages/lyra/src/adapters/cloudflare/testing/**",
+		"packages/lyra/src/adapters/cloudflare/**/*.workers.test.ts"
+	]
 }

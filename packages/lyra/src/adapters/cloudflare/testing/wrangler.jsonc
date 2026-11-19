@@ -1,0 +1,18 @@
+// The test Worker the workers suite runs in (docs/implementation/04-cloudflare-adapter.md).
+//
+// It is deliberately small: one Durable Object with SQLite storage, which is what
+// the adapter is made of. `new_sqlite_classes` is in the first migration because
+// Cloudflare cannot add it to a class that already exists, and a fresh test Worker
+// is the cheapest place to get it right.
+{
+	"name": "lyra-cloudflare-test",
+	"main": "./fixture-worker.testing.ts",
+	"compatibility_date": "2026-11-01",
+	// A made-up value, so the secrets rows can prove a binding is read without
+	// putting anything real in the repository.
+	"vars": { "FIXTURE_TOKEN": "made-up-for-a-test" },
+	"durable_objects": {
+		"bindings": [{ "name": "FIXTURE_SESSION", "class_name": "FixtureSession" }],
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixtureSession"] }],
+}

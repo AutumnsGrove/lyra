@@ -20,7 +20,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
-| 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | not started |
+| 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | in review |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
@@ -31,6 +31,17 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
 
+- **Step 4 is built and in review**, on `feat/step-04-cloudflare-adapter`: the Cloudflare entry point with
+  storage over Durable Object SQLite (the shared contract runs in workerd), the alarm as the Waking slot,
+  bindings as secrets, the 1 MiB row check (decision 118), the kill-and-resume tests on the real runtime,
+  and the example Worker with its own bundle budget (decision 119). `pnpm test:workers` and
+  `pnpm build:example` are in the gate.
+- **Step 4's gate** on the branch: 251 Node tests, 28 workerd tests, 4 fuzz/property targets, coverage
+  94.22% statements and 88.88% branches on the Node-tested core (the workerd suite reports none, decision
+  101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119),
+  and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
+- **Step 5 is next**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`. Its Lumen half
+  lives in Lattice and needs a published Lyra.
 - **Step 3 is merged**, as pull request #9 and the merge commit `9369f03`, after three review rounds: the
   first found that a resumed record's saved input was never checked against the recipe's input schema and
   that `start` could throw where it promised a `Result`, and the second found that the new check ran before

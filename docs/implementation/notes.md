@@ -8,6 +8,65 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 4, steps 4 to 7, 2026-11-18
+
+- **Eviction is the test, and a frozen append is the gate.** A run is held either on the fake clock
+  (a tool that waits) or by freezing one append with `crashingStorage`; the object is evicted, a fresh
+  instance is configured with the same recipe (the way a deploy restores code), and its alarm resumes the
+  record. Workerd really drops the instance's memory, so a passing resume really came from SQLite.
+- **`runDurableObjectAlarm` only runs an alarm whose time has come.** A future alarm returns `false`. The
+  fake clock's epoch is 2023, so the runtime's own 60 s-ahead alarm is already due, which is convenient;
+  the one test that needs its own alarm sets it in the past, and the handler test calls `instance.alarm()`
+  directly, which decision 101's `import()` limit makes the normal way to reach a handler anyway.
+- **A kill before the first `turn_start` leaves no wake to fire.** The runtime arms its alarm as a step
+  begins, so a record killed between the `running` status and the first turn has an alarm set already;
+  a kill before *that* would not. The kill numbers start at the first assistant append, which is the
+  window the step asks about, and the fixture sets a wake by hand for any point that lacked one. If that
+  gap is ever worth closing, arming a wake at `run_start` too is a decision of its own.
+- **Counting had to sit outside the fault wrapper.** `crashingStorage` returns a promise that never
+  settles, so an append frozen "before" never reaches the wrapped adapter; counting inside meant a test
+  waiting for append 4 saw 3 and timed out. The fixture counts the attempt, then calls the guard.
+- **A record with no header is not rewritten.** A resume over a damaged record fails the run but writes
+  nothing, because `appendLine` refuses to write into a record that never started. `CFL13` checks the
+  handler returns and the run fails, not that a `failed` status appears.
+- **The package ceiling moved to 68 KiB (decision 119), and the example got its own.** The adapter added
+  about 3.6 KiB gzipped, which is its real cost, and the example bundle (21.9 KiB) is the number a Worker
+  pays, so it is measured directly. The budget script now takes a `dir` entry for a built bundle.
+- **The Cloudflare adapter is outside the Node coverage run.** V8 coverage does not exist in workerd
+  (decision 101), so its tests cannot contribute to the 85% floor; the floor measures the Node-tested core,
+  and the adapter's tests are the workerd suite. The exclusion is named in `vitest.config.ts`.
+- **The pinned tooling is three packages, all dev-only** (decision 117): the plugin, `wrangler` and
+  `@cloudflare/workers-types`. `pnpm install` brings the workerd binary, so CI needs no extra setup.
+- **Review round one found three things, all right.** The changelog's `### Changed` heading had been
+  replaced rather than added to, so a breaking API change sat under "Added"; the example's namespace was
+  parameterised with a class that does not carry Workers' Durable Object brand; and every request went to
+  one object that started a new run each time, which appends a second header into the one table. The
+  changelog has its heading back, the example's namespace is unparameterised like the fixture's, the
+  example refuses a second run and names sessions by path, and the example is now typechecked in the gate
+  (`tsc -p examples/workers-minimal/tsconfig.json`), which is what would have caught the second one.
+- **The fuzz timeout went to 60 s.** RCD07 took 37 s on a loaded machine during this step's gate, past the
+  30 s set in step 3.
+
+## Step 4, slice 1, 2026-11-18
+
+- **`"types"` cannot name either Cloudflare package.** TypeScript resolves the `types` option under
+  the type roots (`node_modules/@types`), and `@cloudflare/workers-types` and
+  `@cloudflare/vitest-plugin/types` are not there, so listing them fails with TS2688. The workers
+  program includes the two declaration files as roots in `tsconfig.workers.json` instead. That also
+  keeps the core's `types: []` and `platform.d.ts` untouched, which is the point of that file.
+- **The Workers globals are deliberately not global.** The production adapter will declare the small
+  structural surface it uses, so `pnpm build` still compiles with no platform types; only the fixture
+  and its tests see `DurableObjectState`, `DurableObjectNamespace` and `cloudflare:test`.
+- **`importcheck` now knows the `cloudflare:` scheme**, allowed only for the Cloudflare entry point.
+  It was tried against four deliberate violations (a core file naming `cloudflare:workers`, a testkit
+  file doing the same, the adapter importing `node:fs`, and the adapter importing the memory entry
+  point); all four failed, and the allowed case passed.
+- **fast-check runs in workerd.** `CFL00`'s property ran all fifty cases, so property tests can live
+  in either suite (decision 117 closes decision 103's item).
+- **The wrangler config is a test fixture, not a deploy.** Its `main` is the fixture Worker, and the
+  first migration is `new_sqlite_classes` for the fixture class, because Cloudflare cannot add that to
+  a class later. Nothing here is ever deployed.
+
 ## Step 3, review round one, 2026-11-18
 
 - **The saved input was trusted on resume, and the review was right.** The record outlives a deploy, and
