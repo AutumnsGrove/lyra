@@ -117,3 +117,15 @@ waiting. On Cloudflare the same slot is a Durable Object alarm (step 4).
 |---|---|---|
 | WAK01 | Happy: a wake follows the steps | A runtime with a Waking slot schedules one wake a step's interval ahead when a step begins, re-arms it for the next step, and cancels it when the run ends |
 | WAK02 | Sad: the host died | The wake a dead host left is fired, and a `wake` on the new host resumes the record, answers what was cut off, and finishes the run |
+
+## Spec rows: the Cloudflare adapter (step 4)
+
+The adapter fills three slots on Cloudflare: `StorageSlot` over a Durable Object's
+SQLite, `WakingSlot` over its alarm, and `SecretsSlot` over Worker bindings. Its
+production code imports the core, and names the runtime's modules (`cloudflare:workers`)
+only if it must; the worker test program gets Workers globals from a separate
+`tsconfig.workers.json`, so nothing here adds a global to the core's own program.
+
+| ID | Case | Expected |
+|---|---|---|
+| CFL00 | Happy: the workerd suite runs | A Durable Object in the test Worker answers a request over its real storage, and a fast-check property runs inside workerd, which settles decision 103's open item |

@@ -8,6 +8,26 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 4, slice 1, 2026-11-18
+
+- **`"types"` cannot name either Cloudflare package.** TypeScript resolves the `types` option under
+  the type roots (`node_modules/@types`), and `@cloudflare/workers-types` and
+  `@cloudflare/vitest-plugin/types` are not there, so listing them fails with TS2688. The workers
+  program includes the two declaration files as roots in `tsconfig.workers.json` instead. That also
+  keeps the core's `types: []` and `platform.d.ts` untouched, which is the point of that file.
+- **The Workers globals are deliberately not global.** The production adapter will declare the small
+  structural surface it uses, so `pnpm build` still compiles with no platform types; only the fixture
+  and its tests see `DurableObjectState`, `DurableObjectNamespace` and `cloudflare:test`.
+- **`importcheck` now knows the `cloudflare:` scheme**, allowed only for the Cloudflare entry point.
+  It was tried against four deliberate violations (a core file naming `cloudflare:workers`, a testkit
+  file doing the same, the adapter importing `node:fs`, and the adapter importing the memory entry
+  point); all four failed, and the allowed case passed.
+- **fast-check runs in workerd.** `CFL00`'s property ran all fifty cases, so property tests can live
+  in either suite (decision 117 closes decision 103's item).
+- **The wrangler config is a test fixture, not a deploy.** Its `main` is the fixture Worker, and the
+  first migration is `new_sqlite_classes` for the fixture class, because Cloudflare cannot add that to
+  a class later. Nothing here is ever deployed.
+
 ## Step 3, review round one, 2026-11-18
 
 - **The saved input was trusted on resume, and the review was right.** The record outlives a deploy, and

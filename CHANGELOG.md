@@ -148,6 +148,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Changed
 
+- `pnpm test:workers` runs the workerd half of the gate through `@cloudflare/vitest-plugin`
+  1.8.5, with `wrangler` 4.165.0 and `@cloudflare/workers-types` 5.20261119.1 pinned for it.
+  `pnpm run ci` runs it after the Node tests. The core keeps its own narrow platform declarations;
+  the Workers globals reach only `tsconfig.workers.json` (decision 117). fast-check runs in workerd,
+  which closes decision 103's last open item.
+
 - `Runtime.start` returns a `Result<RunHandle>`, because a recipe's input schema is checked before a run
   begins and a refused input is `bad_request` with nothing written. A caller that used the handle directly
   now unwraps the result. Step 2's minimal definition still works: without an `input` schema, nothing is

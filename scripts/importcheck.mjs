@@ -41,6 +41,15 @@ const ENTRY_POINTS = [
 		allows: ["src/core"],
 	},
 	{
+		name: "cloudflare",
+		dir: "src/adapters/cloudflare",
+		// An adapter fills slots, so it may lean on the contract and the record, and it
+		// may name the runtime's own modules (`cloudflare:workers`), which nothing else
+		// here may. It may not reach into the testkit, which is what the fixture is
+		// exempt from only because it is `.testing.ts` (checked by the isTest rule).
+		allows: ["src/core", "src/record"],
+	},
+	{
 		name: "testkit",
 		dir: "src/testkit",
 		// Test support may stand on the contract and on the in-memory adapter, so a
@@ -223,6 +232,19 @@ async function checkSourceFiles() {
 					if (!inside) {
 						fail(file, line, `${entry.name} may not import ${target} (${specifier})`);
 					}
+				}
+				continue;
+			}
+
+			if (specifier.startsWith("cloudflare:")) {
+				// The runtime's own modules. They exist on Workers and in workerd, and
+				// nowhere else, so only the Cloudflare entry point may name one.
+				if (entry?.name !== "cloudflare") {
+					fail(
+						file,
+						line,
+						`imports ${specifier}: only the Cloudflare entry point may name the runtime's modules`,
+					);
 				}
 				continue;
 			}
