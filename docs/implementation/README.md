@@ -75,7 +75,7 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
 - **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
   went through `pi-review` and the agent merged them, on Autumn's instruction (decision 107).
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
-  dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
+  dependency, and step R then published `0.1.0`, so it has both. The waiver in decisions 104 and 106
   covered 1a and 1b only.
 - **Step 2 is merged**, as pull request #6 and the merge commit `d278c82`, after two review rounds (the
   first found a stale finish flag and an uncounted truncated field, both fixed test-first). It added the
