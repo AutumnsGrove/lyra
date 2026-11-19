@@ -20,7 +20,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 1b | [`01-core-with-fakes.md`](01-core-with-fakes.md) (slices 6 to 8) | Lyra | 1a merged | merged |
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
-| 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | in review |
+| 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
@@ -31,12 +31,14 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
 
-- **Step 4 is built and in review**, on `feat/step-04-cloudflare-adapter`: the Cloudflare entry point with
-  storage over Durable Object SQLite (the shared contract runs in workerd), the alarm as the Waking slot,
+- **Step 4 is merged**, as pull request #11 and the merge commit `0486e0d`, after two review rounds (the
+  first found the changelog's `### Changed` heading replaced, an example namespace that did not typecheck,
+  and an example that started a second run in one object; all fixed test-first where a test applied). It
+  added the Cloudflare entry point with storage over Durable Object SQLite, the alarm as the Waking slot,
   bindings as secrets, the 1 MiB row check (decision 118), the kill-and-resume tests on the real runtime,
   and the example Worker with its own bundle budget (decision 119). `pnpm test:workers` and
   `pnpm build:example` are in the gate.
-- **Step 4's gate** on the branch: 251 Node tests, 28 workerd tests, 4 fuzz/property targets, coverage
+- **`main`'s gate** (on `0486e0d`): 251 Node tests, 28 workerd tests, 4 fuzz/property targets, coverage
   94.22% statements and 88.88% branches on the Node-tested core (the workerd suite reports none, decision
   101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
@@ -50,9 +52,9 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   fuzz target, `defineTool` and validation in the loop, state and replay (`setup`, `apply`, `ctx.state`),
   the handle table, `finish` with `coverageCheck`, `defineRecipe`, and the `timeline-test` recipe with five
   scenarios and `RSM07`. The spec is `docs/recipes-and-tools.md`, and decisions 111 to 116 are its own.
-- **`main`'s gate** (on `9369f03`): 251 tests, 4 fuzz/property targets, coverage 94.22% statements and
-  88.88% branches, budget 63,216 B of 65,536 B (decision 113), and `matrixcheck` 176 rows (148 tested, 28
-  unbuilt, all protocol).
+- **Step 3's gate** (on `9369f03`): 251 Node tests, 4 fuzz/property targets, coverage 94.22% statements
+  and 88.88% branches, budget 63,216 B of 65,536 B (decision 113), and `matrixcheck` 176 rows (148 tested,
+  28 unbuilt, all protocol).
 - **The next step is 4**, [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md), from the merged
   `main`. It brings the workerd half of the gate with it.
 - **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
