@@ -35,10 +35,10 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   `.github/workflows/release.yml` (a `v*` tag and a manual dry run), `scripts/release-notes/` (the
   release body, with 23 rows in `docs/release-notes.md`), a `--check` mode that the release job runs
   before anything else, `scripts/tsconfig.json` in the gate's typecheck, and `scripts/matrixcheck.mjs`
-  reading test names under `scripts/`. Decisions 120 to 122 are its own. What it cannot finish alone:
-  the dry run needs the workflow on the default branch, so Autumn dispatches it after the merge, and
-  the first publish is hers because npm cannot take a trusted publisher for a package that does not
-  exist yet (decision 121). `main`'s gate on `ad99ef5`, as the CI run reported it: 274 Node tests, 28
+  reading test names under `scripts/`. Decisions 120 to 122 are its own. What it could not finish alone
+  happened the same day: the dry run was dispatched on `main` (run 44601092452, body in the job
+  summary and an artifact), the bootstrap `0.0.0` publish was made by hand, the trusted publisher was
+  added for `release.yml`, and `v0.1.0` published through the tag (decision 121). `main`'s gate on `ad99ef5`, as the CI run reported it: 274 Node tests, 28
   workerd tests, 4 fuzz/property targets, coverage 94.22% statements and 88.88% branches, the package
   at 66,412 B of 69,632 B and the example at 22,181 B of 28,672 B, and `matrixcheck` 221 rows (193
   tested, 28 unbuilt, all protocol). A budget figure in these notes is gzipped bytes, and a Linux
@@ -57,8 +57,7 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
 measured locally; CI's gzip on the same commit runs a few hundred bytes smaller),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
 - **Step 5 is next**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`. Its Lumen half
-  lives in Lattice and needs a published Lyra: step R lands the workflow, and the first publish is
-  Autumn's (decision 121).
+  lives in Lattice, which can consume Lyra from npm now that `0.1.0` is published (decision 121).
 - **Step 3 is merged**, as pull request #9 and the merge commit `9369f03`, after three review rounds: the
   first found that a resumed record's saved input was never checked against the recipe's input schema and
   that `start` could throw where it promised a `Result`, and the second found that the new check ran before
@@ -76,7 +75,7 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
 - **Step 1 is complete and merged.** 1a is `0e02714`, 1b is `24df026`, and `main` is green. Step 1's PRs both
   went through `pi-review` and the agent merged them, on Autumn's instruction (decision 107).
 - **Step 0 is done in Lattice.** The Lumen changes landed on 2026-11-17, so step 5's Lumen half has its
-  dependency; it still needs a published Lyra, which step R provides. The waiver in decisions 104 and 106
+  dependency, and step R then published `0.1.0`, so it has both. The waiver in decisions 104 and 106
   covered 1a and 1b only.
 - **Step 2 is merged**, as pull request #6 and the merge commit `d278c82`, after two review rounds (the
   first found a stale finish flag and an uncounted truncated field, both fixed test-first). It added the
@@ -92,10 +91,11 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
   and 91.79% branches, budget 47,278 B of 53,248 B, and `matrixcheck` 124 rows (96 tested, 28 unbuilt). The
   ceiling was raised from 40 to 52 KiB during step 2 (decision 109) because the step's own work passed
   40, and nothing in it is padding.
-- **Nothing is released.** The package is `0.0.0` and unpublished; step R does that, and Autumn decides when.
+- **`0.1.0` is released**, the first version anyone should install, published from the `v0.1.0` tag by the
+  release workflow over OIDC with provenance. `0.0.0` exists only to create the package record.
 
 
-**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and it becomes `merged` when the PR does). Step R is the release workflow that decision 95 puts before step 1. It does not block building the core, because nothing is published until version one is complete, but Lattice cannot consume Lyra until a version is on npm, so it must land before step 5's Lumen half. Autumn decides when.
+**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and it becomes `merged` when the PR does). Step R was the release workflow that decision 95 puts before step 1. It did not block building the core, but Lattice cannot consume Lyra until a version is on npm, and it can now: `0.1.0` is published, and each later release is a changelog edit, a PR, and a tag.
 
 Step 0 is Lumen work in Lattice, and `AGENTS.md` and `first-slice.md` say it blocks step 1, so treat it as a dependency of 1a unless Autumn says otherwise. Steps 1 to 4 do use fakes and never touch Lumen, so she may waive it and let them be built while it is in progress, but that reversal is hers to make and to record in `decisions.md`; an agent must not infer it. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
 
