@@ -89,7 +89,7 @@ async function tail(session, after) {
 		if (chunk.done) {
 			return;
 		}
-		for (const line of (chunk.value === undefined ? [] : lines.push(chunk.value).lines)) {
+		for (const line of chunk.value === undefined ? [] : lines.push(chunk.value).lines) {
 			const frame = parseEvent(line);
 			if (frame === undefined) {
 				continue;

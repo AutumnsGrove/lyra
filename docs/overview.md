@@ -6,7 +6,7 @@ category: features
 
 # Lyra, in one place
 
-Last updated: 2026-11-18. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 119 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
+Last updated: 2026-11-18. This is the front door. It says what Lyra is and how the pieces fit, in plain words, and points to the document that holds each detail. It adds no decisions. The 134 decisions are in [`decisions.md`](decisions.md), and every number below refers to one.
 
 ## What Lyra is
 
@@ -86,7 +86,7 @@ When a run no longer fits in the model's memory, a compactor summarizes the olde
 
 ## Talking to Lyra
 
-Lyra speaks a subset of Nova's frames (`hello`, commands, `response`, `event`, and `ui_request` / `ui_response`), so one client could drive either. Commands include `start` (with an idempotency key, so a retried call does not start a second run), `prompt`, `steer`, `follow_up`, `abort`, `resume`, and `decide_proposal`. HTTP with server-sent events and WebSocket are both built from the start. Events that come from the record carry its position, so a client that reconnects catches up by reading the record. Approval ids are unguessable and single use. A run ends with `done`, `parked`, or `failed` (decisions 43 to 48, 83 to 88). Details are in [`protocol.md`](protocol.md).
+Lyra speaks a subset of Nova's frames (`hello`, commands, `response`, `event`, and `ui_request` / `ui_response`), so one client could drive either. Commands include `start` (with an idempotency key, so a retried call does not start a second run), `prompt`, `steer`, `follow_up`, `abort`, `resume`, and `decide_proposal`. The HTTP half is built (step 6): `POST /v1/commands`, `GET /v1/events` as server-sent events, `GET /v1/state`, and a bearer-token door; WebSocket is step 8, and approvals are the slice after that. Events that come from the record carry its position, so a client that reconnects catches up by reading the record, and only the live-only events are not replayed. One Durable Object is one session. Approval ids are unguessable and single use. A run ends with `done`, `parked`, or `failed` (decisions 43 to 48, 83 to 88, 131 to 133). Details are in [`protocol.md`](protocol.md).
 
 ## The shell (a later slice)
 
@@ -105,7 +105,7 @@ Details are in [`consumers.md`](consumers.md) and [`timeline-first-job.md`](time
 ## How it is built
 
 - **Test-first,** with a happy, sad, and bad test for every behavior, a failure-mode catalog worked through before code, and a script that fails the build if a spec row has no test (decision 62).
-- **End to end from the first commit.** The same scenario files run in-process first and over the real protocol later (decision 63).
+- **End to end from the first commit.** The same scenario files run in-process first, through a real adapter and a fake server second, and over the real HTTP surface against a Durable Object third (decision 63, step 6).
 - **Property tests and fuzzing** where a rule can be stated or bytes are untrusted, and a fake model that misbehaves at random (decision 64).
 - **Local testing** with the real runtime, a small dev client, a live suite that uses OpenCode Go for bulk and OpenRouter for fidelity, and cassettes recorded from live runs and replayed free in CI. Two mock Lumens, kept honest by contract tests, cover the Lumen adapter (decisions 65, 67).
 - **One gate.** `pnpm run ci` runs format, typecheck, build, the Node tests, the workerd tests, fuzz, import checks, the matrix check, size budgets (the package and the example Worker's bundle), the example's dry-run build, and an 85% coverage floor on the Node-tested core (decisions 66, 101, 119).
@@ -157,7 +157,7 @@ npm provenance is no longer on this list: it is decided in 99 (trusted publishin
 
 | Document | What it holds |
 |---|---|
-| [`decisions.md`](decisions.md) | All 122 decisions with their reasons. The source of truth. |
+| [`decisions.md`](decisions.md) | All 134 decisions with their reasons. The source of truth. |
 | [`adapters.md`](adapters.md) | The slots and adapters. |
 | [`limits-and-interruptions.md`](limits-and-interruptions.md) | Limits, stop and steer, resume, failures. |
 | [`run-record.md`](run-record.md) | The saved record. |

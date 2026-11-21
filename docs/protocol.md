@@ -202,7 +202,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 
-The remaining rows (framing edge cases, the HTTP and WebSocket mappings, access) are written when each is built.
+The framing, command, event, HTTP and access rows above are built as far as step 6 (WebSocket rows arrive with step 8). What is **not** built is everything that waits for a person: `CMD08` to `CMD10`, `EVT04`, and `REQ01` to `REQ06` stay in `scripts/unbuilt-rows.json`, and `compact` answers `unsupported` until step 7. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 

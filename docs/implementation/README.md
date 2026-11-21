@@ -22,7 +22,7 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is next |
-| 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | in progress (no PR yet) |
+| 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | in review |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
@@ -30,6 +30,18 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 ### Where the last session stopped (2026-11-21)
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
+
+- **Step 6 is in review**, on `feat/step-06-protocol-http`, one step in one pull request. What is in the
+  tree is the protocol over HTTP: the frame envelope and streaming line reader (rows FRM01 to FRM04), the
+  command validator (CMD13 to CMD16) with a fuzz target, the record-to-events projection (EVT01 to EVT03,
+  EVT06), the session with every command except approvals (CMD01 to CMD07, CMD11, CMD12, CMD17 to CMD19),
+  the HTTP handler and token door (HTP01 to HTP08, ACC01, ACC02), a Durable Object host with the tenant on
+  the record's header and an idempotent session id (CFL22 to CFL26, RCD10), every scenario file run again
+  over HTTP in workerd (SCN05), and `pnpm dev` with `pnpm lyra` against a real small example server. A
+  resume can carry a follow-up (RSM08), which is what CMD05 needed. What is unfinished is in the PR body:
+  approvals and proposals (the next slice, still in `unbuilt-rows.json`), the example's `WorkerEntrypoint`
+  class for the trusted door (the object's `send` is built and tested), `pnpm dev` is exercised by hand
+  rather than by the gate, and the WebSocket is step 8. Decisions 129 to 134 are step 6's own.
 
 - **Step 5's Lyra half is merged, and it ran against real providers.** PR A is pull request #17 and the
   merge commit `a74cbd4`, PR B is pull request #18 and `a7b4d8c`, one review round each with every
