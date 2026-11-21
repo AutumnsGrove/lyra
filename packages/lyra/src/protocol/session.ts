@@ -143,6 +143,14 @@ export function createSession(options: SessionOptions): Session {
 			...(options.waking === undefined ? {} : { waking: options.waking }),
 		});
 
+	/**
+	 * The run this session has started, remembered from the moment the command
+	 * answers. The record is the truth, but its header is written a few awaits after
+	 * `start` returns, so without this a second `start` interleaving in that window
+	 * would read an empty record and start a rival run (found in review).
+	 */
+	let started: { task: string; input: JsonValue; runId: string } | undefined;
+
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
 	let pendingLive: SessionEvent[] = [];
@@ -418,6 +426,27 @@ export function createSession(options: SessionOptions): Session {
 				if (!existing.ok) {
 					return existing;
 				}
+				// Checked after the read and before anything that awaits, so two starts
+				// that both passed the read cannot both get past here.
+				const inFlight = started;
+				if (inFlight !== undefined) {
+					if (command.key === undefined) {
+						return fail(
+							"conflict",
+							"this session is already running a task; a prompt or a follow_up continues it",
+						);
+					}
+					if (
+						inFlight.task !== command.task ||
+						!sameJson(inFlight.input, command.input)
+					) {
+						return fail(
+							"conflict",
+							"that key belongs to a run with a different task or input",
+						);
+					}
+					return ok(data({ session: options.id, run: inFlight.runId }));
+				}
 				if (existing.value !== undefined) {
 					const header = existing.value.record.header;
 					if (command.key === undefined) {
@@ -442,16 +471,19 @@ export function createSession(options: SessionOptions): Session {
 					return fail("not_found", `there is no task called "${command.task}"`);
 				}
 				const runId = options.ids.next("r");
-				const started = runtime.start({
+				const beginning = runtime.start({
 					runId,
 					task: command.task,
 					input: command.input,
 					definition,
 				});
-				if (!started.ok) {
-					return started;
+				if (!beginning.ok) {
+					return beginning;
 				}
-				listen(started.value);
+				// From here to the return is synchronous, so no second start can pass the
+				// check above until this one has claimed the session.
+				started = { task: command.task, input: command.input, runId };
+				listen(beginning.value);
 				return ok(data({ session: options.id, run: runId }));
 			}
 

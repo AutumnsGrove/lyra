@@ -8,6 +8,23 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, review round 1, 2026-11-21
+
+- **A concurrent `start` could start two runs on one record.** The session read the record, found it
+  empty, and let `runTask` write the header a few awaits later, so a second start in that window also
+  saw an empty record. Both findings were real; both were fixed test-first. The session now remembers
+  the run it has just started (`started`), checked after the read and before anything that awaits, so
+  two overlapping keyed starts answer the same run and a different job is `conflict`. Two tests in
+  `session.test.ts` reproduce it with `Promise.all` and assert one header.
+- **The Worker's routing disagreed with the handler's own answers.** `POST /v1/ui_response` and unknown
+  paths never reached an object, so the deployed surface answered 404 where HTP07 says 501 and 400 where
+  HTP08 says 404. `createSessionWorker` now mirrors the handler for the routes that need no session,
+  including the version header. The two new workerd tests assert the Worker's answers for those routes.
+- **The claim in the review about the record was checked, not assumed**: two headers really did land.
+- The first attempt at the test asserted the header immediately after the command answered, and failed
+  because the header is written a moment later. That is the same window the bug lives in, which is why
+  the test now waits for the run to end before counting headers.
+
 ## Step 6, slice 6, 2026-11-21
 
 - **Every scenario file runs over HTTP now**, through a Durable Object with SQLite and an alarm: SCN05 in

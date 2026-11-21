@@ -476,3 +476,35 @@ test("EVT05 a client that reconnects with its last seq is sent only what it miss
 	expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
 	expect(reconnected.filter((event) => event.type === "run_end")).toHaveLength(1);
 });
+
+test("CMD02 two starts that overlap answer the same run and write one header", async () => {
+	// A retry can arrive while the first attempt is still writing its header. The
+	// session must answer it as the same run, not start a rival one (decision 131).
+	const { session, storage } = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }]);
+	const watched = await watch(session);
+	const start = { command: "start", task: "test-task", input: "do it", key: "k" };
+	const [first, second] = await Promise.all([send(session, start), send(session, start)]);
+
+	expect(valueOf(first)).toEqual({ session: "s1", run: "r1" });
+	expect(valueOf(second)).toEqual({ session: "s1", run: "r1" });
+	await until(watched.done);
+
+	const headers = storage.saved().filter((line) => line.includes('"type":"header"'));
+	expect(headers).toHaveLength(1);
+});
+
+test("CMD03 two overlapping starts with different jobs cannot both start", async () => {
+	const { session, storage } = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }]);
+	const watched = await watch(session);
+	const [first, second] = await Promise.all([
+		send(session, { command: "start", task: "test-task", input: "do it", key: "k" }),
+		send(session, { command: "start", task: "test-task", input: "do another", key: "k" }),
+	]);
+	await until(watched.done);
+	// One of them started the run; the other is a conflict, and only one header landed.
+	expect([first.ok, second.ok].filter((ok) => ok)).toHaveLength(1);
+	expect([first, second].flatMap((outcome) => (outcome.ok ? [] : [outcome.error.code]))).toEqual([
+		"conflict",
+	]);
+	expect(storage.saved().filter((line) => line.includes('"type":"header"'))).toHaveLength(1);
+});

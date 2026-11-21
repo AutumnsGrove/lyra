@@ -59,6 +59,17 @@ function send(
 	);
 }
 
+/** A body posted to any path, when the frame wrapper is not the point. */
+function postRaw(path: string, body: unknown): Promise<Response> {
+	return worker()(
+		new Request(`https://lyra.test${path}`, {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify(body),
+		}),
+	);
+}
+
 function get(path: string, token: string = TOKENS.acme, lastEventId?: string): Promise<Response> {
 	return worker()(
 		new Request(`https://lyra.test${path}`, {
@@ -253,4 +264,24 @@ test("CFL26 the trusted door runs a command for a named tenant", async () => {
 	);
 	const answer = (await response.json()) as Answer;
 	expect(answer).toMatchObject({ ok: true, data: { session } });
+});
+
+test("HTP07 the Worker answers ui_response as the handler does", async () => {
+	// A client cannot tell which door answered, so the Worker must not invent a
+	// different answer for a route the handler owns.
+	const approval = await postRaw("/v1/ui_response", { id: "u1", ok: true });
+	expect(approval.status).toBe(501);
+	expect(await answerOf(approval)).toMatchObject({ error: { code: "unsupported" } });
+});
+
+test("HTP08 the Worker answers an unknown path or a session-less route as the handler does", async () => {
+	const unknown = await get("/v1/nope");
+	expect(unknown.status).toBe(404);
+	expect(await answerOf(unknown)).toMatchObject({ error: { code: "not_found" } });
+
+	// A known route without its session is the handler's own `bad_request`, not a
+	// `not_found` from the routing in front of it.
+	const noSession = await get("/v1/state");
+	expect(noSession.status).toBe(400);
+	expect(await answerOf(noSession)).toMatchObject({ error: { code: "bad_request" } });
 });

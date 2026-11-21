@@ -23,6 +23,7 @@ import {
 	createHttpHandler,
 	createTokenDoor,
 	refusalResponse,
+	PROTOCOL_VERSION,
 	type SessionHost,
 } from "../../protocol/http.js";
 import { createSession, type Session } from "../../protocol/session.js";
@@ -249,6 +250,13 @@ export function createSessionWorker(
 		if (!tenant.ok) {
 			return refusalResponse(tenant.error.code, tenant.error.message);
 		}
+		const version = request.headers.get("x-lyra-version");
+		if (version !== null && version !== PROTOCOL_VERSION) {
+			return refusalResponse(
+				"unsupported",
+				`this host speaks protocol version ${PROTOCOL_VERSION}, not ${version}`,
+			);
+		}
 		const url = new URL(request.url);
 		let target: Result<DurableObjectIdLike>;
 		let forward: Request;
@@ -267,16 +275,23 @@ export function createSessionWorker(
 				headers: request.headers,
 				body,
 			});
-		} else if (request.method === "GET") {
+		} else if (
+			request.method === "GET" &&
+			(url.pathname === "/v1/events" || url.pathname === "/v1/state")
+		) {
 			const named = url.searchParams.get("session");
 			if (named === null || named === "") {
+				// The handler's own answer for a route without its session, so a client
+				// cannot tell which of the two doors refused it.
 				return refusalResponse("bad_request", "this route needs a session");
 			}
 			target = sessionIdFor(options.namespace, { tenant: tenant.value, session: named });
 			forward = request;
+		} else if (request.method === "POST" && url.pathname === "/v1/ui_response") {
+			// Approvals are a later slice, and the answer is the handler's, because no
+			// session exists for a question that cannot be asked yet.
+			return refusalResponse("unsupported", "approvals arrive in a later slice");
 		} else {
-			// Nothing but a command or a stream names a session, so there is no object to
-			// ask and the answer is the handler's own.
 			return refusalResponse("not_found", `there is nothing at ${url.pathname}`);
 		}
 		if (!target.ok) {
