@@ -193,3 +193,23 @@ a validated reply.
 | OAI11 | Bad: an oversized stream | A stream past the size cap fails as `provider_error` and stops being assembled |
 | OAI12 | Sad: a broken chunk | A `data:` payload that is not JSON, or JSON that is not an object, is a retryable `provider_error` naming the problem |
 | OAI13 | Bad: hostile bytes | Any bytes at all give a reply or an error: never a throw, never a loop, never an unbounded reply |
+
+### Requests
+
+The request the slot takes is generic (a system prompt, messages, tools, a signal),
+and the wire wants the same things spelled its own way. Two rules shape the
+mapping. Nothing is sent that a model might reject: there is no `tool_choice`, no
+`stream_options`, no usage switch and no provider field, because the core has no
+way to ask for one and both endpoints can answer without them (the model facts are
+in `implementation/notes.md`, "Step 5"). And the key exists in exactly one place,
+the `Authorization` header, built from what the Secrets slot gave and never from
+anything that could be logged or recorded.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI14 | Happy: every message kind | A user turn, an assistant turn with its calls and a tool result each map to the wire's own shape, and the system prompt is sent only when there is one |
+| OAI15 | Happy: a tool turn round trips | The `tool_call_id` on a result is the id of the assistant turn's call, so the provider pairs them, and a result's error flag is not invented as a wire field |
+| OAI16 | Bad: options a model might reject | The body holds only the model, the messages, the stream switch and the tools, so no option a model could refuse is ever sent |
+| OAI17 | Happy: tools and the model | Each tool maps to a function with its name, description and parameter schema (an empty one kept), and a recipe's fallback model overrides the configured one |
+| OAI18 | Bad: nothing to send | An empty system, no messages and no tools still build a body the endpoint accepts, rather than a request with a hole in it |
+| OAI19 | Bad: the key lives in one header | The `Authorization` header carries the key, a session header appears only when one was given, a preset's own headers are sent, and none of them can replace the key; the body holds no key at all |

@@ -7,8 +7,10 @@
  * all web-standard, so it runs on Workers and on Node from the same code.
  *
  * What is here so far is the parser, which turns a provider's server-sent events
- * into one reply. The slot itself, the request it builds and its error mapping
+ * into one reply, and the request builder, which turns the slot's request into a
+ * chat-completions body and its headers. The slot itself and its error mapping
  * arrive next.
  */
 
+export { buildHeaders, buildWireRequest, type HeaderOptions, type WireBody } from "./request.js";
 export { DEFAULT_STREAM_CAP_BYTES, sseReader, type SseOptions, type SseReader } from "./sse.js";
