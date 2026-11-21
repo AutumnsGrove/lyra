@@ -165,6 +165,9 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | CMD12 | `get_messages` on a record longer than one page | A page and a cursor, never a reply over the line cap |
 | CMD13 | A command whose text is over the entry cap | `bad_request` |
 | FRM01 | A line over the 2 MiB cap | Protocol error that closes the connection, as in Nova |
+| FRM02 | Bad lines, unknown frames and unknown fields | A line that is not JSON, JSON that is not an object, and a frame with no `type` are each `bad_request`; an unknown `type` is `unsupported`; an unknown field is kept and ignored; none of them is fatal |
+| FRM03 | Bytes arriving in pieces | Several lines in one chunk, one line across many chunks, `\r\n`, empty lines, a multi-byte character split across chunks and a U+2028 inside a string all come out as the lines that were sent |
+| FRM04 | The response frame | A command's result becomes `{type, id, command, ok, data}` or `{..., ok: false, error}`, a code this build does not know becomes `internal`, and anything that is not that shape is not a response |
 | EVT01 | Any run | Exactly one `run_end` with reason `done`, `parked`, or `failed`, and none after it |
 | EVT02 | A limit is hit | `parked` with reason `limit`, then `run_end` `parked` |
 | EVT03 | The fallback model takes over | A `fallback` event, and a record entry |
