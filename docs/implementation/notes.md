@@ -8,6 +8,31 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 2, 2026-11-21
+
+- **The tests came first this time.** `events.ts` was written as a stub that returned nothing, the
+  nine projection tests were watched failing on empty arrays, and then the projection was filled in.
+  That is the loop the README asks for, after slice 1's own note said it had been skipped.
+- **The projection is a function of the whole record, not of one entry.** The step document names
+  `eventsFor(entry, seq)`, but three of the things a client needs are not on a single entry: a
+  tool's name (only the assistant message's call knows it), a turn's number, and the usage a
+  `run_end` reports. So the public shape is `projectEvents(entries, {session, run})` plus
+  `eventsAfter(events, seq)`, and the fold is what makes a replay equal to what a watcher saw.
+- **Two rules moved out of `run.ts` so there is one copy.** `createUsageTotal` is now
+  `core/usage.ts` and `parkedReasonOf` (with its list) is in `core/events.ts`; the live loop and the
+  projection both call them, which is what stops a replayed total or parked reason from drifting
+  from the live one. Decision 130 records it.
+- **The property test found the property's own mistake before the code's.** "Nothing after a
+  `run_end`" is true of a run but not of any record the format allows: fast-check produced a
+  `fallback` entry after a `failed` status, which a damaged host could leave. The projection is
+  faithful rather than tidy, so the property now says one `run_end` per terminal status, matching
+  each one's `seq` and reason.
+- **`EVT01`, `EVT02`, `EVT03` and `EVT06` came off `scripts/unbuilt-rows.json`** with their tests: 22
+  protocol rows are still unbuilt, all of them commands, approvals, access or the HTTP surface.
+- **The gate**: 399 Node tests, 28 workerd, 10 fuzz/property, `matrixcheck` 266 rows (244 tested),
+  package 92,834 B of 180,224 B. The ceiling has room for the session, the HTTP surface and the
+  object.
+
 ## Step 6, slice 1, 2026-11-21
 
 - **The tests came after the code in this slice, and the commit says so.** `frames.ts` and `reader.ts`

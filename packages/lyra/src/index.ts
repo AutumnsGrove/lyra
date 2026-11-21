@@ -33,5 +33,6 @@ export * from "./core/tool.js";
 export * from "./record/entries.js";
 export * from "./record/load.js";
 export * from "./record/replay.js";
+export * from "./protocol/events.js";
 export * from "./protocol/frames.js";
 export * from "./protocol/reader.js";

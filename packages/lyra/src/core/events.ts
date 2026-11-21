@@ -72,3 +72,20 @@ export type RunEvent =
 
 /** A listener is never allowed to be the reason a run fails. */
 export type RunEventListener = (event: RunEvent) => void;
+
+/** The parked reasons this build knows. Approvals add `waiting_for_person` later. */
+const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
+	"stopped",
+	"stuck",
+	"limit",
+	"model_unavailable",
+];
+
+/**
+ * A parked reason as this build knows it. A record written by a newer Lyra may name
+ * one that is not here, and guessing would overrule a person's decision, so an
+ * unknown reason is reported as `stuck`, which always asks a person.
+ */
+export function parkedReasonOf(reason: string | undefined): ParkedReason {
+	return KNOWN_PARKED_REASONS.find((known) => known === reason) ?? "stuck";
+}

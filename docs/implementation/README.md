@@ -22,7 +22,7 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is next |
-| 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
+| 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | in progress (no PR yet) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |

@@ -16,8 +16,15 @@
 import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
-import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
+import {
+	parkedReasonOf,
+	type ParkedReason,
+	type RunEndReason,
+	type RunEventListener,
+	type RunEvent,
+} from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { createUsageTotal } from "./usage.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import type { JsonValue } from "./json.js";
 import { formatErrors, type Validation } from "./schema.js";
@@ -216,84 +223,6 @@ class SaveFailed {
 function messageOf(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error);
 	return text.slice(0, 500);
-}
-
-/**
- * Tokens always add up. A cost total only means something when every reply
- * reported one, from the same kind of billing (decision 15), so one reply without
- * a cost drops the total for the run instead of reporting a number that is too low.
- *
- * A cost *limit* is different: it compares against every amount reported, whatever
- * its source, and it is unenforceable as soon as one reply reports none, because
- * the total is then understated (LIM05).
- */
-function createUsageTotal() {
-	let inputTokens = 0;
-	let outputTokens = 0;
-	let cost: Usage["cost"] | undefined;
-	let costKnown = true;
-	let spent = 0;
-	let everyCostReported = true;
-
-	return {
-		add(next: Usage): void {
-			inputTokens += next.inputTokens;
-			outputTokens += next.outputTokens;
-			if (next.cost === undefined) {
-				everyCostReported = false;
-			} else {
-				spent += next.cost.amount;
-			}
-			if (!costKnown) {
-				return;
-			}
-			if (next.cost === undefined) {
-				costKnown = false;
-			} else if (cost === undefined) {
-				cost = next.cost;
-			} else if (cost.source === next.cost.source) {
-				cost = {
-					amount: cost.amount + next.cost.amount,
-					currency: "USD",
-					source: cost.source,
-				};
-			} else {
-				costKnown = false;
-			}
-		},
-
-		total(): Usage {
-			const sum: Usage = { inputTokens, outputTokens };
-			if (costKnown && cost !== undefined) {
-				sum.cost = cost;
-			}
-			return sum;
-		},
-
-		tokens(): number {
-			return inputTokens + outputTokens;
-		},
-
-		costSpent(): { amount: number; known: boolean } {
-			return { amount: spent, known: everyCostReported };
-		},
-	};
-}
-
-/**
- * A parked reason as this build knows it. A record written by a newer Lyra may name
- * one that is not here, and guessing would overrule a person's decision, so an
- * unknown reason is reported as `stuck` with the raw reason kept in the detail.
- */
-const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
-	"stopped",
-	"stuck",
-	"limit",
-	"model_unavailable",
-];
-
-function parkedReasonOf(reason: string | undefined): ParkedReason {
-	return KNOWN_PARKED_REASONS.find((known) => known === reason) ?? "stuck";
 }
 
 export async function runTask(config: RunConfig): Promise<RunResult> {

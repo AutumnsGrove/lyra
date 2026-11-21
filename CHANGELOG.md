@@ -8,6 +8,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+### Added
+
+- `projectEvents` and `eventsAfter` in the core entry point: a record projects to the protocol's
+  events, each carrying the `seq` of the entry it came from, so a client can replay a run from any
+  point it last saw (rows EVT01 to EVT03 and EVT06 in `docs/protocol.md`).
+
 ## [0.2.0] - 2026-11-21
 
 Lyra gains its first real model adapter, and nothing existing changes. `0.1.0` keepers upgrade with
