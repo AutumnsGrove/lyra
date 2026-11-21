@@ -29,6 +29,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   `live/recorder.ts` writes the file and refuses one that still holds a key, since it is the side that
   has the environment. The scan runs over every committed cassette in `src/cassettes.test.ts`, which
   is why a contaminated one cannot land quietly.
+- **DeepSeek V4.1 Flash is the live default, not kimi-k3.** Autumn's call (2026-11-19): kimi-k3 is
+  far too expensive per quota, and `deepseek-v4.1-flash` speaks chat completions and goes further on
+  the allowance. The model id was checked against the live `/models` list before the first run rather
+  than trusted from the docs table, which is how a typo would otherwise have cost a call.
 - **The live suite is written and has not been run.** No key is set in this environment, and the step
   document says not to run it. `pnpm test:live` is the command, `live/README.md` says what it reads and
   what it costs, and each test skips with a line on stderr. Autumn's first run is the last unproven

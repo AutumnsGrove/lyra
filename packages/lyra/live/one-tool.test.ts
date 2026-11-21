@@ -38,7 +38,9 @@ interface LiveCase {
 	make: (options: { model: string; fetch?: FetchLike }) => ModelSlot;
 }
 
-const opencodeModel = process.env["OPENCODE_GO_MODEL"] ?? "kimi-k3";
+// DeepSeek V4.1 Flash, because it speaks chat completions and its allowance goes
+// furthest (Autumn's call, 2026-11-19: kimi-k3 is far too expensive per quota).
+const opencodeModel = process.env["OPENCODE_GO_MODEL"] ?? "deepseek-v4.1-flash";
 const openrouterModel = process.env["OPENROUTER_MODEL"];
 
 const cases: LiveCase[] = [
