@@ -12,6 +12,8 @@
  * refused with a message naming the field.
  */
 
+import type { FakeClock } from "./clock.js";
+import type { ModelSlot } from "../core/model.js";
 import type { RunEvent } from "../core/events.js";
 import { isJsonValue, isPlainObject, type JsonValue } from "../core/json.js";
 import { isFinishReason } from "../core/decode-reply.js";
@@ -519,7 +521,19 @@ function matchRecord(expected: Expectation[], record: LoadedRecord, problems: st
 /** The testkit recipes a scenario may name, by name. */
 const RECIPES = new Map([[timelineTestRecipe.name, timelineTestRecipe]]);
 
-export async function runScenario(scenario: Scenario): Promise<ScenarioOutcome> {
+export interface ScenarioRunOptions {
+	/**
+	 * How a run gets its model. The default is the in-process scripted model; a test
+	 * that wants a real adapter and a fake server passes one here, so a scenario runs
+	 * through the wire as well (SCN04).
+	 */
+	makeModel?: (turns: readonly ScriptedTurn[], clock: FakeClock) => ModelSlot;
+}
+
+export async function runScenario(
+	scenario: Scenario,
+	options: ScenarioRunOptions = {},
+): Promise<ScenarioOutcome> {
 	const clock = fakeClock();
 	const storage = memoryStorage();
 	const events: RunEvent[] = [];
@@ -548,7 +562,10 @@ export async function runScenario(scenario: Scenario): Promise<ScenarioOutcome> 
 		...recipeParts,
 		system: recipe?.instructions ?? scenario.system,
 		tools,
-		model: scriptedModel(scenario.model, { clock }),
+		model:
+			options.makeModel === undefined
+				? scriptedModel(scenario.model, { clock })
+				: options.makeModel(scenario.model, clock),
 		storage,
 		clock,
 		ids: counterIds(),

@@ -25,6 +25,15 @@ export {
 	type ScriptedToolCall,
 	type ScriptedTurn,
 } from "./model.js";
+export {
+	misbehavingModel,
+	misbehavingScript,
+	MISBEHAVING_KINDS,
+	type MisbehavingKind,
+	type MisbehavingModel,
+	type MisbehavingScriptOptions,
+	type MisbehavingTurn,
+} from "./misbehaving-model.js";
 export { failingStorage, type FailingStorage, type FailingStorageOptions } from "./storage.js";
 export {
 	crashingStorage,

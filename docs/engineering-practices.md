@@ -329,6 +329,20 @@ either way.
 | KIT10 | Bad: it misbehaves on purpose | It can cut a stream mid-event, send malformed JSON, stall, fail a body mid-stream, answer 429 with and without `Retry-After`, answer 500, answer 200 with an error body, answer a non-JSON error, send an error chunk mid-stream, send one huge chunk, and hand a test its own answer |
 | KIT11 | Bad: what it received | Every request is kept with its URL, method, headers and parsed body, so a test can assert what the adapter sent and that no key appears in the record of it |
 
+### The seeded misbehaving model (step 5)
+
+`testkit/misbehaving-model.ts` is a model that is wrong on purpose, drawn from a
+seed: half-written arguments, a tool nobody has, the same call again, an empty
+answer, a reply cut off by the token limit holding a call, and usage with no cost.
+The seed makes a failure repeatable, and one script is drawn per seed, so the same
+seed produces the same run. It assumes the run has a `finish` tool, because that is
+how a run ends well; a run without one parks, which is still a correct ending.
+
+| ID | Case | Expected |
+|---|---|---|
+| KIT12 | Bad: the seeded script | The same seed draws the same script, different seeds draw different ones, every turn is one of the named wrong kinds, and each kind really is what it says (truncated arguments that do not parse, a tool that does not exist, an empty reply, a `length` reply holding a call, usage with no cost) |
+| KIT13 | Happy: every run against it ends | For every seed, with a step limit, the run emits exactly one `run_end` as its last event, ends `done`, `parked` or `failed`, and its record loads with no notes and ends with a status |
+
 ## Spec rows: the scenario runner
 
 The files themselves are in `scenarios/` at the repository root, and
@@ -347,3 +361,12 @@ that differed and the value that came.
 | SCN01 | Happy: a scenario runs | Its events match as a subsequence in order, its record entries match in order, and there are no problems |
 | SCN02 | Sad: an expectation does not match | The report names the expectation, the field that differed, and what came instead, and it says how the run ended |
 | SCN03 | Bad: a malformed scenario | The file is refused with `bad_request` and a message naming the field, and a file this build understands decodes with its defaults filled in |
+
+The runner takes an optional `makeModel`, so a scenario can run through a real
+adapter and a fake server as well as through the in-process scripted model. That is
+the third of the three levels decision 63 asks for; `src/scenarios.test.ts` runs
+every file twice, and the Lumen adapter in Lattice will be the fourth.
+
+| ID | Case | Expected |
+|---|---|---|
+| SCN04 | Happy: a scenario through a server | Every scenario file runs again with the OpenAI-style adapter over the fake model server, and its events and record match the same expectations |

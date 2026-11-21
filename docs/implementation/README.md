@@ -21,7 +21,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A in review (slices 1 to 3); PR B is slices 4 to 7 |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A merged (slices 1 to 3, `a74cbd4`); PR B is slices 4 to 7 |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
@@ -56,9 +56,11 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119,
 measured locally; CI's gzip on the same commit runs a few hundred bytes smaller),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
-- **Step 5 is in progress**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`, in two pull
-  requests on one branch (Autumn's call, 2026-11-19, because the two halves are different surfaces). PR A
-  is slices 1 to 3: the `openai` entry point, the server-sent-event parser with its fuzz target, the
+- **Step 5 is in progress**, [`05-openai-adapter.md`](05-openai-adapter.md), in two pull requests (Autumn's
+  call, 2026-11-19, because the two halves are different surfaces). PR A is merged as pull request #17 and
+  the merge commit `a74cbd4`, after one review round that found three real things (a stop during the
+  secrets lookup still spent tokens, a capitalised `Authorization` in a preset's headers was merged with
+  the real one, and `[DONE]` alone was read as a cut); all three were fixed test-first. It is slices 1 to 3: the `openai` entry point, the server-sent-event parser with its fuzz target, the
   request builder, the fake model server in the testkit, the error mapping, and a whole run driven
   through the adapter, including the 429-then-success and four-500s cases and a `length` reply whose call
   never runs. PR B is slices 4 to 7: the seeded misbehaving model, the in-process and over-fetch

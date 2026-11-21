@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 
+import { createOpenAIChatModel } from "./adapters/openai/model.js";
+import { fakeModelServer } from "./testkit/fake-model-server.js";
 import { decodeScenario, runScenario } from "./testkit/scenario.js";
 
 /**
@@ -39,6 +41,38 @@ for (const [path, raw] of Object.entries(files)) {
 	test(`the scenario ${name} is a file this runner understands`, () => {
 		const decoded = decodeScenario(parse(raw));
 		expect(decoded.ok ? [] : [decoded.error.message]).toEqual([]);
+	});
+
+	test(`SCN04 the scenario ${name} runs the same through the fake server`, async () => {
+		const decoded = decodeScenario(parse(raw));
+		if (!decoded.ok) {
+			throw new Error(`${name}: ${decoded.error.message}`);
+		}
+		// The third level decision 63 asks for: the same file, through a real adapter
+		// and a fake server, which is the wire a host would see.
+		let asked = 0;
+		const outcome = await runScenario(decoded.value, {
+			makeModel: (turns, clock) => {
+				const model = createOpenAIChatModel({
+					baseUrl: "https://fake.test/v1",
+					model: "scripted/model",
+					secrets: { get: async () => "not-a-real-key" },
+					keyName: "MODEL_KEY",
+					fetch: fakeModelServer(turns),
+					clock,
+				});
+				return {
+					complete: (request) => {
+						asked += 1;
+						return model.complete(request);
+					},
+				};
+			},
+		});
+		// The wire really was used: the same expectations could otherwise pass by
+		// falling back to the in-process model.
+		expect(asked).toBeGreaterThan(0);
+		expect(outcome.problems).toEqual([]);
 	});
 
 	test(`the scenario ${name} runs the way its expectations say`, async () => {
