@@ -8,6 +8,22 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 1, 2026-11-21
+
+- **The tests came after the code in this slice, and the commit says so.** `frames.ts` and `reader.ts`
+  were written before their tests, which is the one departure from the loop in this repository so far.
+  Rather than claim a red that did not happen, each test was checked against a deliberate mutation: an
+  ignored cap fails `FRM01`, and a wrong code on a bad line fails `FRM02`. Both were restored, and the
+  full suite is green. Slices 2 onward go back to tests first.
+- **The line cap is enforced on bytes and decoded per line.** Splitting on `\n` cannot cut a UTF-8
+  sequence, because `\n` is never a continuation byte, so each completed line's bytes decode on their
+  own and a character split across two chunks still comes out once. That is what `FRM03` pins.
+- **`FRM01` came off `scripts/unbuilt-rows.json`** with its test, as the file's rule requires; 27
+  protocol rows are still unbuilt.
+- **The size ceiling has 1.2 KiB left** (88,910 B of 90,112 B). Step 6 still has to add `commands.ts`,
+  `events.ts`, `session.ts`, `http.ts` and the Durable Object host, so the next slice that lands needs
+  a decision raising it, with the reason and the real number rather than padding.
+
 ## Step 5, PR B (slices 4 to 7), 2026-11-19
 
 - **The misbehaving model is a script, not a live generator.** Each turn is drawn up front from the
