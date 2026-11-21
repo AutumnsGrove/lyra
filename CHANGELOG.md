@@ -8,6 +8,28 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+### Added
+
+- `@autumnsgrove/lyra/openai`: an OpenAI-style model adapter for chat completions, which serves
+  OpenRouter and OpenCode Go from one base URL, model id and secret name (decision 14). It reads its
+  key from a Secrets slot on every call, streams a reply and assembles text, reasoning, tool calls,
+  usage and a finish reason, and maps every failure to a `ModelError` with the right `retryable`, so
+  the core's retries and parking work unchanged. A stream that ends early, a reply cut off on the token
+  limit, an oversized reply, a stalled call and a stop are each handled and tested (rows OAI01 to
+  OAI29 in `docs/adapters.md`).
+- The testkit gains a fake model server: the same `ScriptedTurn` scripts the in-process scripted model
+  reads, served as real server-sent-event bytes, with named ways to misbehave on purpose (cut stream,
+  malformed JSON, a stall, 429 with and without `Retry-After`, a 500, a 200 with an error body, a
+  non-JSON error, an error mid-stream, one huge chunk) and a record of every request it received
+  (rows KIT09 to KIT11).
+- `platform.d.ts` declares the model adapters' slice of `fetch`, `Response`, `Headers`,
+  `ReadableStream` and `TextDecoder`'s streaming mode (decision 125).
+
+### Changed
+
+- The package's size ceiling moves from 68 KiB to 84 KiB gzipped, which is what the OpenAI-style
+  adapter costs (decision 123).
+
 ## [0.1.0] - 2026-11-19
 
 This is the first release anyone should install, and there is nothing to migrate to reach it. `0.0.0`

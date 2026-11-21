@@ -163,12 +163,33 @@ a `SecretsSlot` and a key name, and it reads the key from the slot, never from i
 own configuration, so a key cannot sit in an object that gets logged or recorded.
 `fetch` is injectable, which is how the fake server and cassette replay plug in.
 
-The provider facts it rests on were verified against the providers' own docs on
-2026-11-19 and are written in `implementation/notes.md` under "Step 5". Two of them
-shape the parser: OpenRouter returns usage exactly once, in the last chunk before
-`[DONE]` (its usage chunk carries a content-free choice rather than an empty
-`choices` list), and `usage` and `stream_options` parameters on chat completions are
-deprecated and have no effect, so the adapter sends neither.
+### What was verified, 2026-11-19
+
+Read from each provider's own documentation before the adapter was written, not from
+Nova's notes:
+
+- **OpenRouter.** Base URL `https://openrouter.ai/api/v1`, key in
+  `OPENROUTER_API_KEY`, chat completions at `/chat/completions`. `stream: true`
+  answers with server-sent events, and usage arrives exactly once, in the last chunk
+  before `[DONE]`; on chat completions that chunk carries a content-free choice that
+  repeats the finish reason rather than an empty `choices` list, which is a
+  deliberate difference from OpenAI's spec. `usage: { include: true }` and
+  `stream_options: { include_usage: true }` are deprecated and have no effect, so the
+  adapter sends neither. `usage` carries `prompt_tokens`, `completion_tokens` and a
+  `cost` in credits, which are dollars, so a cost read from there has source
+  `provider`. Finish reasons are normalized to `tool_calls`, `stop`, `length`,
+  `content_filter` and `error`; anything else becomes `other`. `Retry-After` arrives
+  on 429 and 503 (and on some 402s) in seconds. A failure in the middle of a stream
+  arrives as a chunk holding `error` and `finish_reason: "error"`.
+- **OpenCode Go.** Base URL `https://opencode.ai/zen/go/v1`, key in
+  `OPENCODE_GO_API_KEY`, the model list at `/models`, chat completions at
+  `/chat/completions`. It asks every client for a stable `x-opencode-session` header
+  so a conversation keeps its routing and its prompt cache, and for the client's own
+  user agent. Its docs list each model's native endpoint and also say that every text
+  model works through the other APIs, with the console translating, so a model is
+  attempted as chat completions rather than refused by a table that would go stale.
+  Cost is a monthly allowance per model rather than dollars, so usage carries tokens
+  only unless a response reports a figure of its own.
 
 ### The stream
 
