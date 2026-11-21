@@ -243,6 +243,17 @@ first ones are synthetic, made from the fake model server's own bytes, and their
 | CAS02 | Bad: a key-shaped string | The scan finds an `sk-` key, a bearer token, a long base64 run, a long hex run and the exact value of any key it is given, and every file in `cassettes/` passes it |
 | CAS03 | Sad: a request with no exchange | A request the cassette has nothing for rejects with a message naming the request and how to re-record, rather than reaching the network |
 
+### The live suite as built (step 5)
+
+`pnpm test:live` (`vitest.live.config.ts`) runs `packages/lyra/live/`, which is
+outside `src/` and never published, so it may use `node:fs` and the environment. It
+is not in `pnpm run ci`. Each test sets Lyra's own limits as its budget cap (four
+steps, 20,000 tokens, 120 seconds, a 30-second tool deadline), so a bad loop parks
+instead of spending an allowance, and `RECORD=1` writes the exchange to
+`cassettes/` through the same scan CI runs. A missing key skips its test with a line
+on stderr, because a silent skip reads like a pass. `live/README.md` says how to run
+it, which variables it reads, and what it costs.
+
 ### Recording real responses to replay free in CI
 
 A live run can record the real HTTP exchange (with keys and auth headers removed) into a cassette. CI replays cassettes with no network and no cost. So a live run spends allowance once, and the result becomes a permanent, deterministic test. A test fails if a cassette contains a key-shaped string.

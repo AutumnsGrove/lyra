@@ -21,7 +21,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A merged (slices 1 to 3, `a74cbd4`); PR B is slices 4 to 7 |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A merged (slices 1 to 3, `a74cbd4`); PR B in review (slices 4 to 7) |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
@@ -69,6 +69,14 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
   fuzz/property targets, coverage 93.92% statements and 88.21% branches, the package at 80,395 B of
   86,016 B (decision 123), and `matrixcheck` 253 rows (225 tested, 28 unbuilt). Its Lumen half lives in
   Lattice, which can consume Lyra from npm now that `0.1.0` is published (decision 121).
+  PR B is slices 4 to 7, on `feat/step-05-openai-testing`: the seeded misbehaving model and its
+  whole-run property (decision 64), the scenario runner's `makeModel` seam so every scenario file runs a
+  third time through the adapter and the fake server, cassettes with their replay, recorder and
+  key-shaped-string scan (decision 128), the `openRouter()` and `openCodeGo()` presets, and
+  `pnpm test:live` with its budget caps and its `live/README.md`. Its gate: 364 Node tests, 28 workerd
+  tests, 6 fuzz/property targets, coverage 93.76% statements and 87.68% branches, the package at
+  86,286 B of 90,112 B (decision 128), and `matrixcheck` 260 rows (232 tested, 28 unbuilt, all
+  protocol). **No live call has been made**: `pnpm test:live` needs Autumn's keys.
 - **Step 3 is merged**, as pull request #9 and the merge commit `9369f03`, after three review rounds: the
   first found that a resumed record's saved input was never checked against the recipe's input schema and
   that `start` could throw where it promised a `Result`, and the second found that the new check ran before

@@ -8,6 +8,38 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 5, PR B (slices 4 to 7), 2026-11-19
+
+- **The misbehaving model is a script, not a live generator.** Each turn is drawn up front from the
+  seed, so the same seed gives the same script and a failure repeats exactly; the model is then the
+  testkit's scripted one. It will call `finish`, which is what lets a run end `done` instead of only
+  parking, and a run with a step limit always ends whatever it does.
+- **The scenario runner learned a `makeModel` seam rather than importing the adapter.** The testkit
+  may not import an adapter (`importcheck`), so the third level of decision 63 is a parameter: a test
+  that wants the wire passes a factory. `SCN04` counts the calls it made, because otherwise the same
+  expectations would pass through the in-process fallback and the row would prove nothing — that
+  mistake was made and caught by a deliberate mutation.
+- **A cassette is matched by method, URL and body, and each exchange is used once.** A retry therefore
+  needs its own recording, which is exactly what a recording of a run that retried contains. The body
+  is compared as JSON, not as text, so property order does not decide whether a request matches.
+- **The recorder reads the body and hands it on.** A response body can be read once, so the recording
+  `fetch` reads it, records it, and answers with a fresh `Response` built from the same bytes. Nothing
+  downstream can tell the difference.
+- **Recording and writing are split.** `recordingFetch` is in the testkit and is web-standard;
+  `live/recorder.ts` writes the file and refuses one that still holds a key, since it is the side that
+  has the environment. The scan runs over every committed cassette in `src/cassettes.test.ts`, which
+  is why a contaminated one cannot land quietly.
+- **The live suite is written and has not been run.** No key is set in this environment, and the step
+  document says not to run it. `pnpm test:live` is the command, `live/README.md` says what it reads and
+  what it costs, and each test skips with a line on stderr. Autumn's first run is the last unproven
+  thing in step 5.
+- **The presets are two functions, not a table.** They differ in a base URL, a secret's name and one
+  header, so a preset is those three things and nothing else; a per-provider quirks table would have
+  been a fourth copy of the same knowledge (decision 127).
+- **`OpenCode Go` needs its session to be required, not optional.** Its docs ask for a stable
+  `x-opencode-session` per conversation, so `openCodeGo()` takes a session and a caller cannot forget
+  one and quietly lose routing and prompt caching.
+
 ## Step 5, PR A, review round one, 2026-11-19
 
 - **A stop during the secrets lookup still sent the request, and the review was right.** The
