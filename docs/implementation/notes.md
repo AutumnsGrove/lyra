@@ -33,10 +33,17 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   far too expensive per quota, and `deepseek-v4.1-flash` speaks chat completions and goes further on
   the allowance. The model id was checked against the live `/models` list before the first run rather
   than trusted from the docs table, which is how a typo would otherwise have cost a call.
-- **The live suite is written and has not been run.** No key is set in this environment, and the step
-  document says not to run it. `pnpm test:live` is the command, `live/README.md` says what it reads and
-  what it costs, and each test skips with a line on stderr. Autumn's first run is the last unproven
-  thing in step 5.
+- **The live suite ran for the first time on 2026-11-21, on Autumn's keys, and passed.** Two real
+  calls with a tool: OpenCode Go with `deepseek-v4.1-flash` and OpenRouter with
+  `deepseek/deepseek-v4.1-flash-1017`. Each ended `done`, each called the tool, and each usage
+  reported input tokens. The keys were read from a file outside the repository and sourced into the
+  test process, so nothing was ever in a command line, a log or a diff. A second run with `RECORD=1`
+  wrote `cassettes/opencode-go-one-tool.json` and `cassettes/openrouter-one-tool.json`: real bytes,
+  two exchanges each, no auth header and no `set-cookie`, and the scan that CI runs passes on both.
+  The synthetic `scripted-run.json` stays, because it is the one recorded from the fake server.
+- **A keyless run is a skip, not a failure.** The tests are registered with `test.skipIf`, so a file
+  with no keys in the environment reports two skipped tests and exits 0; the skip's reason is in the
+  test's own title, because Vitest does not print a module-level `console.warn` in the default report.
 - **The presets are two functions, not a table.** They differ in a base URL, a secret's name and one
   header, so a preset is those three things and nothing else; a per-provider quirks table would have
   been a fourth copy of the same knowledge (decision 127).

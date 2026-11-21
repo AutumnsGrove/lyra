@@ -16,13 +16,13 @@ pnpm test:live
 RECORD=1 pnpm test:live               # also write a cassette for CI to replay
 ```
 
-| Variable              | What it does                                                               |
-| --------------------- | -------------------------------------------------------------------------- |
-| `OPENCODE_GO_API_KEY` | The key for OpenCode Go, which most live runs use                          |
-| `OPENCODE_GO_MODEL`   | Which model to call there. Defaults to `kimi-k3`, a chat-completions model |
-| `OPENROUTER_API_KEY`  | The key for OpenRouter, for the small production-fidelity set              |
-| `OPENROUTER_MODEL`    | Required for the OpenRouter case: a model id is a decision, not a default  |
-| `RECORD`              | `1` writes the exchange to `cassettes/<provider>-one-tool.json`            |
+| Variable              | What it does                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENCODE_GO_API_KEY` | The key for OpenCode Go, which most live runs use                                                                                |
+| `OPENCODE_GO_MODEL`   | Which model to call there. Defaults to `deepseek-v4.1-flash`, which speaks chat completions and stretches the allowance furthest |
+| `OPENROUTER_API_KEY`  | The key for OpenRouter, for the small production-fidelity set                                                                    |
+| `OPENROUTER_MODEL`    | Required for the OpenRouter case: a model id is a decision, not a default                                                        |
+| `RECORD`              | `1` writes the exchange to `cassettes/<provider>-one-tool.json`                                                                  |
 
 ## What it costs
 

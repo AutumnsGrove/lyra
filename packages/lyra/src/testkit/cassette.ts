@@ -105,17 +105,18 @@ export function scrubExchange(exchange: RecordedExchange): RecordedExchange {
 		}
 		headers[name.toLowerCase()] = value;
 	}
+	const responseHeaders: Record<string, string> = {};
+	for (const [name, value] of Object.entries(exchange.response.headers)) {
+		// A response can carry a credential too: `set-cookie` is how a provider hands
+		// one back, and a cookie value need not look like a key to the scan.
+		if (SECRET_HEADERS.has(name.toLowerCase())) {
+			continue;
+		}
+		responseHeaders[name.toLowerCase()] = value;
+	}
 	return {
 		request: { ...exchange.request, headers },
-		response: {
-			...exchange.response,
-			headers: Object.fromEntries(
-				Object.entries(exchange.response.headers).map(([name, value]) => [
-					name.toLowerCase(),
-					value,
-				]),
-			),
-		},
+		response: { ...exchange.response, headers: responseHeaders },
 	};
 }
 

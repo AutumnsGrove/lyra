@@ -74,9 +74,10 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
   third time through the adapter and the fake server, cassettes with their replay, recorder and
   key-shaped-string scan (decision 128), the `openRouter()` and `openCodeGo()` presets, and
   `pnpm test:live` with its budget caps and its `live/README.md`. Its gate: 364 Node tests, 28 workerd
-  tests, 6 fuzz/property targets, coverage 93.76% statements and 87.68% branches, the package at
-  86,286 B of 90,112 B (decision 128), and `matrixcheck` 260 rows (232 tested, 28 unbuilt, all
-  protocol). **No live call has been made**: `pnpm test:live` needs Autumn's keys.
+  tests, 6 fuzz/property targets, coverage 93.77% statements and 87.7% branches, the package at
+  86,418 B of 90,112 B (decision 128), and `matrixcheck` 260 rows (232 tested, 28 unbuilt, all
+  protocol). **The live suite ran on 2026-11-21 and passed both providers**, and two real cassettes
+  are committed beside the synthetic one.
 - **Step 3 is merged**, as pull request #9 and the merge commit `9369f03`, after three review rounds: the
   first found that a resumed record's saved input was never checked against the recipe's input schema and
   that `start` could throw where it promised a `Result`, and the second found that the new check ran before

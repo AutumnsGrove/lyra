@@ -14,6 +14,7 @@ import {
 	recordingFetch,
 	replayCassette,
 	scanForSecrets,
+	scrubExchange,
 } from "./cassette.js";
 import { fakeModelServer } from "./fake-model-server.js";
 import { createFinishTool, toolReturning } from "./tools.js";
@@ -130,6 +131,28 @@ test("CAS01 a cassette that is not a cassette is refused by field", () => {
 	if (!missingBody.ok) {
 		expect(missingBody.error.message).toContain("response.body");
 	}
+});
+
+test("CAS01 a response header that carries a credential is dropped too", () => {
+	const scrubbed = scrubExchange({
+		request: {
+			url: "https://fake.test/v1/chat/completions",
+			method: "POST",
+			headers: { Authorization: "Bearer not-a-real-key", "content-type": "application/json" },
+			body: "",
+		},
+		response: {
+			status: 200,
+			headers: {
+				"set-cookie": "__cf_bm=abc; Path=/; HttpOnly",
+				"X-Api-Key": "not-a-real-key",
+				"content-type": "text/event-stream",
+			},
+			body: "data: [DONE]\n\n",
+		},
+	});
+	expect(Object.keys(scrubbed.response.headers)).toEqual(["content-type"]);
+	expect(JSON.stringify(scrubbed)).not.toContain("__cf_bm");
 });
 
 test("CAS02 the scan finds every shape of key", () => {
