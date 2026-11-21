@@ -13,9 +13,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **CI caught a bad fuzz property the same hour the step merged, and the seed is why.** The generator
   could put a `type` of its own into the bag, which replaced the frame's `type`; the property then
   asserted the frame was always accepted, so one seed failed. The generated fields now go in before the
-  envelope, and a bag that still breaks it is a refusal, not a fault. Five local seeds and then twenty
-  more passed before the fix was pushed, which is the check the first version should have had: a property
-  that can fail for a reason other than the one it names is a property that has not been read.
+  envelope, so `type`, `command` and `id` always win. The assertion that the frame is accepted stays: with
+  the envelope last it can only fail if the decoder regresses, which is exactly the guard this target sits
+  over (found in review; the first fix dropped it and left a dead refusal branch). The lesson stands: a
+  property that can fail for a reason other than the one it names is a property that has not been read.
 
 ## Step 6, review round 1, 2026-11-21
 
