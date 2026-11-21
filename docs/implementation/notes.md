@@ -8,6 +8,25 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 4, 2026-11-21
+
+- **The HTTP tests were written first and watched failing**, against a handler that answered 501 to
+  everything, then filled in.
+- **A host's `not_found` message is replaced, not passed through.** A keyed session's id is
+  `idFromName("<tenant>:<key>")`, so a host saying "there is no session acme:job-1" would tell another
+  tenant what it guessed. The handler answers "there is no such session" instead, and `ACC01`'s test
+  asserts the tenant name is not in the answer. Decision 132 records it.
+- **A replay arrives in one burst, so a small queue cap drops a client that is reading.** The drop rule
+  counts what is queued for the stream, and the whole record can arrive before the first read. That is
+  acceptable (the client reconnects and gets the rest), but it means the two HTP06 halves use different
+  caps: one to prove the drop, the default to prove the catch-up. Worth a second look if a real client
+  ever sees itself dropped on connect.
+- **The token comparison is by digest.** Comparing strings byte by byte leaks a token's length, and
+  `crypto.subtle` is web-standard on both runtimes, so each candidate's SHA-256 is compared with no early
+  exit. The door is a callback, so slice 5's Worker can build it from the Secrets slot.
+- **Rows**: HTP01 to HTP08 are new; ACC01 and ACC02 came off `unbuilt-rows.json`. 11 protocol rows are
+  still unbuilt: approvals, proposals and the reconnect-row EVT05 that needs the second-level scenarios.
+
 ## Step 6, slice 3, 2026-11-21
 
 - **The session needed a core seam, so it got one with a test.** CMD05 wants a follow-up to start work

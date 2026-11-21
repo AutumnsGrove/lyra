@@ -84,6 +84,8 @@ interface StreamController<R> {
 	enqueue(chunk: R): void;
 	close(): void;
 	error(reason?: unknown): void;
+	/** How much more a consumer will take before backpressure; null when it is not reading. */
+	readonly desiredSize: number | null;
 }
 
 interface ReadableStream<R> {
@@ -115,3 +117,33 @@ declare class Response {
 }
 
 declare function fetch(input: string, init?: FetchInit): Promise<Response>;
+
+/**
+ * The HTTP surface the protocol handler takes and answers (step 6): a request's
+ * method, URL, headers and body, and the pieces of a URL used to read a query.
+ * All web-standard on Workers and Node; declared only as far as is used, as above.
+ */
+interface RequestInit {
+	method?: string;
+	headers?: Record<string, string> | Headers;
+	body?: string;
+}
+
+declare class Request {
+	constructor(input: string, init?: RequestInit);
+	readonly url: string;
+	readonly method: string;
+	readonly headers: FetchHeaders;
+	readonly body: ReadableStream<Uint8Array> | null;
+	text(): Promise<string>;
+}
+
+declare class URL {
+	constructor(input: string, base?: string);
+	readonly pathname: string;
+	readonly searchParams: URLSearchParams;
+}
+
+declare class URLSearchParams {
+	get(name: string): string | null;
+}

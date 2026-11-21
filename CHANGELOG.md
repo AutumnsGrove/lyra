@@ -18,6 +18,10 @@ new API and any breaking change, and a patch bump is fixes only.
   (`start` with an idempotency key, `prompt`, `steer`, `follow_up`, `abort`, `resume`, `get_state`,
   `get_messages`) and publishing its events from the record, so a client that reconnects catches up
   (rows CMD01 to CMD07, CMD11, CMD12 and CMD17 to CMD19 in `docs/protocol.md`).
+- `createHttpHandler` and `createTokenDoor` in the core entry point: the protocol over HTTP — one command
+  per request answered as a frame with a status from its error code, server-sent events with the record's
+  `seq` as the event id and `Last-Event-ID` replay, `GET /v1/state`, and a bearer-token door compared in
+  constant time (rows HTP01 to HTP08, ACC01 and ACC02 in `docs/protocol.md`).
 
 ## [0.2.0] - 2026-11-21
 

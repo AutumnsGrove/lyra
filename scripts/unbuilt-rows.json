@@ -3,8 +3,6 @@
 	"docs/protocol.md": {
 		"step": 6,
 		"rows": [
-			"ACC01",
-			"ACC02",
 			"CMD08",
 			"CMD09",
 			"CMD10",

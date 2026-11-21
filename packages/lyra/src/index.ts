@@ -35,5 +35,6 @@ export * from "./record/load.js";
 export * from "./record/replay.js";
 export * from "./protocol/events.js";
 export * from "./protocol/frames.js";
+export * from "./protocol/http.js";
 export * from "./protocol/reader.js";
 export * from "./protocol/session.js";

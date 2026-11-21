@@ -191,6 +191,15 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | REQ05 | A request with `timeout_ms` that passes | Resolves to deny, and emits `ui_expired` |
 | REQ06 | Another wake-up arrives while a request is pending | Queued, not delivered, until it is answered |
 | ACC01 | A command naming another tenant's session | `not_found` |
+| HTP01 | `POST /v1/commands` with a command | The response frame, status 200, and `x-lyra-version` |
+| HTP02 | A refused command, and each error code | The frame, and the status from its code: 400 `bad_request`, 403 `permission_denied`, 404 `not_found`, 409 `busy` and `conflict`, 501 `unsupported`, 504 `timeout`, 502 `provider_error`, 500 `internal` |
+| HTP03 | A body that is not one frame, or is over the cap | `bad_request`, and nothing runs |
+| HTP04 | The version header | Missing or `1` is accepted; anything else is `unsupported`, before a session is opened |
+| HTP05 | `GET /v1/events` | A server-sent-event stream whose `id` is the entry's `seq`; `Last-Event-ID` sends only what follows it, and a live-only event has no `id` |
+| HTP06 | A client that stops reading | Dropped once more than the cap is queued for it, and a reconnect with `Last-Event-ID` catches up from the record |
+| HTP07 | `GET /v1/state` and `POST /v1/ui_response` | The `get_state` answer, and `unsupported` until approvals exist |
+| HTP08 | Another path or method | `not_found`, as a frame |
+| ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 
 The remaining rows (framing edge cases, the HTTP and WebSocket mappings, access) are written when each is built.
