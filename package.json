@@ -29,7 +29,9 @@
 		"ci": "pnpm format && pnpm typecheck && pnpm build && pnpm test && pnpm test:workers && pnpm fuzz && pnpm importcheck && pnpm matrixcheck && pnpm build:example && pnpm budget && pnpm coverage",
 		"test:workers": "vitest run --config vitest.workers.config.ts",
 		"test:live": "vitest run --config vitest.live.config.ts",
-		"build:example": "pnpm --filter @autumnsgrove/lyra-example-workers build"
+		"build:example": "pnpm --filter @autumnsgrove/lyra-example-workers build",
+		"dev": "wrangler dev --config examples/workers-minimal/wrangler.jsonc",
+		"lyra": "node scripts/lyra.mjs"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.8.5",

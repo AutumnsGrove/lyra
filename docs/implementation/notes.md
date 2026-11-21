@@ -8,6 +8,24 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 6, 2026-11-21
+
+- **Every scenario file runs over HTTP now**, through a Durable Object with SQLite and an alarm: SCN05 in
+  the workers suite. A file's scenario is loaded into the object before the run (test support, the way
+  step 4's fixture is configured); after that the test only speaks the protocol.
+- **A live-only event can be missed by a client that connects a moment late**, and the abort scenario
+  showed it. `tool_start` is not in the record, so the session drops it when nobody is watching yet, and
+  an HTTP client that opens its stream just after `start` can miss it. The runner therefore aborts at the
+  turn's end, which is the same moment on the wire, rather than at an index into an event list that
+  includes an event the wire may not deliver. This is decision 86 working as intended rather than a bug,
+  but it is the first place it is visible, so `notes.md` is where it goes.
+- **The example Worker is a real small server now**, so its bundle grew from 22.4 KiB to 31.2 KiB and its
+  ceiling moved to 44 KiB (decision 134) rather than being cut.
+- **`pnpm lyra` imports the built package's line reader** from `dist`, so `pnpm build` has to have run
+  once; the script says so. `pnpm dev` runs `wrangler dev` against the example, with a local-only token
+  and tenant in `wrangler.jsonc`. Neither is exercised by the gate (a dev server is a long-running
+  process); the example's build, its route and the protocol it serves are.
+
 ## Step 6, slice 5, 2026-11-21
 
 - **The tenant is on the record's header, and the object is the one that checks.** A keyed session id is

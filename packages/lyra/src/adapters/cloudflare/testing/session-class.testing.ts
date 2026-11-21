@@ -17,10 +17,12 @@ import { counterIds } from "../../memory/index.js";
 import {
 	createFinishTool,
 	fakeClock,
-	toolReturning,
-	toolTakingTime,
+	scriptedModel,
+	timelineTestRecipe,
 	type FakeClock,
 } from "../../../testkit/index.js";
+import { makeScenarioTool, type Scenario } from "../../../testkit/scenario.js";
+import { toolReturning, toolTakingTime } from "../../../testkit/tools.js";
 import { durableObjectStorage } from "../storage.js";
 import { createCloudflareSession, type CloudflareSession } from "../session.js";
 
@@ -118,6 +120,8 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 	#clock: FakeClock | undefined;
 	#session: CloudflareSession | undefined;
 	#requests = 0;
+	/** A scenario file to run, when the workers suite is driving one over HTTP. */
+	#scenario: Scenario | undefined;
 
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
@@ -129,9 +133,26 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		}
 		const clock = fakeClock();
 		this.#clock = clock;
-		const scripted = scriptedByInput();
+		const scenario = this.#scenario;
+		const taskName = scenario === undefined ? "test-task" : (scenario.recipe ?? scenario.task);
+		const definition: RunDefinition =
+			scenario === undefined
+				? recipeFor(clock)
+				: scenario.recipe === "timeline-test"
+					? timelineTestRecipe
+					: {
+							name: taskName,
+							version: 1,
+							instructions: scenario.system,
+							tools: [
+								...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
+								createFinishTool(),
+							],
+						};
+		const scripted =
+			scenario === undefined ? scriptedByInput() : scriptedModel(scenario.model, { clock });
 		this.#session = createCloudflareSession(this.ctx, {
-			recipes: new Map([["test-task", recipeFor(clock)]]),
+			recipes: new Map([[taskName, definition]]),
 			// Counted here, so a test can wait for the run to reach the model without
 			// reaching into the loop's own bookkeeping.
 			model: {
@@ -146,6 +167,18 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 			host: "workers-test",
 		});
 		return this.#session;
+	}
+
+	/**
+	 * Run one of the repository's scenario files: its recipe or tools, its script and
+	 * its system text. The HTTP runner calls this through `runInDurableObject` before
+	 * it starts the run, so every command and event after it is a real one on the wire.
+	 */
+	configure(scenario: Scenario): void {
+		this.#scenario = scenario;
+		this.#clock = undefined;
+		this.#session = undefined;
+		this.#requests = 0;
 	}
 
 	advance(ms: number): void {

@@ -26,6 +26,10 @@ new API and any breaking change, and a patch bump is fixes only.
   over HTTP, resumes through its alarm, and answers a trusted caller that names its tenant;
   `createSessionWorker` is the Worker's routing, and `sessionIdFor` is the idempotent session id. A record's
   header now carries its session's tenant (row RCD10 in `docs/run-record.md`).
+- Every scenario file in `scenarios/` now runs a second time over the real HTTP surface against a Durable
+  Object (row SCN05 in `docs/engineering-practices.md`). `examples/workers-minimal` is a real small server
+  that mounts the session object, `pnpm dev` runs it, and `pnpm lyra` is a dependency-free developer client
+  for the protocol (`start`, `tail`, `steer`, `follow-up`, `abort`, `resume`, `messages`).
 
 ## [0.2.0] - 2026-11-21
 

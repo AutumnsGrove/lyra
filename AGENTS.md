@@ -71,7 +71,8 @@ pnpm format:fix       # rewrite formatting before you commit
 The documents say `pnpm ci`; pnpm reserves that name for an install, so the command on this
 repository is `pnpm run ci`, which runs the `ci` script in `package.json` (decision 98).
 
-`pnpm dev` and `pnpm lyra start <task>` arrive with step 6.
+`pnpm dev` runs the example Worker under `wrangler dev`, and `pnpm lyra start <task>` drives it
+over the protocol (both arrived with step 6).
 
 ## Hard rules
 
