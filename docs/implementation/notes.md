@@ -8,6 +8,29 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 3, 2026-11-21
+
+- **The session needed a core seam, so it got one with a test.** CMD05 wants a follow-up to start work
+  when nothing is running, and a resume could not append a message. `ResumeRequest` now takes
+  `followUp` (row RSM08): a person's resume carrying one continues a record that ended `done`, `failed`
+  or parked, and a wake never does. The run writes the message after `resumed` and after any unanswered
+  call is answered, so a person's message never lands between a call and its result.
+- **One session is one record, so it is one run id.** The runtime's resume refuses a header naming a
+  different run and the header is written once, so "a new run in the same session" is a new segment of
+  the same run. Decision 131 records it, along with the answers the commands give when they cannot do
+  what was asked (`not_found` for a task the host does not run, `conflict` for a second `start` without
+  a matching key, `busy` for a `prompt` during a run).
+- **Events are re-read from the record after every write.** That gives a client exactly what a reconnect
+  would replay, with the same `seq` and order, and leaves the live-only events (`retry`, `tool_start`)
+  as the only ones that travel alone. The cost is reading the whole record per write, which for a long
+  run is a lot of SQLite; the alternative, trusting `seq` on the live events, would be a second source
+  of truth for what the record says. Worth revisiting in step 7 if a timeline run reads slowly.
+- **`get_messages` is capped in entries and in bytes.** The byte cap defaults to the entry cap, so a
+  page always fits one line, and the test sets a 600-byte cap to prove a page stops before passing it
+  rather than only counting entries.
+- **The gate**: 413 Node tests, 28 workerd, 10 fuzz/property, `matrixcheck` 270 rows (257 tested, 13
+  unbuilt: approvals, access and the HTTP surface), package 97,299 B of 180,224 B.
+
 ## Step 6, slice 2, 2026-11-21
 
 - **The tests came first this time.** `events.ts` was written as a stub that returned nothing, the

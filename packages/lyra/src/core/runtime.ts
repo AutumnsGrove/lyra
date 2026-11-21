@@ -78,6 +78,11 @@ export interface ResumeRequest {
 	by?: "wake" | "person";
 	/** New limits for a resumed run, which is how a park is lifted (decision 22). */
 	limits?: Limits;
+	/**
+	 * A message a person adds while continuing a record that has ended (decision 44).
+	 * A wake never carries one: an accident has nothing new to say.
+	 */
+	followUp?: string;
 }
 
 /** Checks a value against a recipe's input schema, once the schema is compiled. */
@@ -239,7 +244,11 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				request,
 				{
 					input,
-					resume: { lines: read.value, by: request.by ?? "person" },
+					resume: {
+						lines: read.value,
+						by: request.by ?? "person",
+						...(request.followUp === undefined ? {} : { followUp: request.followUp }),
+					},
 				},
 				check.value,
 			),

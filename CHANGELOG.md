@@ -14,6 +14,11 @@ new API and any breaking change, and a patch bump is fixes only.
   events, each carrying the `seq` of the entry it came from, so a client can replay a run from any
   point it last saw (rows EVT01 to EVT03 and EVT06 in `docs/protocol.md`).
 
+- `createSession` in the core entry point: one session over a storage slot, running the protocol's commands
+  (`start` with an idempotency key, `prompt`, `steer`, `follow_up`, `abort`, `resume`, `get_state`,
+  `get_messages`) and publishing its events from the record, so a client that reconnects catches up
+  (rows CMD01 to CMD07, CMD11, CMD12 and CMD17 to CMD19 in `docs/protocol.md`).
+
 ## [0.2.0] - 2026-11-21
 
 Lyra gains its first real model adapter, and nothing existing changes. `0.1.0` keepers upgrade with

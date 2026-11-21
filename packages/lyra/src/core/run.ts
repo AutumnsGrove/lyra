@@ -151,9 +151,10 @@ export interface RunConfig {
 	/**
 	 * Continue a record instead of starting one (decision 20). `by` decides what may
 	 * be continued: an accident resumes on its own, everything else waits for a
-	 * person (decision 23).
+	 * person (decision 23). `followUp` is a message a person adds while continuing a
+	 * record that has ended, which opens a new segment of the same run (decision 44).
 	 */
-	resume?: { lines: readonly string[]; by: "wake" | "person" };
+	resume?: { lines: readonly string[]; by: "wake" | "person"; followUp?: string };
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -654,11 +655,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (status === undefined) {
 			return undefined;
 		}
+		// A person who brings a follow-up is asking for more, so an ending already on
+		// the record no longer answers them: the run goes on from where it stopped.
+		const continues = by === "person" && config.resume?.followUp !== undefined;
 		const total = usageTotal.total();
-		if (status.state === "done") {
+		if (status.state === "done" && !continues) {
 			return { reason: "done", usage: total, turns };
 		}
-		if (status.state === "failed") {
+		if (status.state === "failed" && !continues) {
 			return {
 				reason: "failed",
 				error: { code: "internal", message: "the record says the run failed" },
@@ -1084,7 +1088,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						state = undefined;
 					}
 					result = recorded;
-				} else if (seed.finished) {
+				} else if (seed.finished && config.resume.followUp === undefined) {
 					// A kill landed between an accepted finish and the closing status. The
 					// record already knows the done-check passed, so the run ends done
 					// rather than asking the model for a turn it already gave.
@@ -1126,6 +1130,20 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					await saveStatus("resumed");
 					activeSince = clock.now();
 					await answerUnanswered(seed);
+					// The follow-up comes after any unanswered call is answered, so the
+					// conversation never puts a person's message between a call and its result.
+					if (config.resume.followUp !== undefined) {
+						const message: UserMessageEntry = {
+							type: "user_message",
+							id: config.ids.next("e"),
+							parent,
+							ts: clock.now(),
+							label: "follow_up",
+							text: config.resume.followUp,
+						};
+						await append(message);
+						messages.push({ role: "user", text: message.text });
+					}
 					// A repeated safe call may itself have passed the done-check (a
 					// finish is safe to repeat for exactly this reason).
 					result = finishedRun

@@ -103,6 +103,8 @@ Dropped from Nova: `set_model`, `set_thinking`, `set_context_limit`, `set_tools`
 
 Responses are Nova's: `{type: "response", id, command, ok, data}` or `{..., ok: false, error: {code, message}}`. The error codes are Nova's eight (`bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`) plus **`conflict`**, for a reused idempotency key with different input and for a second decision on the same proposal or request.
 
+The session that does this (`src/protocol/session.ts`, decision 131) settles what the commands do when they cannot do what was asked. A task name the host does not run is `not_found`, at `start` and at a resume. A `start` into a session that already has a record is `conflict` unless it carries the same key, task and input, so a `prompt` or a `follow_up` is the second way to say anything and a client never accidentally starts a rival run. `steer` and `abort` with nothing running are `conflict`; `prompt` without `queue` during a run is `busy`; and `resume` while a run is active is `busy`. A `prompt` carrying `queue` is queued like a follow-up, and with nothing running a `prompt` and a `follow_up` do the same thing: they continue the session's record.
+
 ### Events (decision 84)
 
 Every event carries `seq`, `ts`, `session`, and `run`. Kept from Nova unchanged: `run_start`, `turn_start`, `turn_end`, `message_start`, `text_delta`, `message_end`, `thinking_*` (optional), `tool_call`, `tool_start`, `tool_update`, `tool_end`, `permission`, `usage`, `retry`, `compaction`, `queue_update`, `error`, and the `ui_expired` notice.
@@ -166,6 +168,9 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | CMD11 | `get_messages` with an `entry` | The branch ending at that entry |
 | CMD12 | `get_messages` on a record longer than one page | A page and a cursor, never a reply over the line cap |
 | CMD13 | A command whose text is over the entry cap | `bad_request` |
+| CMD17 | `prompt` in a session | `busy` while a run is active unless `queue` is set, in which case it is queued like a follow-up; with nothing running it continues the record like a follow-up |
+| CMD18 | `get_state` in a session | The run id, its state, any parked reason, usage so far, turns, and the queued steers and follow-ups |
+| CMD19 | `steer` in a session | Read at the run's next gap; with nothing running it is `conflict` and nothing is queued |
 | FRM01 | A line over the 2 MiB cap | Protocol error that closes the connection, as in Nova |
 | FRM02 | Bad lines, unknown frames and unknown fields | A line that is not JSON, JSON that is not an object, and a frame with no `type` are each `bad_request`; an unknown `type` is `unsupported`; an unknown field is kept and ignored; none of them is fatal |
 | FRM03 | Bytes arriving in pieces | Several lines in one chunk, one line across many chunks, `\r\n`, empty lines, a multi-byte character split across chunks and a U+2028 inside a string all come out as the lines that were sent |

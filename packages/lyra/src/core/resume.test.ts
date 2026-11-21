@@ -375,3 +375,67 @@ test("RSM01 a follow-up saved after an accepted finish is not skipped by a resum
 	// ending on the finish that came before it.
 	expect(model.requests).toHaveLength(1);
 });
+
+test("RSM08 a person continues a finished run with a follow-up", async () => {
+	// A session holds many runs' worth of conversation (decision 44), so a follow-up
+	// after the run has ended opens a new segment of the same record rather than
+	// asking the client to start again.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const setup: Omit<RunConfig, "storage" | "model" | "resume" | "signal" | "onEvent"> = {
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools: [safeFinish()],
+		clock,
+		ids: counterIds(),
+	};
+	// The scripted model indexes its turns by the assistant messages in the
+	// conversation, so a resume of the same record picks up where it left off.
+	const turns = [
+		{ toolCalls: [{ id: "c1", name: "finish" }] },
+		{ toolCalls: [{ id: "c2", name: "finish" }] },
+	];
+	const first = await runTask({
+		...setup,
+		model: scriptedModel(turns, { clock }),
+		storage: inner,
+	});
+	expect(first.reason).toBe("done");
+
+	const read = await inner.read();
+	const model = scriptedModel(turns, { clock });
+	const resumed = await runTask({
+		...setup,
+		// A restarted host counts its ids again, so the record is what stops a reuse.
+		ids: counterIds(),
+		model,
+		storage: inner,
+		resume: { lines: read.ok ? read.value : [], by: "person", followUp: "one more thing" },
+	});
+
+	expect(resumed.reason).toBe("done");
+	// The follow-up is the person's message, saved after the new segment begins and
+	// before the turn it caused, and the model saw it.
+	expect(model.requests).toHaveLength(1);
+	expect(model.requests[0]?.messages.at(-1)).toEqual({ role: "user", text: "one more thing" });
+
+	const loaded = loadRecord(inner.saved());
+	expect(loaded.ok).toBe(true);
+	const tail = (loaded.ok ? loaded.value.entries : []).slice(-6).map((entry) => {
+		if (entry.type === "user_message") {
+			return `${entry.label}:${entry.text}`;
+		}
+		return entry.type === "status" ? entry.state : entry.type;
+	});
+	expect(tail).toEqual([
+		"done",
+		"resumed",
+		"follow_up:one more thing",
+		"assistant_message",
+		"tool_message",
+		"done",
+	]);
+});
