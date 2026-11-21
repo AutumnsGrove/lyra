@@ -508,3 +508,23 @@ test("RCD09 a header's recipe keeps the instructions hash and one hash per tool"
 		toolSetHash: "e".repeat(64),
 	});
 });
+
+test("RCD10 the header carries the session's tenant, and a record from before it still loads", () => {
+	// A session belongs to a tenant (decision 47), so the record says whose it is.
+	// A record written before the field existed has none, and must still load.
+	const owned = header({ tenant: "acme" });
+	expect(encodeHeader(owned)).toContain('"tenant":"acme"');
+	const loaded = loadRecord([encodeHeader(owned)]);
+	expect(loaded.ok).toBe(true);
+	expect(loaded.ok ? loaded.value.header.tenant : undefined).toBe("acme");
+
+	const older = loadRecord([encodeHeader(header())]);
+	expect(older.ok).toBe(true);
+	expect(older.ok ? older.value.header.tenant : "unset").toBeUndefined();
+
+	// A tenant that is not a name is a damaged header, not a guess.
+	const damaged = loadRecord([
+		'{"type":"header","v":1,"run":"r","task":"t","startedAt":1,"host":"h","tenant":7}',
+	]);
+	expect(damaged.ok).toBe(false);
+});

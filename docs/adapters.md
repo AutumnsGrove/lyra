@@ -154,6 +154,11 @@ memory as a deploy would.
 | CFL19 | Happy: a binding | A Worker binding is read by name |
 | CFL20 | Bad: a missing binding | It is `undefined`, and a tool that needs it returns an error naming the secret but never its value; a scan of the record finds no value, after the positive case proves one was held |
 | CFL21 | Bad: names that are not secrets | A non-string binding, `constructor`, `__proto__` and `toString` are each `undefined` |
+| CFL22 | Happy: a two-tool task over HTTP | A `start` through the Worker's `fetch` runs two tools on the real object and ends `done`, and the record holds both results |
+| CFL23 | Sad: killed mid-run over HTTP | The object is evicted while a tool is in flight, its alarm resumes the run, and the record ends with one `run_end` |
+| CFL24 | Happy: the idempotent session id | The same key reaches the same object and answers the same session and run, a different job under that key is `conflict`, and another key is another object |
+| CFL25 | Bad: another tenant | A caller of another tenant is `not_found` for a session over HTTP, and the answer names no tenant |
+| CFL26 | Happy: the trusted door | A method that names the tenant runs a command for it with no token and answers with the frame |
 
 ## Spec rows: the OpenAI-style model adapter (step 5)
 

@@ -12,7 +12,13 @@
 	// putting anything real in the repository.
 	"vars": { "FIXTURE_TOKEN": "made-up-for-a-test" },
 	"durable_objects": {
-		"bindings": [{ "name": "FIXTURE_SESSION", "class_name": "FixtureSession" }],
+		"bindings": [
+			{ "name": "FIXTURE_SESSION", "class_name": "FixtureSession" },
+			{ "name": "SESSION", "class_name": "TestSession" },
+		],
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["FixtureSession"] }],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["FixtureSession"] },
+		{ "tag": "v2", "new_sqlite_classes": ["TestSession"] },
+	],
 }

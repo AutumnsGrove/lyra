@@ -148,6 +148,8 @@ export interface RunConfig {
 	stuck?: StuckSettings;
 	/** The recipe this run is held to, whose pin goes in the header (decision 91). */
 	recipe?: { name: string; version: number };
+	/** Whose session this is, written on the header so a host can refuse another tenant. */
+	tenant?: string;
 	/**
 	 * Continue a record instead of starting one (decision 20). `by` decides what may
 	 * be continued: an accident resumes on its own, everything else waits for a
@@ -1174,6 +1176,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					task: config.task,
 					startedAt: clock.now(),
 					host: config.host,
+					...(config.tenant === undefined ? {} : { tenant: config.tenant }),
 				};
 				if (config.recipe !== undefined) {
 					// The pin is what a later resume is held to, so it is taken before the

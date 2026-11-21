@@ -28,7 +28,7 @@ import type { ModelSlot } from "../core/model.js";
 import { fail, ok, type Result } from "../core/result.js";
 import { DEFAULT_ENTRY_CAP_BYTES } from "../core/run.js";
 import { readResumeSeed, type ResumeSeed } from "../core/resume.js";
-import { createRuntime, type RunDefinition } from "../core/runtime.js";
+import { createRuntime, type RunDefinition, type Runtime } from "../core/runtime.js";
 import type { RunHandle } from "../core/run-handle.js";
 import type { StorageSlot, WakingSlot } from "../core/slots.js";
 import { createUsageTotal } from "../core/usage.js";
@@ -61,10 +61,18 @@ export interface SessionOptions {
 	ids: Ids;
 	model: ModelSlot;
 	host: string;
+	/** Whose session this is, written on its record and refused to anyone else. */
+	tenant?: string;
 	/** The tasks this host runs, by name (docs/recipes-and-tools.md). */
 	recipes: ReadonlyMap<string, RunDefinition>;
 	modelName?: string;
 	waking?: WakingSlot;
+	/**
+	 * The runtime to drive runs with. A host that must share one (a Durable Object's
+	 * alarm resumes through the same registry) passes it, so a wake and a command
+	 * cannot drive the same run twice.
+	 */
+	runtime?: Runtime;
 	/** How many record entries one page of `get_messages` holds. */
 	pageSize?: number;
 	/** The most bytes one page of `get_messages` may reach, so a reply fits one line. */
@@ -79,6 +87,8 @@ export interface Session {
 	replay(after: number): Promise<Result<SessionEvent[]>>;
 	/** Replay, then follow the run as it grows. The returned function stops watching. */
 	follow(after: number, listener: (event: SessionEvent) => void): Promise<Result<() => void>>;
+	/** The host's alarm: continue the run it names, and watch it like any other. */
+	wake(runId: string): Promise<Result<JsonValue>>;
 }
 
 /** A value this module built out of the record or its own answers, as response data. */
@@ -120,15 +130,18 @@ interface Subscriber {
 }
 
 export function createSession(options: SessionOptions): Session {
-	const runtime = createRuntime({
-		storage: options.storage,
-		clock: options.clock,
-		ids: options.ids,
-		model: options.model,
-		host: options.host,
-		...(options.modelName === undefined ? {} : { modelName: options.modelName }),
-		...(options.waking === undefined ? {} : { waking: options.waking }),
-	});
+	const runtime =
+		options.runtime ??
+		createRuntime({
+			storage: options.storage,
+			clock: options.clock,
+			ids: options.ids,
+			model: options.model,
+			host: options.host,
+			...(options.tenant === undefined ? {} : { tenant: options.tenant }),
+			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
+			...(options.waking === undefined ? {} : { waking: options.waking }),
+		});
 
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
@@ -349,6 +362,34 @@ export function createSession(options: SessionOptions): Session {
 				run: loaded.value.header.run,
 			});
 			return ok(eventsAfter(events, after));
+		},
+
+		wake: async (runId) => {
+			const existing = await seedOf();
+			if (!existing.ok) {
+				return existing;
+			}
+			const seed = existing.value;
+			if (seed === undefined) {
+				return fail("not_found", "this session has no record to wake");
+			}
+			const header = seed.record.header;
+			if (header.run !== runId) {
+				return fail("not_found", `this session does not hold run ${runId}`);
+			}
+			const definition = options.recipes.get(header.task);
+			if (definition === undefined) {
+				return fail(
+					"not_found",
+					`this session's task "${header.task}" is not one this host runs`,
+				);
+			}
+			const woken = await runtime.wake({ runId, task: header.task, definition });
+			if (!woken.ok) {
+				return woken;
+			}
+			listen(woken.value);
+			return ok(data({ session: options.id, run: runId }));
 		},
 
 		follow: async (after, listener) => {

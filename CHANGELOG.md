@@ -22,6 +22,10 @@ new API and any breaking change, and a patch bump is fixes only.
   per request answered as a frame with a status from its error code, server-sent events with the record's
   `seq` as the event id and `Last-Event-ID` replay, `GET /v1/state`, and a bearer-token door compared in
   constant time (rows HTP01 to HTP08, ACC01 and ACC02 in `docs/protocol.md`).
+- `@autumnsgrove/lyra/cloudflare` gains the session object: `createCloudflareSession` serves the protocol
+  over HTTP, resumes through its alarm, and answers a trusted caller that names its tenant;
+  `createSessionWorker` is the Worker's routing, and `sessionIdFor` is the idempotent session id. A record's
+  header now carries its session's tenant (row RCD10 in `docs/run-record.md`).
 
 ## [0.2.0] - 2026-11-21
 

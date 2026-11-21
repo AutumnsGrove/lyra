@@ -43,6 +43,12 @@ export interface RecordHeader {
 	task: string;
 	startedAt: number;
 	host: string;
+	/**
+	 * Whose session this is (decision 47). Absent on a record written before the
+	 * protocol existed, which is why a load does not insist on it; the session host
+	 * is what refuses a caller of another tenant.
+	 */
+	tenant?: string;
 	recipe?: RecipeStamp;
 }
 
@@ -209,6 +215,9 @@ export function encodeHeader(header: RecordHeader): string {
 		startedAt: header.startedAt,
 		host: header.host,
 	};
+	if (header.tenant !== undefined) {
+		line["tenant"] = header.tenant;
+	}
 	if (header.recipe !== undefined) {
 		line["recipe"] = stampLine(header.recipe);
 	}
@@ -414,23 +423,29 @@ export function decodeHeader(value: unknown): Result<RecordHeader> {
 		return bad("the record header has no host");
 	}
 
-	const rawRecipe = value["recipe"];
-	if (rawRecipe === undefined) {
-		return ok({ type: "header", v: RECORD_VERSION, run, task, startedAt, host });
+	const tenant = value["tenant"];
+	if (tenant !== undefined && !isName(tenant)) {
+		return bad("the record header's tenant is not a name");
 	}
-	const recipe = decodeStamp(rawRecipe);
-	if (!recipe.ok) {
-		return recipe;
-	}
-	return ok({
-		type: "header",
+	const fields = {
+		type: "header" as const,
 		v: RECORD_VERSION,
 		run,
 		task,
 		startedAt,
 		host,
-		recipe: recipe.value,
-	});
+		...(tenant === undefined ? {} : { tenant }),
+	};
+
+	const rawRecipe = value["recipe"];
+	if (rawRecipe === undefined) {
+		return ok(fields);
+	}
+	const recipe = decodeStamp(rawRecipe);
+	if (!recipe.ok) {
+		return recipe;
+	}
+	return ok({ ...fields, recipe: recipe.value });
 }
 
 /** A recipe's pin, from a header or from a `recipe_updated` entry. */

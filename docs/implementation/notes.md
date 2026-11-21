@@ -8,6 +8,27 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, slice 5, 2026-11-21
+
+- **The tenant is on the record's header, and the object is the one that checks.** A keyed session id is
+  `idFromName("<tenant>:<key>")`, so the id itself leaks the tenant; the header is what a restart can
+  trust, and the object refuses `not_found` before any command runs. `RCD10` is the header row, and an
+  older record without the field still loads.
+- **The Worker routes by reading the frame.** `POST /v1/commands` names its session in the body, so
+  `createSessionWorker` parses just enough (session, key, command name) to pick an object, then forwards
+  the request with its headers so the object's own token door still applies. A request that skips the
+  Worker is refused by the object, not honoured.
+- **The trusted door answers with the frame.** `send({tenant, frame})` runs the same handler with a
+  tenant fixed by the caller, so a service binding's entry point needs no second parser. Making it an
+  RPC method meant the test class had to extend `DurableObject` rather than implement the legacy
+  interface; the first attempt failed workerd with exactly that message.
+- **Not done, and said so in decision 133:** the example Worker does not mount the session object or a
+  real `WorkerEntrypoint` service binding yet. The routing and the door are tested through a test
+  Worker that does both. The step document's "verify it against Cloudflare's docs" is still open for
+  the example, which is the scenarios/dev-client slice's company.
+- **The gate**: 425 Node tests, 33 workerd, 10 fuzz/property, `matrixcheck` 284 rows (273 tested, 11
+  unbuilt), package 104,583 B of 180,224 B.
+
 ## Step 6, slice 4, 2026-11-21
 
 - **The HTTP tests were written first and watched failing**, against a handler that answered 501 to

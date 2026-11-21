@@ -1104,3 +1104,12 @@ test("REC04 a storage limit below the record cap lowers it, so the save never fa
 		expect(saved.value.every((line) => line.length <= 2_000)).toBe(true);
 	}
 });
+
+test("RCD10 a run records whose session it is", async () => {
+	const owned = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }], () => [
+		createFinishTool(),
+	]);
+	await owned.run({ tenant: "acme" });
+	const record = await readRecord(owned.storage);
+	expect(record.header.tenant).toBe("acme");
+});

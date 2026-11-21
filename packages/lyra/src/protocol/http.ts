@@ -127,9 +127,12 @@ function answer(id: string, command: string, outcome: Result<JsonValue>): Respon
 }
 
 /** A refusal that has no command behind it: no token, no version, no route. */
-function refusal(code: ErrorCode, message: string): Response {
+export function refusalResponse(code: ErrorCode, message: string): Response {
 	return answer("", "", fail(code, message));
 }
+
+/** The same, for the paths inside this module. */
+const refusal = refusalResponse;
 
 /** The body, in bytes, refusing to read past the cap rather than reading and then complaining. */
 async function readBody(request: Request, cap: number): Promise<Result<string>> {

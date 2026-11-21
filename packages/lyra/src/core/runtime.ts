@@ -51,6 +51,8 @@ export interface RuntimeOptions {
 	/** The model the recipe names, when it names one. */
 	modelName?: string;
 	host: string;
+	/** Whose session this runtime serves, written on every record it starts. */
+	tenant?: string;
 	/**
 	 * How a host wakes a run whose process died. The runtime schedules one ahead as
 	 * each step begins, re-arms it, and cancels it when the run ends, so an accident
@@ -192,6 +194,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			recipe: { name: definition.name, version: definition.version },
 			...(definition.setup === undefined ? {} : { setup: definition.setup }),
 			...(inputCheck === undefined ? {} : { inputCheck }),
+			...(options.tenant === undefined ? {} : { tenant: options.tenant }),
 			...((request.limits ?? definition.limits) === undefined
 				? {}
 				: { limits: request.limits ?? definition.limits }),
@@ -288,6 +291,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				recipe: { name: definition.name, version: definition.version },
 				...(definition.setup === undefined ? {} : { setup: definition.setup }),
 				...(check.value === undefined ? {} : { inputCheck: check.value }),
+				...(options.tenant === undefined ? {} : { tenant: options.tenant }),
 				...(definition.limits === undefined ? {} : { limits: definition.limits }),
 				...(definition.fallbackModel === undefined
 					? {}

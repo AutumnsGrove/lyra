@@ -47,7 +47,9 @@ const ENTRY_POINTS = [
 		// may name the runtime's own modules (`cloudflare:workers`), which nothing else
 		// here may. It may not reach into the testkit, which is what the fixture is
 		// exempt from only because it is `.testing.ts` (checked by the isTest rule).
-		allows: ["src/core", "src/record"],
+		// It also serves the protocol, which is part of the core entry point, so the
+		// session object may import `src/protocol` and the token door with it.
+		allows: ["src/core", "src/record", "src/protocol"],
 	},
 	{
 		name: "openai",
