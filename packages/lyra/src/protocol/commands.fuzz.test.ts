@@ -57,10 +57,11 @@ test("CMD15 any frame at all is a command or a refusal, never a throw", () => {
 						command: claimed,
 					}),
 				);
+				// The frame is always a JSON object with `type: "command"` once the bag is
+				// spread in first, so this can only fail if the decoder itself regressed;
+				// it is the guard that a well-formed command frame is still accepted.
+				expect(parsed.ok).toBe(true);
 				if (!parsed.ok) {
-					// A bag that breaks the envelope is still a refusal, and refusing is the
-					// contract; only a throw would be a fault.
-					expect(["bad_request", "unsupported"]).toContain(parsed.error.code);
 					return;
 				}
 				const decoded = decodeCommand(parsed.value);
