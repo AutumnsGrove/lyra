@@ -9,6 +9,15 @@
 
 export { fakeClock, FAKE_CLOCK_START, type FakeClock } from "./clock.js";
 export {
+	fakeModelServer,
+	sseFor,
+	type FakeModelFault,
+	type FakeModelRequest,
+	type FakeModelServer,
+	type FakeModelServerOptions,
+} from "./fake-model-server.js";
+export {
+	scriptedArguments,
 	scriptedModel,
 	type ScriptedFailure,
 	type ScriptedModel,

@@ -213,3 +213,24 @@ anything that could be logged or recorded.
 | OAI17 | Happy: tools and the model | Each tool maps to a function with its name, description and parameter schema (an empty one kept), and a recipe's fallback model overrides the configured one |
 | OAI18 | Bad: nothing to send | An empty system, no messages and no tools still build a body the endpoint accepts, rather than a request with a hole in it |
 | OAI19 | Bad: the key lives in one header | The `Authorization` header carries the key, a session header appears only when one was given, a preset's own headers are sent, and none of them can replace the key; the body holds no key at all |
+
+### The slot and its errors
+
+A failure is a `ModelError` with the right `retryable` flag, because step 2's
+retries trust it: a retryable failure is tried again and then parks the run, and
+a permanent one fails it at once. Nothing here throws across the boundary, and no
+message ever contains the key or an `Authorization` header. A call that is stopped
+is not a failure: the loop reads the signal and parks the run `stopped`.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI20 | Sad: the HTTP statuses | 400, 401, 403, 404 and any other permanent status are not retryable and name the status; 408, 429, 500, 502, 503 and 504 are retryable |
+| OAI21 | Sad: `Retry-After` | Seconds and an HTTP date both become a wait, a date in the past and a missing header give none, and an absurd value is capped |
+| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key |
+| OAI23 | Sad: the network | A `fetch` that rejects, and a body that fails while it is being read, are retryable `provider_error`s |
+| OAI24 | Sad: a stall | A call that never answers is abandoned at the deadline as a retryable `timeout`, on the fake clock |
+| OAI25 | Bad: a stop | Stopped before the request, during connect, mid-stream and after the last chunk, the call is an error the loop reads as a stop, and the stream is not left open |
+| OAI26 | Happy: the whole slot | A scripted stream through the fake server comes back as that reply, with its usage and cost, and what the server received is the mapped request with the key in one header |
+| OAI27 | Happy: a retry that succeeds | A 429 followed by a good stream completes the run, and the record keeps one `retry` |
+| OAI28 | Sad: retries exhausted | Four 500s park the run `model_unavailable` |
+| OAI29 | Bad: cut off on the token limit | A stream that ends on `length` while holding a tool call never runs that tool |

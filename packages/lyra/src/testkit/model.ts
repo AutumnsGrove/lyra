@@ -57,7 +57,8 @@ export interface ScriptedModel extends ModelSlot {
 	requests: ModelRequest[];
 }
 
-function argumentsOf(args: unknown): string {
+/** An argument value as the wire would carry it: an object serialized, a string as it is. */
+export function scriptedArguments(args: unknown): string {
 	if (args === undefined) {
 		return "{}";
 	}
@@ -68,7 +69,7 @@ function replyFor(turn: ScriptedTurn, model: string): ModelReply {
 	const toolCalls = (turn.toolCalls ?? []).map((call) => ({
 		id: call.id,
 		name: call.name,
-		arguments: argumentsOf(call.args),
+		arguments: scriptedArguments(call.args),
 	}));
 	const reply: ModelReply = {
 		text: turn.text ?? "",

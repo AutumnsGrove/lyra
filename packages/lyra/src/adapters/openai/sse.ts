@@ -411,3 +411,89 @@ export function sseReader(options: SseOptions = {}): SseReader {
 		},
 	};
 }
+
+export interface ReadReplyOptions extends SseOptions {
+	/** The caller's signal, so a stop that arrives mid-read is not read as a network fault. */
+	signal?: AbortSignal;
+}
+
+/** A promise that rejects the moment a stop is signalled, so a read cannot hang through one. */
+function abortPromise(signal: AbortSignal): Promise<never> {
+	return new Promise<never>((_, reject) => {
+		const stop = (): void => reject(providerError("the model's reply stopped", false));
+		if (signal.aborted) {
+			stop();
+			return;
+		}
+		signal.addEventListener("abort", stop, { once: true });
+	});
+}
+
+function reasonOf(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message;
+	}
+	return String(error);
+}
+
+/**
+ * Read a body to one reply, decoding bytes as they arrive. The stream is always
+ * closed when this returns, whether it ended, failed or was refused, so a
+ * provider is never left sending into a reader nobody holds.
+ */
+export async function readReply(
+	body: ReadableStream<Uint8Array> | null,
+	options: ReadReplyOptions = {},
+): Promise<Result<ModelReply, ModelError>> {
+	if (body === null) {
+		return { ok: false, error: providerError("the model's response had no body") };
+	}
+	const stream = body.getReader();
+	const decoder = new TextDecoder();
+	const reader = sseReader(options);
+	const stop = options.signal === undefined ? undefined : abortPromise(options.signal);
+
+	const push = (text: string): Result<ModelReply, ModelError> | undefined => {
+		const pushed = reader.push(text);
+		if (!pushed.ok) {
+			return pushed;
+		}
+		return pushed.value === undefined ? undefined : ok(pushed.value);
+	};
+
+	try {
+		for (;;) {
+			const read =
+				stop === undefined
+					? await stream.read()
+					: await Promise.race([stream.read(), stop]);
+			if (read.done) {
+				break;
+			}
+			if (read.value === undefined) {
+				continue;
+			}
+			const settled = push(decoder.decode(read.value, { stream: true }));
+			if (settled !== undefined) {
+				return settled;
+			}
+		}
+		const tail = decoder.decode();
+		if (tail !== "") {
+			const settled = push(tail);
+			if (settled !== undefined) {
+				return settled;
+			}
+		}
+		return reader.end();
+	} catch (error) {
+		return {
+			ok: false,
+			error: providerError(`the model's reply stopped: ${reasonOf(error)}`),
+		};
+	} finally {
+		// Closing a stream that already ended is harmless, and it releases one that
+		// was given up on early.
+		void stream.cancel().catch(() => undefined);
+	}
+}

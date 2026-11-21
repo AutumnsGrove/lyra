@@ -312,6 +312,23 @@ nothing else, and no production file in the core may import it.
 | KIT07 | Sad: the host dies at an append | At the chosen append the storage returns a promise that never settles, once without writing the line and once after it, and neither throws, so an abandoned run can do nothing more |
 | KIT08 | Happy: execution counters | A scripted tool records the call id of every execution, so a test can assert how many times a tool really ran across a run and its resume |
 
+### The fake model server (step 5)
+
+`testkit/fake-model-server.ts` is a `fetch`, not a socket. The adapter takes an
+injectable `fetch`, so a function proves everything a real server would except a
+genuine TCP failure, and those arrive the way the platform produces them: a
+`fetch` that rejects, and a body that fails while it is being read. A socket would
+need `node:net`, which `importcheck` refuses under `src/`, and it would test the
+runtime's networking rather than Lyra. What the server serves is the same
+`ScriptedTurn` list the in-process scripted model reads, so one scenario can run
+either way.
+
+| ID | Case | Expected |
+|---|---|---|
+| KIT09 | Happy: a script served as a stream | A turn becomes real server-sent-event bytes, with its text in two chunks and each call's name and arguments in separate ones, and it is the turn whose position matches the assistant messages in the request |
+| KIT10 | Bad: it misbehaves on purpose | It can cut a stream mid-event, send malformed JSON, stall, fail a body mid-stream, answer 429 with and without `Retry-After`, answer 500, answer 200 with an error body, answer a non-JSON error, send an error chunk mid-stream, send one huge chunk, and hand a test its own answer |
+| KIT11 | Bad: what it received | Every request is kept with its URL, method, headers and parsed body, so a test can assert what the adapter sent and that no key appears in the record of it |
+
 ## Spec rows: the scenario runner
 
 The files themselves are in `scenarios/` at the repository root, and
