@@ -46,16 +46,21 @@ test("CMD15 any frame at all is a command or a refusal, never a throw", () => {
 			fields,
 			fc.oneof(fc.string({ maxLength: 10 }), fc.constant(undefined)),
 			(claimed, bag, id) => {
+				// The generated fields go in first, so they fuzz the command rather than
+				// the envelope: a bag with a `type` of its own would otherwise replace the
+				// frame's and this would test the frame decoder instead.
 				const parsed = decodeFrame(
 					JSON.stringify({
+						...bag,
 						type: "command",
 						...(id === undefined ? {} : { id }),
 						command: claimed,
-						...bag,
 					}),
 				);
-				expect(parsed.ok).toBe(true);
 				if (!parsed.ok) {
+					// A bag that breaks the envelope is still a refusal, and refusing is the
+					// contract; only a throw would be a fault.
+					expect(["bad_request", "unsupported"]).toContain(parsed.error.code);
 					return;
 				}
 				const decoded = decodeCommand(parsed.value);
