@@ -26,6 +26,22 @@ export {
 	type ScriptedTurn,
 } from "./model.js";
 export {
+	decodeCassette,
+	encodeCassette,
+	recordingFetch,
+	replayCassette,
+	scanForSecrets,
+	scrubExchange,
+	type Cassette,
+	type CassetteFetchInit,
+	type CassetteReplay,
+	type RecordedExchange,
+	type RecordedRequest,
+	type RecordedResponse,
+	type RecordingFetch,
+	type SecretHit,
+} from "./cassette.js";
+export {
 	misbehavingModel,
 	misbehavingScript,
 	MISBEHAVING_KINDS,

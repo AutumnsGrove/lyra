@@ -224,6 +224,25 @@ Things to be honest about:
 - **Fidelity differs.** The model that runs in production through OpenRouter may behave differently with tools than the one used for bulk testing. So most live tests use OpenCode Go, and a small set of "production fidelity" tests runs against the production model through OpenRouter.
 - **Keys come only from the environment,** are never written to a file, and are scrubbed from anything recorded.
 
+### Cassettes (step 5)
+
+A cassette is one JSON file of recorded exchanges, in order, with the request and
+response of each: URL, method, headers and body. Auth headers are dropped and
+key-shaped strings are refused at record time, so a cassette can be committed and
+CI replays it with no network and no allowance spent. Replay is a `fetch` built from
+the file, so the adapter cannot tell it from a provider.
+
+The files live in `cassettes/` at the repository root, next to `scenarios/`. The
+first ones are synthetic, made from the fake model server's own bytes, and their
+`_note` says so; a real recording is made by a live run with the recorder in
+`packages/lyra/live/`.
+
+| ID | Case | Expected |
+|---|---|---|
+| CAS01 | Happy: replay | A run recorded through the fake server replays from the cassette to the same record, and the cassette carries no `Authorization` header |
+| CAS02 | Bad: a key-shaped string | The scan finds an `sk-` key, a bearer token, a long base64 run, a long hex run and the exact value of any key it is given, and every file in `cassettes/` passes it |
+| CAS03 | Sad: a request with no exchange | A request the cassette has nothing for rejects with a message naming the request and how to re-record, rather than reaching the network |
+
 ### Recording real responses to replay free in CI
 
 A live run can record the real HTTP exchange (with keys and auth headers removed) into a cassette. CI replays cassettes with no network and no cost. So a live run spends allowance once, and the result becomes a permanent, deterministic test. A test fails if a cassette contains a key-shaped string.
