@@ -444,3 +444,35 @@ test("EVT01 a client that joins mid-run replays, then follows, without a gap or 
 	const early = running.events.filter((event) => "seq" in event).map((event) => event.seq);
 	expect(late.filter((event) => "seq" in event).map((event) => event.seq)).toEqual(early);
 });
+
+test("EVT05 a client that reconnects with its last seq is sent only what it missed", async () => {
+	// The record is the buffer (decision 86): a client that reconnects asks for what
+	// follows the last entry it saw, and never for a live-only event from before.
+	const { session, clock, model } = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		(clock) => [toolTakingTime("slow", 5_000, clock), createFinishTool()],
+	);
+	const first = await watch(session);
+	await send(session, { command: "start", task: "test-task", input: "do it" });
+	await until(() => model.requests.length === 1);
+	await until(() => first.events.length >= 3);
+
+	const seen = first.events.at(-1);
+	expect(seen).toBeDefined();
+	const last = seen !== undefined && "seq" in seen ? seen.seq : 0;
+
+	const reconnected: SessionEvent[] = [];
+	const followed = await session.follow(last, (event) => reconnected.push(event));
+	expect(followed.ok).toBe(true);
+	clock.advance(5_000);
+	await until(() => reconnected.some((event) => event.type === "run_end"));
+
+	// Nothing at or before the last entry the client had, and nothing out of order.
+	const seqs = reconnected.flatMap((event) => ("seq" in event ? [event.seq] : []));
+	expect(seqs.every((seq) => seq > last)).toBe(true);
+	expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
+	expect(reconnected.filter((event) => event.type === "run_end")).toHaveLength(1);
+});
