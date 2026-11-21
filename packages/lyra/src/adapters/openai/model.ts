@@ -22,6 +22,21 @@ import { errorForStatus, errorFromJsonBody, truncateMessage } from "./errors.js"
 import { buildHeaders, buildWireRequest } from "./request.js";
 import { readReply } from "./sse.js";
 
+/**
+ * The slice of `fetch` this adapter calls. Spelled structurally rather than as
+ * `typeof fetch`, so the fake model server, a cassette replay and the platform's
+ * own `fetch` all fit without a cast.
+ */
+export type FetchLike = (
+	url: string,
+	init?: {
+		method?: string;
+		headers?: Record<string, string>;
+		body?: string;
+		signal?: AbortSignal;
+	},
+) => Promise<Response>;
+
 /** Two minutes, which is longer than any streamed reply should need. */
 export const DEFAULT_DEADLINE_MS = 120_000;
 
@@ -35,7 +50,7 @@ export interface OpenAIChatOptions {
 	keyName: string;
 	/** Extra request headers, such as the session OpenCode Go asks for. */
 	headers?: Record<string, string>;
-	fetch?: typeof fetch;
+	fetch?: FetchLike;
 	clock: Clock;
 	/** How long one call may take before it is abandoned. */
 	deadlineMs?: number;
@@ -53,7 +68,7 @@ function redact(text: string, secret: string): string {
 }
 
 export function createOpenAIChatModel(options: OpenAIChatOptions): ModelSlot {
-	const doFetch = options.fetch ?? fetch;
+	const doFetch: FetchLike = options.fetch ?? fetch;
 	const clock = options.clock;
 	const deadlineMs = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
 	const endpoint = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
