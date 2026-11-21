@@ -376,7 +376,7 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	return ok(scenario);
 }
 
-function makeTool(tool: ScenarioTool, clock: ReturnType<typeof fakeClock>): Tool {
+export function makeScenarioTool(tool: ScenarioTool, clock: ReturnType<typeof fakeClock>): Tool {
 	switch (tool.behavior) {
 		case "error":
 			return toolReturningError(tool.name, tool.content ?? `${tool.name} says no`);
@@ -436,12 +436,20 @@ function closeness(expected: Expectation, actual: unknown): number {
 	return score;
 }
 
-function describeEvent(event: RunEvent | undefined): string {
+function describeEvent(event: { type: string } | undefined): string {
 	return event === undefined ? "none" : JSON.stringify(event).slice(0, 200);
 }
 
-/** Events are matched as a subsequence, so an unrelated new event does not break a scenario. */
-function matchEvents(expected: Expectation[], events: RunEvent[], problems: string[]): void {
+/**
+ * Events are matched as a subsequence, so an unrelated new event does not break a
+ * scenario. Exported because the workerd runner matches protocol events with it,
+ * and one matcher is what keeps the two levels honest.
+ */
+export function matchScenarioEvents(
+	expected: Expectation[],
+	events: readonly { type: string }[],
+	problems: string[],
+): void {
 	let cursor = 0;
 	for (const expectation of expected) {
 		let found = -1;
@@ -481,7 +489,11 @@ function matchEvents(expected: Expectation[], events: RunEvent[], problems: stri
 }
 
 /** Record entries are matched in order, each as a subset of the next entry that fits. */
-function matchRecord(expected: Expectation[], record: LoadedRecord, problems: string[]): void {
+export function matchScenarioRecord(
+	expected: Expectation[],
+	record: LoadedRecord,
+	problems: string[],
+): void {
 	let cursor = 0;
 	for (const expectation of expected) {
 		let found = -1;
@@ -541,7 +553,7 @@ export async function runScenario(
 	const recipe = scenario.recipe === undefined ? undefined : RECIPES.get(scenario.recipe);
 	const tools: Tool[] =
 		recipe === undefined
-			? [...scenario.tools.map((tool) => makeTool(tool, clock)), createFinishTool()]
+			? [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()]
 			: [...recipe.tools];
 
 	// A recipe brings its own first message, state and instructions; a plain scenario
@@ -613,8 +625,8 @@ export async function runScenario(
 	for (const note of loaded.value.notes) {
 		problems.push(`the record needed a note at line ${note.line}: ${note.problem}`);
 	}
-	matchEvents(scenario.expectEvents, events, problems);
-	matchRecord(scenario.expectRecord, loaded.value, problems);
+	matchScenarioEvents(scenario.expectEvents, events, problems);
+	matchScenarioRecord(scenario.expectRecord, loaded.value, problems);
 	// A scenario that expected a reason and got another is already caught above, but
 	// the run's own ending is worth stating when it is unexpected.
 	if (problems.length > 0) {

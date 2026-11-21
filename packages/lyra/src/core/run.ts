@@ -16,8 +16,15 @@
 import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import { executeTools } from "./execute-tools.js";
-import type { RunEventListener, RunEndReason, ParkedReason, RunEvent } from "./events.js";
+import {
+	parkedReasonOf,
+	type ParkedReason,
+	type RunEndReason,
+	type RunEventListener,
+	type RunEvent,
+} from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { createUsageTotal } from "./usage.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import type { JsonValue } from "./json.js";
 import { formatErrors, type Validation } from "./schema.js";
@@ -141,12 +148,15 @@ export interface RunConfig {
 	stuck?: StuckSettings;
 	/** The recipe this run is held to, whose pin goes in the header (decision 91). */
 	recipe?: { name: string; version: number };
+	/** Whose session this is, written on the header so a host can refuse another tenant. */
+	tenant?: string;
 	/**
 	 * Continue a record instead of starting one (decision 20). `by` decides what may
 	 * be continued: an accident resumes on its own, everything else waits for a
-	 * person (decision 23).
+	 * person (decision 23). `followUp` is a message a person adds while continuing a
+	 * record that has ended, which opens a new segment of the same run (decision 44).
 	 */
-	resume?: { lines: readonly string[]; by: "wake" | "person" };
+	resume?: { lines: readonly string[]; by: "wake" | "person"; followUp?: string };
 	toolDeadlineMs?: number;
 	/** The record's entry cap. Lowered to the storage's own limit when that is smaller. */
 	entryCapBytes?: number;
@@ -216,84 +226,6 @@ class SaveFailed {
 function messageOf(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error);
 	return text.slice(0, 500);
-}
-
-/**
- * Tokens always add up. A cost total only means something when every reply
- * reported one, from the same kind of billing (decision 15), so one reply without
- * a cost drops the total for the run instead of reporting a number that is too low.
- *
- * A cost *limit* is different: it compares against every amount reported, whatever
- * its source, and it is unenforceable as soon as one reply reports none, because
- * the total is then understated (LIM05).
- */
-function createUsageTotal() {
-	let inputTokens = 0;
-	let outputTokens = 0;
-	let cost: Usage["cost"] | undefined;
-	let costKnown = true;
-	let spent = 0;
-	let everyCostReported = true;
-
-	return {
-		add(next: Usage): void {
-			inputTokens += next.inputTokens;
-			outputTokens += next.outputTokens;
-			if (next.cost === undefined) {
-				everyCostReported = false;
-			} else {
-				spent += next.cost.amount;
-			}
-			if (!costKnown) {
-				return;
-			}
-			if (next.cost === undefined) {
-				costKnown = false;
-			} else if (cost === undefined) {
-				cost = next.cost;
-			} else if (cost.source === next.cost.source) {
-				cost = {
-					amount: cost.amount + next.cost.amount,
-					currency: "USD",
-					source: cost.source,
-				};
-			} else {
-				costKnown = false;
-			}
-		},
-
-		total(): Usage {
-			const sum: Usage = { inputTokens, outputTokens };
-			if (costKnown && cost !== undefined) {
-				sum.cost = cost;
-			}
-			return sum;
-		},
-
-		tokens(): number {
-			return inputTokens + outputTokens;
-		},
-
-		costSpent(): { amount: number; known: boolean } {
-			return { amount: spent, known: everyCostReported };
-		},
-	};
-}
-
-/**
- * A parked reason as this build knows it. A record written by a newer Lyra may name
- * one that is not here, and guessing would overrule a person's decision, so an
- * unknown reason is reported as `stuck` with the raw reason kept in the detail.
- */
-const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
-	"stopped",
-	"stuck",
-	"limit",
-	"model_unavailable",
-];
-
-function parkedReasonOf(reason: string | undefined): ParkedReason {
-	return KNOWN_PARKED_REASONS.find((known) => known === reason) ?? "stuck";
 }
 
 export async function runTask(config: RunConfig): Promise<RunResult> {
@@ -725,11 +657,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (status === undefined) {
 			return undefined;
 		}
+		// A person who brings a follow-up is asking for more, so an ending already on
+		// the record no longer answers them: the run goes on from where it stopped.
+		const continues = by === "person" && config.resume?.followUp !== undefined;
 		const total = usageTotal.total();
-		if (status.state === "done") {
+		if (status.state === "done" && !continues) {
 			return { reason: "done", usage: total, turns };
 		}
-		if (status.state === "failed") {
+		if (status.state === "failed" && !continues) {
 			return {
 				reason: "failed",
 				error: { code: "internal", message: "the record says the run failed" },
@@ -1155,7 +1090,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						state = undefined;
 					}
 					result = recorded;
-				} else if (seed.finished) {
+				} else if (seed.finished && config.resume.followUp === undefined) {
 					// A kill landed between an accepted finish and the closing status. The
 					// record already knows the done-check passed, so the run ends done
 					// rather than asking the model for a turn it already gave.
@@ -1197,6 +1132,20 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					await saveStatus("resumed");
 					activeSince = clock.now();
 					await answerUnanswered(seed);
+					// The follow-up comes after any unanswered call is answered, so the
+					// conversation never puts a person's message between a call and its result.
+					if (config.resume.followUp !== undefined) {
+						const message: UserMessageEntry = {
+							type: "user_message",
+							id: config.ids.next("e"),
+							parent,
+							ts: clock.now(),
+							label: "follow_up",
+							text: config.resume.followUp,
+						};
+						await append(message);
+						messages.push({ role: "user", text: message.text });
+					}
 					// A repeated safe call may itself have passed the done-check (a
 					// finish is safe to repeat for exactly this reason).
 					result = finishedRun
@@ -1227,6 +1176,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					task: config.task,
 					startedAt: clock.now(),
 					host: config.host,
+					...(config.tenant === undefined ? {} : { tenant: config.tenant }),
 				};
 				if (config.recipe !== undefined) {
 					// The pin is what a later resume is held to, so it is taken before the

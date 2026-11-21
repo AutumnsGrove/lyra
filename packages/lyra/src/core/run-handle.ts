@@ -44,6 +44,8 @@ export interface RunHandle {
 	steer(text: string): Result<void>;
 	/** Say one more thing when the run would otherwise end. Refused once it has ended. */
 	followUp(text: string): Result<void>;
+	/** How many steers and follow-ups are waiting for the run's next gap. */
+	pending(): { steers: number; followUps: number };
 	/** Watch this run. The returned function stops watching. */
 	subscribe(listener: RunEventListener): () => void;
 }
@@ -128,6 +130,7 @@ export function createRun(setup: RunSetup): RunHandle {
 		},
 		steer: (text) => queue("steer", text),
 		followUp: (text) => queue("follow_up", text),
+		pending: () => ({ steers: steers.length, followUps: followUps.length }),
 		subscribe(listener) {
 			listeners.add(listener);
 			return () => {

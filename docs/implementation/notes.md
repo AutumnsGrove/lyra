@@ -8,6 +8,145 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 6, review round 1, 2026-11-21
+
+- **A concurrent `start` could start two runs on one record.** The session read the record, found it
+  empty, and let `runTask` write the header a few awaits later, so a second start in that window also
+  saw an empty record. Both findings were real; both were fixed test-first. The session now remembers
+  the run it has just started (`started`), checked after the read and before anything that awaits, so
+  two overlapping keyed starts answer the same run and a different job is `conflict`. Two tests in
+  `session.test.ts` reproduce it with `Promise.all` and assert one header.
+- **The Worker's routing disagreed with the handler's own answers.** `POST /v1/ui_response` and unknown
+  paths never reached an object, so the deployed surface answered 404 where HTP07 says 501 and 400 where
+  HTP08 says 404. `createSessionWorker` now mirrors the handler for the routes that need no session,
+  including the version header. The two new workerd tests assert the Worker's answers for those routes.
+- **The claim in the review about the record was checked, not assumed**: two headers really did land.
+- The first attempt at the test asserted the header immediately after the command answered, and failed
+  because the header is written a moment later. That is the same window the bug lives in, which is why
+  the test now waits for the run to end before counting headers.
+
+## Step 6, slice 6, 2026-11-21
+
+- **Every scenario file runs over HTTP now**, through a Durable Object with SQLite and an alarm: SCN05 in
+  the workers suite. A file's scenario is loaded into the object before the run (test support, the way
+  step 4's fixture is configured); after that the test only speaks the protocol.
+- **A live-only event can be missed by a client that connects a moment late**, and the abort scenario
+  showed it. `tool_start` is not in the record, so the session drops it when nobody is watching yet, and
+  an HTTP client that opens its stream just after `start` can miss it. The runner therefore aborts at the
+  turn's end, which is the same moment on the wire, rather than at an index into an event list that
+  includes an event the wire may not deliver. This is decision 86 working as intended rather than a bug,
+  but it is the first place it is visible, so `notes.md` is where it goes.
+- **The example Worker is a real small server now**, so its bundle grew from 22.4 KiB to 31.2 KiB and its
+  ceiling moved to 44 KiB (decision 134) rather than being cut.
+- **`pnpm lyra` imports the built package's line reader** from `dist`, so `pnpm build` has to have run
+  once; the script says so. `pnpm dev` runs `wrangler dev` against the example, with a local-only token
+  and tenant in `wrangler.jsonc`. Neither is exercised by the gate (a dev server is a long-running
+  process); the example's build, its route and the protocol it serves are.
+
+## Step 6, slice 5, 2026-11-21
+
+- **The tenant is on the record's header, and the object is the one that checks.** A keyed session id is
+  `idFromName("<tenant>:<key>")`, so the id itself leaks the tenant; the header is what a restart can
+  trust, and the object refuses `not_found` before any command runs. `RCD10` is the header row, and an
+  older record without the field still loads.
+- **The Worker routes by reading the frame.** `POST /v1/commands` names its session in the body, so
+  `createSessionWorker` parses just enough (session, key, command name) to pick an object, then forwards
+  the request with its headers so the object's own token door still applies. A request that skips the
+  Worker is refused by the object, not honoured.
+- **The trusted door answers with the frame.** `send({tenant, frame})` runs the same handler with a
+  tenant fixed by the caller, so a service binding's entry point needs no second parser. Making it an
+  RPC method meant the test class had to extend `DurableObject` rather than implement the legacy
+  interface; the first attempt failed workerd with exactly that message.
+- **Not done, and said so in decision 133:** the example Worker does not mount the session object or a
+  real `WorkerEntrypoint` service binding yet. The routing and the door are tested through a test
+  Worker that does both. The step document's "verify it against Cloudflare's docs" is still open for
+  the example, which is the scenarios/dev-client slice's company.
+- **The gate**: 425 Node tests, 33 workerd, 10 fuzz/property, `matrixcheck` 284 rows (273 tested, 11
+  unbuilt), package 104,583 B of 180,224 B.
+
+## Step 6, slice 4, 2026-11-21
+
+- **The HTTP tests were written first and watched failing**, against a handler that answered 501 to
+  everything, then filled in.
+- **A host's `not_found` message is replaced, not passed through.** A keyed session's id is
+  `idFromName("<tenant>:<key>")`, so a host saying "there is no session acme:job-1" would tell another
+  tenant what it guessed. The handler answers "there is no such session" instead, and `ACC01`'s test
+  asserts the tenant name is not in the answer. Decision 132 records it.
+- **A replay arrives in one burst, so a small queue cap drops a client that is reading.** The drop rule
+  counts what is queued for the stream, and the whole record can arrive before the first read. That is
+  acceptable (the client reconnects and gets the rest), but it means the two HTP06 halves use different
+  caps: one to prove the drop, the default to prove the catch-up. Worth a second look if a real client
+  ever sees itself dropped on connect.
+- **The token comparison is by digest.** Comparing strings byte by byte leaks a token's length, and
+  `crypto.subtle` is web-standard on both runtimes, so each candidate's SHA-256 is compared with no early
+  exit. The door is a callback, so slice 5's Worker can build it from the Secrets slot.
+- **Rows**: HTP01 to HTP08 are new; ACC01 and ACC02 came off `unbuilt-rows.json`. 11 protocol rows are
+  still unbuilt: approvals, proposals and the reconnect-row EVT05 that needs the second-level scenarios.
+
+## Step 6, slice 3, 2026-11-21
+
+- **The session needed a core seam, so it got one with a test.** CMD05 wants a follow-up to start work
+  when nothing is running, and a resume could not append a message. `ResumeRequest` now takes
+  `followUp` (row RSM08): a person's resume carrying one continues a record that ended `done`, `failed`
+  or parked, and a wake never does. The run writes the message after `resumed` and after any unanswered
+  call is answered, so a person's message never lands between a call and its result.
+- **One session is one record, so it is one run id.** The runtime's resume refuses a header naming a
+  different run and the header is written once, so "a new run in the same session" is a new segment of
+  the same run. Decision 131 records it, along with the answers the commands give when they cannot do
+  what was asked (`not_found` for a task the host does not run, `conflict` for a second `start` without
+  a matching key, `busy` for a `prompt` during a run).
+- **Events are re-read from the record after every write.** That gives a client exactly what a reconnect
+  would replay, with the same `seq` and order, and leaves the live-only events (`retry`, `tool_start`)
+  as the only ones that travel alone. The cost is reading the whole record per write, which for a long
+  run is a lot of SQLite; the alternative, trusting `seq` on the live events, would be a second source
+  of truth for what the record says. Worth revisiting in step 7 if a timeline run reads slowly.
+- **`get_messages` is capped in entries and in bytes.** The byte cap defaults to the entry cap, so a
+  page always fits one line, and the test sets a 600-byte cap to prove a page stops before passing it
+  rather than only counting entries.
+- **The gate**: 413 Node tests, 28 workerd, 10 fuzz/property, `matrixcheck` 270 rows (257 tested, 13
+  unbuilt: approvals, access and the HTTP surface), package 97,299 B of 180,224 B.
+
+## Step 6, slice 2, 2026-11-21
+
+- **The tests came first this time.** `events.ts` was written as a stub that returned nothing, the
+  nine projection tests were watched failing on empty arrays, and then the projection was filled in.
+  That is the loop the README asks for, after slice 1's own note said it had been skipped.
+- **The projection is a function of the whole record, not of one entry.** The step document names
+  `eventsFor(entry, seq)`, but three of the things a client needs are not on a single entry: a
+  tool's name (only the assistant message's call knows it), a turn's number, and the usage a
+  `run_end` reports. So the public shape is `projectEvents(entries, {session, run})` plus
+  `eventsAfter(events, seq)`, and the fold is what makes a replay equal to what a watcher saw.
+- **Two rules moved out of `run.ts` so there is one copy.** `createUsageTotal` is now
+  `core/usage.ts` and `parkedReasonOf` (with its list) is in `core/events.ts`; the live loop and the
+  projection both call them, which is what stops a replayed total or parked reason from drifting
+  from the live one. Decision 130 records it.
+- **The property test found the property's own mistake before the code's.** "Nothing after a
+  `run_end`" is true of a run but not of any record the format allows: fast-check produced a
+  `fallback` entry after a `failed` status, which a damaged host could leave. The projection is
+  faithful rather than tidy, so the property now says one `run_end` per terminal status, matching
+  each one's `seq` and reason.
+- **`EVT01`, `EVT02`, `EVT03` and `EVT06` came off `scripts/unbuilt-rows.json`** with their tests: 22
+  protocol rows are still unbuilt, all of them commands, approvals, access or the HTTP surface.
+- **The gate**: 399 Node tests, 28 workerd, 10 fuzz/property, `matrixcheck` 266 rows (244 tested),
+  package 92,834 B of 180,224 B. The ceiling has room for the session, the HTTP surface and the
+  object.
+
+## Step 6, slice 1, 2026-11-21
+
+- **The tests came after the code in this slice, and the commit says so.** `frames.ts` and `reader.ts`
+  were written before their tests, which is the one departure from the loop in this repository so far.
+  Rather than claim a red that did not happen, each test was checked against a deliberate mutation: an
+  ignored cap fails `FRM01`, and a wrong code on a bad line fails `FRM02`. Both were restored, and the
+  full suite is green. Slices 2 onward go back to tests first.
+- **The line cap is enforced on bytes and decoded per line.** Splitting on `\n` cannot cut a UTF-8
+  sequence, because `\n` is never a continuation byte, so each completed line's bytes decode on their
+  own and a character split across two chunks still comes out once. That is what `FRM03` pins.
+- **`FRM01` came off `scripts/unbuilt-rows.json`** with its test, as the file's rule requires; 27
+  protocol rows are still unbuilt.
+- **The size ceiling has 1.2 KiB left** (88,910 B of 90,112 B). Step 6 still has to add `commands.ts`,
+  `events.ts`, `session.ts`, `http.ts` and the Durable Object host, so the next slice that lands needs
+  a decision raising it, with the reason and the real number rather than padding.
+
 ## Step 5, PR B (slices 4 to 7), 2026-11-19
 
 - **The misbehaving model is a script, not a live generator.** Each turn is drawn up front from the

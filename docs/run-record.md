@@ -111,6 +111,7 @@ the format (decision 30).
 | RCD08 | Bad: a turn the model saved badly | An assistant turn whose call has an empty name or id, or two calls with one id, still loads and still replays, because the record keeps what happened; the strict reading of a reply (the adapter boundary) is what refuses those |
 | RCD07 | Bad: hostile bytes | Any mix of valid lines and hostile ones loads or refuses without throwing, and no valid line is lost |
 | RCD09 | Happy: the recipe's pin | A header's recipe keeps the instructions hash and one hash per tool through a save and a load, and a header from before those fields existed still loads without them |
+| RCD10 | Happy: the tenant | A header keeps the session's tenant through a save and a load, a record from before the field existed still loads without one, and a tenant that is not a name is a damaged header |
 
 ## Spec rows
 

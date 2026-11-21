@@ -400,3 +400,4 @@ every file twice, and the Lumen adapter in Lattice will be the fourth.
 | ID | Case | Expected |
 |---|---|---|
 | SCN04 | Happy: a scenario through a server | Every scenario file runs again with the OpenAI-style adapter over the fake model server, and its events and record match the same expectations |
+| SCN05 | Happy: a scenario over HTTP | Every scenario file runs again over the real HTTP surface in workerd, against a Durable Object, and its events and record match the same expectations |

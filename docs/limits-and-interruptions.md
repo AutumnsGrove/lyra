@@ -165,6 +165,7 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 | RSM05 | Property: any script, killed anywhere | For any generated script of safe calls, any append and either side of it, the resume ends `done`, the record loads, each segment that ends has exactly one `run_end` and nothing after it, and the conversation equals the uninterrupted run's |
 | RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
 | RSM07 | Happy: the test recipe killed at every append | Killed at every append from the task message on, before and after it, the resumed page and handle table equal the uninterrupted run’s, and a call the kill left unanswered adds its line exactly once. The one window that cannot resume is a record holding only the header, because a recipe’s input is on the task message and inventing one would invent the page; it fails with a message saying so |
+| RSM08 | Happy: a follow-up at resume | A resume by a person carrying a follow-up continues a record that ended `done`, `failed` or parked: a `resumed` status, then the message labelled `follow_up`, then the turn it caused, and a second `run_end` |
 
 ## Answered since this document was written
 

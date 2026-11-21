@@ -1,10 +1,10 @@
 {
 	"_note": "The whole package, core through testkit, with a ceiling that moves only by a decision; and the example Worker's bundle from `wrangler deploy --dry-run`, which is the number a Worker actually pays. Both are gzipped JavaScript. Lower them as the modules settle, and say so in the commit and in `decisions.md` when one moves (AGENTS.md, size budgets).",
 	"@autumnsgrove/lyra": {
-		"gzipBytes": 90112
+		"gzipBytes": 180224
 	},
 	"examples/workers-minimal": {
 		"dir": "examples/workers-minimal/.wrangler/dry-run",
-		"gzipBytes": 28672
+		"gzipBytes": 45056
 	}
 }

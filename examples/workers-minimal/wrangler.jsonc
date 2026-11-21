@@ -8,8 +8,11 @@
 	"name": "lyra-workers-minimal",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-11-01",
+	// A local-only token and tenant, so `pnpm dev` needs no secret. A real host reads
+	// both from secret bindings.
+	"vars": { "LYRA_TOKEN": "dev-token", "LYRA_TENANT": "example" },
 	"durable_objects": {
-		"bindings": [{ "name": "MINIMAL_SESSION", "class_name": "MinimalSession" }],
+		"bindings": [{ "name": "SESSION", "class_name": "Session" }],
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["MinimalSession"] }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
 }
