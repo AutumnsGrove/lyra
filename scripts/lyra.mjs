@@ -79,22 +79,18 @@ async function tail(session, after) {
 		process.exitCode = 1;
 		return;
 	}
-	// One reader for the whole stream: a message can be split across two reads.
+	// One reader for the whole stream: a message can be split across two reads. The
+	// reader drops blank lines (a frame never has one), so each `data:` line is one
+	// message, which is what this server sends: an event, then a blank line.
 	const reader = response.body.getReader();
 	const lines = lineReader();
-	let message = [];
 	for (;;) {
 		const chunk = await reader.read();
 		if (chunk.done) {
 			return;
 		}
-		for (const line of chunk.value === undefined ? [] : lines.push(chunk.value).lines) {
-			if (line !== "") {
-				message.push(line);
-				continue;
-			}
-			const frame = parseEvent(message);
-			message = [];
+		for (const line of (chunk.value === undefined ? [] : lines.push(chunk.value).lines)) {
+			const frame = parseEvent(line);
 			if (frame === undefined) {
 				continue;
 			}
@@ -108,14 +104,13 @@ async function tail(session, after) {
 	}
 }
 
-/** A server-sent-event message (`id:` and `data:` lines), or nothing. */
-function parseEvent(lines) {
-	const data = lines.find((line) => line.startsWith("data: "));
-	if (data === undefined) {
+/** One server-sent-event message's data line as an event, or nothing. */
+function parseEvent(line) {
+	if (!line.startsWith("data: ")) {
 		return undefined;
 	}
 	try {
-		return JSON.parse(data.slice("data: ".length));
+		return JSON.parse(line.slice("data: ".length));
 	} catch {
 		return undefined;
 	}
