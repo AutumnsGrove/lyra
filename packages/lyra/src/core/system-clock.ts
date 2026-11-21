@@ -12,11 +12,15 @@ import type { Clock, Ids } from "./clock.js";
 /** Bytes in an id's random half. 128 bits is what decision 85 wants for an unguessable id. */
 const ID_BITS = 128;
 
-/** A clock over the host's own time. Takes the real ones as arguments so this file is testable. */
-function clockFrom(
+/**
+ * A clock over the host's own time. Takes the real ones as arguments so this file
+ * is testable. The handle is whatever the host's timer gives back — a number on
+ * Workers, an object on Node — so it is passed through rather than named.
+ */
+function clockFrom<Handle>(
 	nowMs: () => number,
-	wait: (callback: () => void, ms: number) => number,
-	cancelWait: (handle: number) => void,
+	wait: (callback: () => void, ms: number) => Handle,
+	cancelWait: (handle: Handle) => void,
 ): Clock {
 	return {
 		now: nowMs,

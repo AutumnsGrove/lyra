@@ -255,3 +255,13 @@ is not a failure: the loop reads the signal and parks the run `stopped`.
 | OAI27 | Happy: a retry that succeeds | A 429 followed by a good stream completes the run, and the record keeps one `retry` |
 | OAI28 | Sad: retries exhausted | Four 500s park the run `model_unavailable` |
 | OAI29 | Bad: cut off on the token limit | A stream that ends on `length` while holding a tool call never runs that tool |
+
+### Presets
+
+Two thin wrappers, because the providers differ only in where they are and what
+they ask for. A preset is a base URL, the name of the secret that holds the key,
+and any header the provider asks for; the key itself is never in it.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI30 | Happy: the presets | `openRouter` reaches OpenRouter's base URL and asks for `OPENROUTER_API_KEY`; `openCodeGo` reaches OpenCode Go's, asks for `OPENCODE_GO_API_KEY`, and sends the session header it asks for; both send the same body |

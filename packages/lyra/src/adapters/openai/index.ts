@@ -13,6 +13,13 @@
 
 export { DEFAULT_DEADLINE_MS, createOpenAIChatModel, type OpenAIChatOptions } from "./model.js";
 export {
+	OPENCODE_GO_BASE_URL,
+	OPENROUTER_BASE_URL,
+	openCodeGo,
+	openRouter,
+	type ProviderOptions,
+} from "./presets.js";
+export {
 	MAX_MESSAGE_CHARS,
 	MAX_RETRY_AFTER_MS,
 	codeForStatus,

@@ -8,6 +8,49 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 5, PR B (slices 4 to 7), 2026-11-19
+
+- **The misbehaving model is a script, not a live generator.** Each turn is drawn up front from the
+  seed, so the same seed gives the same script and a failure repeats exactly; the model is then the
+  testkit's scripted one. It will call `finish`, which is what lets a run end `done` instead of only
+  parking, and a run with a step limit always ends whatever it does.
+- **The scenario runner learned a `makeModel` seam rather than importing the adapter.** The testkit
+  may not import an adapter (`importcheck`), so the third level of decision 63 is a parameter: a test
+  that wants the wire passes a factory. `SCN04` counts the calls it made, because otherwise the same
+  expectations would pass through the in-process fallback and the row would prove nothing — that
+  mistake was made and caught by a deliberate mutation.
+- **A cassette is matched by method, URL and body, and each exchange is used once.** A retry therefore
+  needs its own recording, which is exactly what a recording of a run that retried contains. The body
+  is compared as JSON, not as text, so property order does not decide whether a request matches.
+- **The recorder reads the body and hands it on.** A response body can be read once, so the recording
+  `fetch` reads it, records it, and answers with a fresh `Response` built from the same bytes. Nothing
+  downstream can tell the difference.
+- **Recording and writing are split.** `recordingFetch` is in the testkit and is web-standard;
+  `live/recorder.ts` writes the file and refuses one that still holds a key, since it is the side that
+  has the environment. The scan runs over every committed cassette in `src/cassettes.test.ts`, which
+  is why a contaminated one cannot land quietly.
+- **DeepSeek V4.1 Flash is the live default, not kimi-k3.** Autumn's call (2026-11-19): kimi-k3 is
+  far too expensive per quota, and `deepseek-v4.1-flash` speaks chat completions and goes further on
+  the allowance. The model id was checked against the live `/models` list before the first run rather
+  than trusted from the docs table, which is how a typo would otherwise have cost a call.
+- **The live suite ran for the first time on 2026-11-21, on Autumn's keys, and passed.** Two real
+  calls with a tool: OpenCode Go with `deepseek-v4.1-flash` and OpenRouter with
+  `deepseek/deepseek-v4.1-flash-1017`. Each ended `done`, each called the tool, and each usage
+  reported input tokens. The keys were read from a file outside the repository and sourced into the
+  test process, so nothing was ever in a command line, a log or a diff. A second run with `RECORD=1`
+  wrote `cassettes/opencode-go-one-tool.json` and `cassettes/openrouter-one-tool.json`: real bytes,
+  two exchanges each, no auth header and no `set-cookie`, and the scan that CI runs passes on both.
+  The synthetic `scripted-run.json` stays, because it is the one recorded from the fake server.
+- **A keyless run is a skip, not a failure.** The tests are registered with `test.skipIf`, so a file
+  with no keys in the environment reports two skipped tests and exits 0; the skip's reason is in the
+  test's own title, because Vitest does not print a module-level `console.warn` in the default report.
+- **The presets are two functions, not a table.** They differ in a base URL, a secret's name and one
+  header, so a preset is those three things and nothing else; a per-provider quirks table would have
+  been a fourth copy of the same knowledge (decision 127).
+- **`OpenCode Go` needs its session to be required, not optional.** Its docs ask for a stable
+  `x-opencode-session` per conversation, so `openCodeGo()` takes a session and a caller cannot forget
+  one and quietly lose routing and prompt caching.
+
 ## Step 5, PR A, review round one, 2026-11-19
 
 - **A stop during the secrets lookup still sent the request, and the review was right.** The

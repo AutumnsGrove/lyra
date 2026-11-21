@@ -1,0 +1,77 @@
+{
+	"_note": "synthetic: recorded from the fake model server, not a real provider. Re-record with a live run once keys are set.",
+	"exchanges": [
+		{
+			"request": {
+				"url": "https://fake.test/v1/chat/completions",
+				"method": "POST",
+				"headers": {
+					"content-type": "application/json",
+					"accept": "text/event-stream"
+				},
+				"body": "{\"model\":\"scripted/model\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"you are careful\"},{\"role\":\"user\",\"content\":\"read /notes.txt and finish\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"the read tool, from the testkit\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},{\"type\":\"function\",\"function\":{\"name\":\"finish\",\"description\":\"End the run when the job is really done.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]}"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "text/event-stream"
+				},
+				"body": "data: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"reading th\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"e file now\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":9}}\n\ndata: [DONE]\n\n"
+			}
+		},
+		{
+			"request": {
+				"url": "https://fake.test/v1/chat/completions",
+				"method": "POST",
+				"headers": {
+					"content-type": "application/json",
+					"accept": "text/event-stream"
+				},
+				"body": "{\"model\":\"scripted/model\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"you are careful\"},{\"role\":\"user\",\"content\":\"read /notes.txt and finish\"},{\"role\":\"assistant\",\"content\":\"reading the file now\"},{\"role\":\"user\",\"content\":\"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"the read tool, from the testkit\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},{\"type\":\"function\",\"function\":{\"name\":\"finish\",\"description\":\"End the run when the job is really done.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]}"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "text/event-stream"
+				},
+				"body": "data: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\"}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"path\\\":\\\"/notes.txt\\\"}\"}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}\n\ndata: [DONE]\n\n"
+			}
+		},
+		{
+			"request": {
+				"url": "https://fake.test/v1/chat/completions",
+				"method": "POST",
+				"headers": {
+					"content-type": "application/json",
+					"accept": "text/event-stream"
+				},
+				"body": "{\"model\":\"scripted/model\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"you are careful\"},{\"role\":\"user\",\"content\":\"read /notes.txt and finish\"},{\"role\":\"assistant\",\"content\":\"reading the file now\"},{\"role\":\"user\",\"content\":\"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"/notes.txt\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"c1\",\"content\":\"hello from the file\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"the read tool, from the testkit\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},{\"type\":\"function\",\"function\":{\"name\":\"finish\",\"description\":\"End the run when the job is really done.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]}"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "text/event-stream"
+				},
+				"body": "data: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"the file \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"says hello\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[],\"usage\":{\"prompt_tokens\":140,\"completion_tokens\":7}}\n\ndata: [DONE]\n\n"
+			}
+		},
+		{
+			"request": {
+				"url": "https://fake.test/v1/chat/completions",
+				"method": "POST",
+				"headers": {
+					"content-type": "application/json",
+					"accept": "text/event-stream"
+				},
+				"body": "{\"model\":\"scripted/model\",\"stream\":true,\"messages\":[{\"role\":\"system\",\"content\":\"you are careful\"},{\"role\":\"user\",\"content\":\"read /notes.txt and finish\"},{\"role\":\"assistant\",\"content\":\"reading the file now\"},{\"role\":\"user\",\"content\":\"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"/notes.txt\\\"}\"}}]},{\"role\":\"tool\",\"tool_call_id\":\"c1\",\"content\":\"hello from the file\"},{\"role\":\"assistant\",\"content\":\"the file says hello\"},{\"role\":\"user\",\"content\":\"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read\",\"description\":\"the read tool, from the testkit\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}},{\"type\":\"function\",\"function\":{\"name\":\"finish\",\"description\":\"End the run when the job is really done.\",\"parameters\":{\"type\":\"object\",\"properties\":{}}}}]}"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "text/event-stream"
+				},
+				"body": "data: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c2\",\"type\":\"function\",\"function\":{\"name\":\"finish\"}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: {\"id\":\"gen-fake\",\"model\":\"scripted/model\",\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0}}\n\ndata: [DONE]\n\n"
+			}
+		}
+	]
+}

@@ -224,6 +224,36 @@ Things to be honest about:
 - **Fidelity differs.** The model that runs in production through OpenRouter may behave differently with tools than the one used for bulk testing. So most live tests use OpenCode Go, and a small set of "production fidelity" tests runs against the production model through OpenRouter.
 - **Keys come only from the environment,** are never written to a file, and are scrubbed from anything recorded.
 
+### Cassettes (step 5)
+
+A cassette is one JSON file of recorded exchanges, in order, with the request and
+response of each: URL, method, headers and body. Auth headers are dropped and
+key-shaped strings are refused at record time, so a cassette can be committed and
+CI replays it with no network and no allowance spent. Replay is a `fetch` built from
+the file, so the adapter cannot tell it from a provider.
+
+The files live in `cassettes/` at the repository root, next to `scenarios/`. The
+first ones are synthetic, made from the fake model server's own bytes, and their
+`_note` says so; a real recording is made by a live run with the recorder in
+`packages/lyra/live/`.
+
+| ID | Case | Expected |
+|---|---|---|
+| CAS01 | Happy: replay | A run recorded through the fake server replays from the cassette to the same record, and the cassette carries no `Authorization` header |
+| CAS02 | Bad: a key-shaped string | The scan finds an `sk-` key, a bearer token, a long base64 run, a long hex run and the exact value of any key it is given, and every file in `cassettes/` passes it |
+| CAS03 | Sad: a request with no exchange | A request the cassette has nothing for rejects with a message naming the request and how to re-record, rather than reaching the network |
+
+### The live suite as built (step 5)
+
+`pnpm test:live` (`vitest.live.config.ts`) runs `packages/lyra/live/`, which is
+outside `src/` and never published, so it may use `node:fs` and the environment. It
+is not in `pnpm run ci`. Each test sets Lyra's own limits as its budget cap (four
+steps, 20,000 tokens, 120 seconds, a 30-second tool deadline), so a bad loop parks
+instead of spending an allowance, and `RECORD=1` writes the exchange to
+`cassettes/` through the same scan CI runs. A missing key skips its test with a line
+on stderr, because a silent skip reads like a pass. `live/README.md` says how to run
+it, which variables it reads, and what it costs.
+
 ### Recording real responses to replay free in CI
 
 A live run can record the real HTTP exchange (with keys and auth headers removed) into a cassette. CI replays cassettes with no network and no cost. So a live run spends allowance once, and the result becomes a permanent, deterministic test. A test fails if a cassette contains a key-shaped string.
@@ -329,6 +359,20 @@ either way.
 | KIT10 | Bad: it misbehaves on purpose | It can cut a stream mid-event, send malformed JSON, stall, fail a body mid-stream, answer 429 with and without `Retry-After`, answer 500, answer 200 with an error body, answer a non-JSON error, send an error chunk mid-stream, send one huge chunk, and hand a test its own answer |
 | KIT11 | Bad: what it received | Every request is kept with its URL, method, headers and parsed body, so a test can assert what the adapter sent and that no key appears in the record of it |
 
+### The seeded misbehaving model (step 5)
+
+`testkit/misbehaving-model.ts` is a model that is wrong on purpose, drawn from a
+seed: half-written arguments, a tool nobody has, the same call again, an empty
+answer, a reply cut off by the token limit holding a call, and usage with no cost.
+The seed makes a failure repeatable, and one script is drawn per seed, so the same
+seed produces the same run. It assumes the run has a `finish` tool, because that is
+how a run ends well; a run without one parks, which is still a correct ending.
+
+| ID | Case | Expected |
+|---|---|---|
+| KIT12 | Bad: the seeded script | The same seed draws the same script, different seeds draw different ones, every turn is one of the named wrong kinds, and each kind really is what it says (truncated arguments that do not parse, a tool that does not exist, an empty reply, a `length` reply holding a call, usage with no cost) |
+| KIT13 | Happy: every run against it ends | For every seed, with a step limit, the run emits exactly one `run_end` as its last event, ends `done`, `parked` or `failed`, and its record loads with no notes and ends with a status |
+
 ## Spec rows: the scenario runner
 
 The files themselves are in `scenarios/` at the repository root, and
@@ -347,3 +391,12 @@ that differed and the value that came.
 | SCN01 | Happy: a scenario runs | Its events match as a subsequence in order, its record entries match in order, and there are no problems |
 | SCN02 | Sad: an expectation does not match | The report names the expectation, the field that differed, and what came instead, and it says how the run ended |
 | SCN03 | Bad: a malformed scenario | The file is refused with `bad_request` and a message naming the field, and a file this build understands decodes with its defaults filled in |
+
+The runner takes an optional `makeModel`, so a scenario can run through a real
+adapter and a fake server as well as through the in-process scripted model. That is
+the third of the three levels decision 63 asks for; `src/scenarios.test.ts` runs
+every file twice, and the Lumen adapter in Lattice will be the fourth.
+
+| ID | Case | Expected |
+|---|---|---|
+| SCN04 | Happy: a scenario through a server | Every scenario file runs again with the OpenAI-style adapter over the fake model server, and its events and record match the same expectations |

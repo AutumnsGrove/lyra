@@ -24,11 +24,25 @@ new API and any breaking change, and a patch bump is fixes only.
   (rows KIT09 to KIT11).
 - `platform.d.ts` declares the model adapters' slice of `fetch`, `Response`, `Headers`,
   `ReadableStream` and `TextDecoder`'s streaming mode (decision 125).
+- `testkit` gains a seeded misbehaving model: one script per seed of the wrong replies a real
+  provider sometimes sends (truncated arguments, an unknown tool, a repeat, an empty answer, a
+  reply cut off on the token limit, usage with no cost), so a whole run can be driven through bad
+  behaviour and must still end exactly once with a record that loads (KIT12 and KIT13).
+- The scenario runner takes a `makeModel`, so every scenario file runs a third time through the
+  OpenAI-style adapter and the fake server (SCN04).
+- Cassettes: `testkit` records an exchange with its auth headers dropped, replays it as a `fetch`,
+  refuses a request the file has nothing for, and scans for key-shaped strings; `cassettes/` holds a
+  synthetic recording from the fake server and two real ones, from a live run on 2026-11-21 (CAS01 to
+  CAS03, decision 128).
+- `openRouter()` and `openCodeGo()`, thin presets over the adapter (OAI30), and `pnpm test:live`: an
+  opt-in suite in `packages/lyra/live/` that makes one real call with a tool through each provider
+  under Lyra's own limits, skips loudly without a key, and can record a cassette with `RECORD=1`.
 
 ### Changed
 
-- The package's size ceiling moves from 68 KiB to 84 KiB gzipped, which is what the OpenAI-style
-  adapter costs (decision 123).
+- The package's size ceiling moves from 68 KiB to 84 KiB gzipped for the OpenAI-style adapter
+  (decision 123), and then to 88 KiB for the misbehaving model, cassettes and the presets (decision
+  128).
 
 ## [0.1.0] - 2026-11-19
 

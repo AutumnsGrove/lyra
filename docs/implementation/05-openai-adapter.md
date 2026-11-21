@@ -65,13 +65,13 @@ with where they landed.
 
 **Slice 3 (PR A): the fake model server and errors.** The testkit server and its misbehaviors, and the adapter's error mapping. Rows: one per HTTP status in the catalog, retryable or not, `Retry-After` as seconds and as a date and absurdly large, a 200 error body, a non-JSON error body, connection refused and reset, a stall past the deadline on the fake clock, cancellation at each of the four points, and **an end-to-end row through step 2's retry logic**: a 429 then success completes the run, and four 500s park it as `model_unavailable`. Add KIT rows for the server itself ("with its own strict tests").
 
-**Slice 4 (PR B): the misbehaving model and the in-process/over-fetch scenarios.** The seeded generator, the whole-run property, and the scenario runner learning to drive a scenario through the fake server as well as the scripted model (`model:` is the same script either way). Rows: the property; a scenario that passes both ways.
+**Slice 4 (PR B): the misbehaving model and the in-process/over-fetch scenarios.** Built. The seeded generator, the whole-run property, and the scenario runner learning to drive a scenario through the fake server as well as the scripted model (`model:` is the same script either way). Rows: the property; a scenario that passes both ways.
 
-**Slice 5 (PR B): cassettes.** Recorder (in `live/`), replay, the secret scan, the synthetic cassettes. Rows: replay reproduces a recorded run; the scan fails on a contaminated cassette; a request that does not match any recorded exchange fails the test clearly instead of calling the network.
+**Slice 5 (PR B): cassettes.** Built, with the recorder in `live/`. Recorder (in `live/`), replay, the secret scan, the synthetic cassettes. Rows: replay reproduces a recorded run; the scan fails on a contaminated cassette; a request that does not match any recorded exchange fails the test clearly instead of calling the network.
 
-**Slice 6 (PR B): live tests and presets.** `openRouter()`, `openCodeGo()`, the live suite with budget caps, `pnpm test:live`, and a short `live/README.md` stating how to run it, which env vars it reads, and what it costs. **Do not run it.** If Autumn has put keys in the environment and asked you to, run it, report exactly what it did, and never print a key or an `Authorization` header.
+**Slice 6 (PR B): live tests and presets.** Built; not run, for want of keys. `openRouter()`, `openCodeGo()`, the live suite with budget caps, `pnpm test:live`, and a short `live/README.md` stating how to run it, which env vars it reads, and what it costs. **Do not run it.** If Autumn has put keys in the environment and asked you to, run it, report exactly what it did, and never print a key or an `Authorization` header.
 
-**Slice 7 (PR B): wrap-up.** `adapters.md` (rows, the verified facts, the quirks table's contents), `overview.md`, `engineering-practices.md` (the fake server as built, the tradeoff), `decisions.md` (the provider facts you verified, the web-standard server, cassette format, 104 onward), README status, `AGENTS.md`, `CHANGELOG.md`.
+**Slice 7 (PR B): wrap-up.** Done. `adapters.md` (rows, the verified facts, the quirks table's contents), `overview.md`, `engineering-practices.md` (the fake server as built, the tradeoff), `decisions.md` (the provider facts you verified, the web-standard server, cassette format, 104 onward), README status, `AGENTS.md`, `CHANGELOG.md`.
 
 ## Cases to work through from the catalog
 

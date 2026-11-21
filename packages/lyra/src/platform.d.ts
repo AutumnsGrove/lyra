@@ -61,6 +61,8 @@ interface FetchInit {
 
 interface FetchHeaders {
 	get(name: string): string | null;
+	/** Headers iterate as name and value pairs, which is how a recorder copies them. */
+	[Symbol.iterator](): IterableIterator<[string, string]>;
 }
 
 declare class Headers {
