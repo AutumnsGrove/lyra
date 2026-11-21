@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
@@ -21,15 +21,29 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A merged (slices 1 to 3, `a74cbd4`); PR B in review (slices 4 to 7) |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is next |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
-### Where the last session stopped (2026-11-19)
+### Where the last session stopped (2026-11-21)
 
 Read this, then `notes.md`, then the step document. It is the shortest true summary of the tree.
+
+- **Step 5's Lyra half is merged, and it ran against real providers.** PR A is pull request #17 and the
+  merge commit `a74cbd4`, PR B is pull request #18 and `a7b4d8c`, one review round each with every
+  finding fixed test-first. What is in the tree: `@autumnsgrove/lyra/openai`, one chat-completions
+  adapter for OpenRouter and OpenCode Go (the parser, the request builder, the error mapping, the slot
+  and two presets, rows OAI01 to OAI30); the testkit's fake model server and its seeded misbehaving
+  model (KIT09 to KIT13); a `makeModel` seam on the scenario runner so every scenario file also runs
+  through the adapter and a server (SCN04); cassettes with record, replay and a key-shaped-string scan
+  (CAS01 to CAS03, decision 128), three of them committed, two recorded live; and `pnpm test:live`,
+  opt-in, with a budget cap per test. On 2026-11-21 it made one real call with a tool through each
+  provider — `deepseek-v4.1-flash` on OpenCode Go, `deepseek/deepseek-v4.1-flash-1017` on OpenRouter —
+  and both ended `done`. `main`'s gate on `7ceb08d`: 371 Node tests, 28 workerd tests, 6 fuzz/property
+  targets, coverage 93.77% statements and 87.7% branches, the package at 86,418 B of 90,112 B. What is
+  left of step 5 is its Lumen half, which is Lattice work, not this repository.
 
 - **Step R is merged**, pull request #13 and the merge commit `ad99ef5`. It added
   `.github/workflows/release.yml` (a `v*` tag and a manual dry run), `scripts/release-notes/` (the

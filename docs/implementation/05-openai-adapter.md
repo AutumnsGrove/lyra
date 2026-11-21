@@ -12,6 +12,12 @@ Read: `docs/adapters.md` ("Model connections"), `docs/engineering-practices.md` 
 
 ## Goal and done when
 
+**The Lyra half is done** (PR #17 and #18, `a74cbd4` and `a7b4d8c`): the entry point exists, the fake
+server drives every catalog case, the seeded model drives whole runs, cassettes replay in CI and the
+scan refuses a key-shaped string, and `pnpm test:live` made a real call with a tool through both
+providers on 2026-11-21. The Lumen half below is still Lattice work.
+
+
 From `first-slice.md`: **one real call with a tool goes through each provider.** The agent cannot do the live half (it has no keys, and live calls spend Autumn's allowance), so this step is done when:
 
 - `@autumnsgrove/lyra/openai` exists: a `ModelSlot` that speaks chat completions with streaming, usable against OpenRouter and OpenCode Go by configuration;
