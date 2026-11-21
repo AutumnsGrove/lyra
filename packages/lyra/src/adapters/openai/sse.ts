@@ -256,10 +256,9 @@ export function sseReader(options: SseOptions = {}): SseReader {
 
 	const handlePayload = (payload: string): void => {
 		if (payload.trim() === DONE_MARKER) {
-			if (finish === undefined) {
-				settleError(providerError("the model's stream ended without a finish reason"));
-				return;
-			}
+			// `[DONE]` is the provider saying the stream is over, so it is an ending in
+			// its own right: a compatible endpoint may send it without a finish reason,
+			// and the core already turns a reason it does not model into `other`.
 			settleReply();
 			return;
 		}

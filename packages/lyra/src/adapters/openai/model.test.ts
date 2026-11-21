@@ -329,6 +329,35 @@ describe("OAI25 a stop", () => {
 		expect(server.requests).toHaveLength(0);
 	});
 
+	test("OAI25 a stop during the secrets lookup sends nothing", async () => {
+		const controller = new AbortController();
+		const server = fakeModelServer([{ text: "x" }]);
+		let release = (): void => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const model = createOpenAIChatModel({
+			baseUrl: "https://example.test/v1",
+			model: "test/model",
+			secrets: {
+				get: async () => {
+					await gate;
+					return KEY;
+				},
+			},
+			keyName: KEY_NAME,
+			fetch: server,
+			clock: fakeClock(),
+		});
+		const pending = model.complete(ask({ signal: controller.signal }));
+		controller.abort();
+		release();
+		const error = errorOf(await pending);
+		expect(error.retryable).toBe(false);
+		// The point of the row: a stop before the request costs nothing.
+		expect(server.requests).toHaveLength(0);
+	});
+
 	test("OAI25 during connect the call ends", async () => {
 		const { server, model } = setup([{ text: "x" }], { faults: [{ kind: "stall" }] });
 		const controller = new AbortController();

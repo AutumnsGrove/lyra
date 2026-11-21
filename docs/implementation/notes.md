@@ -8,6 +8,25 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 5, PR A, review round one, 2026-11-19
+
+- **A stop during the secrets lookup still sent the request, and the review was right.** The
+  controller and its abort listener were made after `secrets.get` resolved, so an abort that arrived
+  while the lookup was in flight was added to an already-aborted signal, never fired, and the whole
+  stream was read before the post-read check reported it stopped: a person's stop would still have
+  spent tokens. The signal is now read again straight after the lookup, so a stop before the request
+  costs nothing. `OAI25` grew the case.
+- **`buildHeaders` only protected the exact lowercase names, and that was a real way to send two
+  credentials.** Header names are case-insensitive, so a preset's `Authorization` sat beside the
+  computed `authorization`, and Node merges those into one header carrying both values. A preset's own
+  names are lowercased before the computed ones are set, so there is one name and one value whatever
+  case it arrived in, and `OAI19` checks a capitalised `Authorization`, `Content-Type` and `Accept`.
+- **`[DONE]` with no finish reason is an ending, not a cut.** The row said either ends the stream and
+  the code only accepted a finish reason, which would have retried a complete reply from a compatible
+  provider until the run parked. `[DONE]` now settles the reply with `other` as the reason, which is
+  what the core already does with a reason it cannot name; a body that ends with neither marker nor
+  reason is still the retryable cut it was. `OAI06` grew the case.
+
 ## Step 5, PR A (the Lyra half's first three slices), 2026-11-19
 
 - **The provider facts were re-read, and one of Nova's findings no longer holds.**

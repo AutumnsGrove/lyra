@@ -159,6 +159,25 @@ describe("OAI19 the key lives in one header", () => {
 		expect(Object.keys(headers).sort()).toEqual(["accept", "authorization", "content-type"]);
 	});
 
+	test("OAI19 a header name is case-insensitive, so a capitalised one cannot either", () => {
+		const headers = buildHeaders({
+			apiKey: key,
+			extra: {
+				Authorization: "Bearer someone-else",
+				"Content-Type": "text/plain",
+				Accept: "application/json",
+				"X-Title": "Lyra",
+			},
+		});
+		expect(headers["authorization"]).toBe(`Bearer ${key}`);
+		expect(headers["content-type"]).toBe("application/json");
+		expect(headers["accept"]).toBe("text/event-stream");
+		expect(headers["x-title"]).toBe("Lyra");
+		// One name, one value: a differently-cased duplicate would be merged by the
+		// runtime and send two credentials.
+		expect(Object.keys(headers).every((name) => name === name.toLowerCase())).toBe(true);
+	});
+
 	test("OAI19 a preset's own header cannot replace the key", () => {
 		const headers = buildHeaders({
 			apiKey: key,

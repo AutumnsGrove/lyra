@@ -100,7 +100,13 @@ export interface HeaderOptions {
  * accident.
  */
 export function buildHeaders(options: HeaderOptions): Record<string, string> {
-	const headers: Record<string, string> = { ...options.extra };
+	const headers: Record<string, string> = {};
+	// Header names are case-insensitive, so a preset's `Authorization` would otherwise
+	// sit beside the computed `authorization` and the runtime would merge the two into
+	// one header with two credentials. Lowercased here, the computed ones below win.
+	for (const [name, value] of Object.entries(options.extra ?? {})) {
+		headers[name.toLowerCase()] = value;
+	}
 	headers["content-type"] = "application/json";
 	headers["accept"] = "text/event-stream";
 	headers["authorization"] = `Bearer ${options.apiKey}`;

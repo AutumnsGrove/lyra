@@ -83,6 +83,13 @@ export function createOpenAIChatModel(options: OpenAIChatOptions): ModelSlot {
 				};
 			}
 
+			// A stop can arrive while the secret is being read, and the listener below is
+			// added after it, so the signal is read again here: a stop before the request
+			// must cost nothing, not one whole stream.
+			if (request.signal.aborted) {
+				return { ok: false, error: stopped(key) };
+			}
+
 			// One controller carries both stops: the caller's, and the deadline's.
 			const controller = new AbortController();
 			let deadlineReached = false;

@@ -237,6 +237,16 @@ describe("OAI06 a stream that stopped early", () => {
 		expect(error.code).toBe("provider_error");
 	});
 
+	test("OAI06 a done marker with no finish reason is complete", () => {
+		const reader = sseReader();
+		feed(reader, chunk({ content: "the whole answer" }));
+		const reply = replyOf(feed(reader, "data: [DONE]\n\n"));
+		expect(reply.text).toBe("the whole answer");
+		// The provider said the stream was over, so it is over; a reason it did not
+		// model is `other`, which is what the core does with any reason it cannot name.
+		expect(reply.finishReason).toBe("other");
+	});
+
 	test("OAI06 a finish reason without a done marker is complete", () => {
 		const reader = sseReader();
 		feed(reader, chunk({ content: "done" }));
