@@ -8,6 +8,21 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
+Lyra gains its first real model adapter, and nothing existing changes. `0.1.0` keepers upgrade with
+`pnpm add @autumnsgrove/lyra@0.2.0` and no code edit: the entry points, the slots, the record and the
+loop behave as they did.
+
+What is new is additive, and a `0.1.0` caller never has to touch it. The `./openai` subpath is new, and
+reaching it takes a `clock` and a `SecretsSlot` (both required, as every adapter needs them) plus an
+optional `fetch`. The scenario runner takes an optional `makeModel`, so a scenario can run through a
+real adapter. And `testkit` exports new helpers: a fake model server, a seeded misbehaving model, and
+cassette recording, replay and the key-shaped-string scan.
+
+The one internal change is `core/system-clock.ts`, whose timer handle stopped being named `number` so
+Node's timer type fits; its exported `systemClock()` and `systemIds()` are unchanged.
+
 ### Added
 
 - `@autumnsgrove/lyra/openai`: an OpenAI-style model adapter for chat completions, which serves
