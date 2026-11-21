@@ -154,3 +154,42 @@ memory as a deploy would.
 | CFL19 | Happy: a binding | A Worker binding is read by name |
 | CFL20 | Bad: a missing binding | It is `undefined`, and a tool that needs it returns an error naming the secret but never its value; a scan of the record finds no value, after the positive case proves one was held |
 | CFL21 | Bad: names that are not secrets | A non-string binding, `constructor`, `__proto__` and `toString` are each `undefined` |
+
+## Spec rows: the OpenAI-style model adapter (step 5)
+
+One adapter speaks chat completions for both of Autumn's providers (decision 14):
+OpenRouter, and OpenCode Go with different settings. It takes a `baseUrl`, a model,
+a `SecretsSlot` and a key name, and it reads the key from the slot, never from its
+own configuration, so a key cannot sit in an object that gets logged or recorded.
+`fetch` is injectable, which is how the fake server and cassette replay plug in.
+
+The provider facts it rests on were verified against the providers' own docs on
+2026-11-19 and are written in `implementation/notes.md` under "Step 5". Two of them
+shape the parser: OpenRouter returns usage exactly once, in the last chunk before
+`[DONE]` (its usage chunk carries a content-free choice rather than an empty
+`choices` list), and `usage` and `stream_options` parameters on chat completions are
+deprecated and have no effect, so the adapter sends neither.
+
+### The stream
+
+An OpenAI-style reply is a stream of server-sent events, each carrying one JSON
+chunk. The parser is pure, has no clock and no network, and is the most hostile
+input surface in the repository, so it is a fuzz target. What it assembles goes
+through `decodeReply` before it leaves the adapter, so the loop only ever receives
+a validated reply.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI01 | Happy: a plain text stream | Text deltas assemble into one reply with its model, its token usage and `stop`, and the reply the slot returns has been decoded |
+| OAI02 | Happy: a call split across chunks | A name first, arguments in fragments and the id late assemble into one call whose argument text is exactly what arrived |
+| OAI03 | Happy: two calls interleaved | Calls are kept apart by their index and reported in index order, however they interleave |
+| OAI04 | Happy: usage | Usage in the last chunk, in a chunk of its own, or missing all give tokens, zero when the provider said nothing, and a cost labelled `provider` only when one was given |
+| OAI05 | Bad: empty choices and null content | A chunk with no choices, a `null` content and a content-free usage chunk add nothing and change nothing |
+| OAI06 | Sad: a stream that stopped early | A stream cut mid-event, or one that ends with neither a finish reason nor `[DONE]`, is a retryable `provider_error` and the partial reply is discarded; either a finish reason or `[DONE]` ends the stream |
+| OAI07 | Bad: a call with no id | A call whose id never arrived gets the stable synthetic id `call_<n>` from its position |
+| OAI08 | Bad: duplicate ids | Two calls sharing one id are both kept, the later ones renamed, so the loop can answer each of them |
+| OAI09 | Bad: unknown fields | Fields the adapter does not know are ignored wherever they appear, and a chunk that is only unknown fields changes nothing |
+| OAI10 | Bad: line endings, comments and a multi-line event | `\r\n` and `\r` split events like `\n`, comment lines are ignored, split `data:` lines join with a newline, and `data: [DONE]` ends the stream |
+| OAI11 | Bad: an oversized stream | A stream past the size cap fails as `provider_error` and stops being assembled |
+| OAI12 | Sad: a broken chunk | A `data:` payload that is not JSON, or JSON that is not an object, is a retryable `provider_error` naming the problem |
+| OAI13 | Bad: hostile bytes | Any bytes at all give a reply or an error: never a throw, never a loop, never an unbounded reply |
