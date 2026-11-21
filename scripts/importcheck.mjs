@@ -50,6 +50,14 @@ const ENTRY_POINTS = [
 		allows: ["src/core", "src/record"],
 	},
 	{
+		name: "openai",
+		dir: "src/adapters/openai",
+		// A model adapter fills the Model slot, so it needs the contract and the
+		// record's byte helpers (the stream cap measures the same way a record entry
+		// does). `fetch` is web-standard, so there is no dependency to allow here.
+		allows: ["src/core", "src/record"],
+	},
+	{
 		name: "testkit",
 		dir: "src/testkit",
 		// Test support may stand on the contract and on the in-memory adapter, so a

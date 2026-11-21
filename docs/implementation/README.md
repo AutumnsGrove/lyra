@@ -21,7 +21,7 @@ Last updated: 2026-11-16. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | not started |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | PR A in review (slices 1 to 3); PR B is slices 4 to 7 |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | not started |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | not started |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
@@ -56,8 +56,17 @@ Read this, then `notes.md`, then the step document. It is the shortest true summ
   101), the package at 66,817 B of 69,632 B and the example bundle at 22,194 B of 28,672 B (decision 119,
 measured locally; CI's gzip on the same commit runs a few hundred bytes smaller),
   and `matrixcheck` 198 rows (170 tested, 28 unbuilt, all protocol).
-- **Step 5 is next**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`. Its Lumen half
-  lives in Lattice, which can consume Lyra from npm now that `0.1.0` is published (decision 121).
+- **Step 5 is in progress**, [`05-openai-adapter.md`](05-openai-adapter.md), from the merged `main`, in two pull
+  requests on one branch (Autumn's call, 2026-11-19, because the two halves are different surfaces). PR A
+  is slices 1 to 3: the `openai` entry point, the server-sent-event parser with its fuzz target, the
+  request builder, the fake model server in the testkit, the error mapping, and a whole run driven
+  through the adapter, including the 429-then-success and four-500s cases and a `length` reply whose call
+  never runs. PR B is slices 4 to 7: the seeded misbehaving model, the in-process and over-fetch
+  scenarios, cassettes and their secret scan, the live suite with `pnpm test:live`, the `openRouter()`
+  and `openCodeGo()` presets, and the wrap-up. PR A's gate: 335 Node tests, 28 workerd tests, 6
+  fuzz/property targets, coverage 93.92% statements and 88.21% branches, the package at 80,395 B of
+  86,016 B (decision 123), and `matrixcheck` 253 rows (225 tested, 28 unbuilt). Its Lumen half lives in
+  Lattice, which can consume Lyra from npm now that `0.1.0` is published (decision 121).
 - **Step 3 is merged**, as pull request #9 and the merge commit `9369f03`, after three review rounds: the
   first found that a resumed record's saved input was never checked against the recipe's input schema and
   that `start` could throw where it promised a `Result`, and the second found that the new check ran before

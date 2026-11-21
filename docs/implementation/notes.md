@@ -8,6 +8,85 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 5, PR A, review round one, 2026-11-19
+
+- **A stop during the secrets lookup still sent the request, and the review was right.** The
+  controller and its abort listener were made after `secrets.get` resolved, so an abort that arrived
+  while the lookup was in flight was added to an already-aborted signal, never fired, and the whole
+  stream was read before the post-read check reported it stopped: a person's stop would still have
+  spent tokens. The signal is now read again straight after the lookup, so a stop before the request
+  costs nothing. `OAI25` grew the case.
+- **`buildHeaders` only protected the exact lowercase names, and that was a real way to send two
+  credentials.** Header names are case-insensitive, so a preset's `Authorization` sat beside the
+  computed `authorization`, and Node merges those into one header carrying both values. A preset's own
+  names are lowercased before the computed ones are set, so there is one name and one value whatever
+  case it arrived in, and `OAI19` checks a capitalised `Authorization`, `Content-Type` and `Accept`.
+- **`[DONE]` with no finish reason is an ending, not a cut.** The row said either ends the stream and
+  the code only accepted a finish reason, which would have retried a complete reply from a compatible
+  provider until the run parked. `[DONE]` now settles the reply with `other` as the reason, which is
+  what the core already does with a reason it cannot name; a body that ends with neither marker nor
+  reason is still the retryable cut it was. `OAI06` grew the case.
+
+## Step 5, PR A (the Lyra half's first three slices), 2026-11-19
+
+- **The provider facts were re-read, and one of Nova's findings no longer holds.**
+  OpenRouter's docs (2026-11-19) say usage comes once, in the last chunk before
+  `[DONE]`, and that on chat completions the usage chunk carries a content-free
+  choice repeating the finish reason rather than an empty `choices` list. More
+  usefully, `usage: {include:true}` and `stream_options: {include_usage:true}` are
+  both deprecated and have no effect, so the adapter sends neither and the "ask for
+  usage in a stream" question closes itself. OpenCode Go's docs now say that every
+  text model works through every API, with the console translating, which contradicts
+  Nova's "three dialects, model by model" reading (decision 14). So no model is
+  refused: a table of dialects would have blocked models that work. What the adapter
+  does instead is the thing that is always safe: it sends only the fields every
+  chat-completions endpoint takes.
+- **There is no quirks table, because there is no quirk to put in it.** The step
+  document asked for a small per-model table of accepted `tool_choice` values and
+  cache markers. The core has no way to ask for either (the slot's request carries a
+  system prompt, messages, tools and a signal), so the adapter never sends
+  `tool_choice` and never inserts a cache marker, and a table of accepted values
+  would be dead code. Decision 127 records it; the first model that needs something
+  written down gets one row and a test.
+- **The duplicate-id rule is a rename, not a refusal.** Two calls sharing an id would
+  fail `decodeReply` (ids must be unique because the loop pairs a result to its call
+  by id), and a refused reply costs a whole turn. So the first call keeps the id it
+  was sent, a real id that belongs to exactly one call is reserved for it, and every
+  other call gets `call_<n>` from its position. That is stable across a resume, which
+  matters more than looking pretty.
+- **The size cap ends the stream, and it is not retryable.** Re-reading the same
+  oversized stream would cost the same, and a reply past 1 MiB is already a sign of
+  something wrong upstream, so the run parks with `provider_error` rather than trying
+  again. A stream cut by the network is the opposite case and stays retryable.
+- **A finish reason is an ending; `[DONE]` is a marker.** A well-formed stream that
+  sends `finish_reason` and never sends `[DONE]` is complete, and a stream that ends
+  with neither is a retryable failure with the partial reply discarded. Anything left
+  in the buffer at the end of a body is a cut event, and it is an error as well.
+- **Stopped is `timeout` with `retryable: false`.** The error codes have no
+  `cancelled`, and the loop never believes this error anyway: it checks its own
+  signal first and parks the run `stopped`. Using `timeout` keeps the set of codes
+  Nova settled (decision 83) closed, and the flag is what keeps it from being retried.
+- **The fake server is a `fetch`, and a stall is a request that is never answered.**
+  It takes what `fetch` takes instead of a `Request`, because the adapter builds no
+  `Request`; the step document's `(Request) => Response` would have meant declaring
+  the class for the testkit only. A genuine TCP failure is simulated the way the
+  platform produces it: a `fetch` that rejects, and a body that errors while it is
+  read. A stall needs no clock: the answer is a promise that only settles when the
+  signal aborts, so the adapter's own deadline is what ends it, on the fake clock.
+- **`platform.d.ts` grew the model adapters' slice of the web platform.** `fetch`,
+  `Response`, `Headers`, `ReadableStream` and `TextDecoder`'s `{stream: true}`, each
+  only as far as is used (decision 125). The file's own rule is that a name which is
+  missing fails the typecheck, so this is the deliberate act it asks for. The workerd
+  program still gets its globals from the Workers types, which is why the testkit's
+  own fetch type is spelled out in the testkit rather than named from that file.
+- **A 200 that is JSON is either the provider's error or an answer this adapter
+  cannot read.** It asks for a stream, so a JSON body is a failure either way; with an
+  `error` object the message is the provider's and the retry flag follows its code,
+  and without one it is a non-retryable "answered without a stream".
+- **No live test has been run, and none can be from here.** There are no keys in this
+  environment, so the live suite and real cassette recording are slots 6 and 5 of the
+  step and PR B; nothing in this PR claims a real model answered.
+
 ## Step R, 2026-11-19
 
 - **npm has no pending publisher, so the first publish is a person's.** The trusted-publisher settings

@@ -154,3 +154,104 @@ memory as a deploy would.
 | CFL19 | Happy: a binding | A Worker binding is read by name |
 | CFL20 | Bad: a missing binding | It is `undefined`, and a tool that needs it returns an error naming the secret but never its value; a scan of the record finds no value, after the positive case proves one was held |
 | CFL21 | Bad: names that are not secrets | A non-string binding, `constructor`, `__proto__` and `toString` are each `undefined` |
+
+## Spec rows: the OpenAI-style model adapter (step 5)
+
+One adapter speaks chat completions for both of Autumn's providers (decision 14):
+OpenRouter, and OpenCode Go with different settings. It takes a `baseUrl`, a model,
+a `SecretsSlot` and a key name, and it reads the key from the slot, never from its
+own configuration, so a key cannot sit in an object that gets logged or recorded.
+`fetch` is injectable, which is how the fake server and cassette replay plug in.
+
+### What was verified, 2026-11-19
+
+Read from each provider's own documentation before the adapter was written, not from
+Nova's notes:
+
+- **OpenRouter.** Base URL `https://openrouter.ai/api/v1`, key in
+  `OPENROUTER_API_KEY`, chat completions at `/chat/completions`. `stream: true`
+  answers with server-sent events, and usage arrives exactly once, in the last chunk
+  before `[DONE]`; on chat completions that chunk carries a content-free choice that
+  repeats the finish reason rather than an empty `choices` list, which is a
+  deliberate difference from OpenAI's spec. `usage: { include: true }` and
+  `stream_options: { include_usage: true }` are deprecated and have no effect, so the
+  adapter sends neither. `usage` carries `prompt_tokens`, `completion_tokens` and a
+  `cost` in credits, which are dollars, so a cost read from there has source
+  `provider`. Finish reasons are normalized to `tool_calls`, `stop`, `length`,
+  `content_filter` and `error`; anything else becomes `other`. `Retry-After` arrives
+  on 429 and 503 (and on some 402s) in seconds. A failure in the middle of a stream
+  arrives as a chunk holding `error` and `finish_reason: "error"`.
+- **OpenCode Go.** Base URL `https://opencode.ai/zen/go/v1`, key in
+  `OPENCODE_GO_API_KEY`, the model list at `/models`, chat completions at
+  `/chat/completions`. It asks every client for a stable `x-opencode-session` header
+  so a conversation keeps its routing and its prompt cache, and for the client's own
+  user agent. Its docs list each model's native endpoint and also say that every text
+  model works through the other APIs, with the console translating, so a model is
+  attempted as chat completions rather than refused by a table that would go stale.
+  Cost is a monthly allowance per model rather than dollars, so usage carries tokens
+  only unless a response reports a figure of its own.
+
+### The stream
+
+An OpenAI-style reply is a stream of server-sent events, each carrying one JSON
+chunk. The parser is pure, has no clock and no network, and is the most hostile
+input surface in the repository, so it is a fuzz target. What it assembles goes
+through `decodeReply` before it leaves the adapter, so the loop only ever receives
+a validated reply.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI01 | Happy: a plain text stream | Text deltas assemble into one reply with its model, its token usage and `stop`, and the reply the slot returns has been decoded |
+| OAI02 | Happy: a call split across chunks | A name first, arguments in fragments and the id late assemble into one call whose argument text is exactly what arrived |
+| OAI03 | Happy: two calls interleaved | Calls are kept apart by their index and reported in index order, however they interleave |
+| OAI04 | Happy: usage | Usage in the last chunk, in a chunk of its own, or missing all give tokens, zero when the provider said nothing, and a cost labelled `provider` only when one was given |
+| OAI05 | Bad: empty choices and null content | A chunk with no choices, a `null` content and a content-free usage chunk add nothing and change nothing |
+| OAI06 | Sad: a stream that stopped early | A stream cut mid-event, or one that ends with neither a finish reason nor `[DONE]`, is a retryable `provider_error` and the partial reply is discarded; either a finish reason or `[DONE]` ends the stream |
+| OAI07 | Bad: a call with no id | A call whose id never arrived gets the stable synthetic id `call_<n>` from its position |
+| OAI08 | Bad: duplicate ids | Two calls sharing one id are both kept, the later ones renamed, so the loop can answer each of them |
+| OAI09 | Bad: unknown fields | Fields the adapter does not know are ignored wherever they appear, and a chunk that is only unknown fields changes nothing |
+| OAI10 | Bad: line endings, comments and a multi-line event | `\r\n` and `\r` split events like `\n`, comment lines are ignored, split `data:` lines join with a newline, and `data: [DONE]` ends the stream |
+| OAI11 | Bad: an oversized stream | A stream past the size cap fails as `provider_error` and stops being assembled |
+| OAI12 | Sad: a broken chunk | A `data:` payload that is not JSON, or JSON that is not an object, is a retryable `provider_error` naming the problem |
+| OAI13 | Bad: hostile bytes | Any bytes at all give a reply or an error: never a throw, never a loop, never an unbounded reply |
+
+### Requests
+
+The request the slot takes is generic (a system prompt, messages, tools, a signal),
+and the wire wants the same things spelled its own way. Two rules shape the
+mapping. Nothing is sent that a model might reject: there is no `tool_choice`, no
+`stream_options`, no usage switch and no provider field, because the core has no
+way to ask for one and both endpoints can answer without them (the model facts are
+in `implementation/notes.md`, "Step 5"). And the key exists in exactly one place,
+the `Authorization` header, built from what the Secrets slot gave and never from
+anything that could be logged or recorded.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI14 | Happy: every message kind | A user turn, an assistant turn with its calls and a tool result each map to the wire's own shape, and the system prompt is sent only when there is one |
+| OAI15 | Happy: a tool turn round trips | The `tool_call_id` on a result is the id of the assistant turn's call, so the provider pairs them, and a result's error flag is not invented as a wire field |
+| OAI16 | Bad: options a model might reject | The body holds only the model, the messages, the stream switch and the tools, so no option a model could refuse is ever sent |
+| OAI17 | Happy: tools and the model | Each tool maps to a function with its name, description and parameter schema (an empty one kept), and a recipe's fallback model overrides the configured one |
+| OAI18 | Bad: nothing to send | An empty system, no messages and no tools still build a body the endpoint accepts, rather than a request with a hole in it |
+| OAI19 | Bad: the key lives in one header | The `Authorization` header carries the key, a session header appears only when one was given, a preset's own headers are sent, and none of them can replace the key; the body holds no key at all |
+
+### The slot and its errors
+
+A failure is a `ModelError` with the right `retryable` flag, because step 2's
+retries trust it: a retryable failure is tried again and then parks the run, and
+a permanent one fails it at once. Nothing here throws across the boundary, and no
+message ever contains the key or an `Authorization` header. A call that is stopped
+is not a failure: the loop reads the signal and parks the run `stopped`.
+
+| ID | Case | Expected |
+|---|---|---|
+| OAI20 | Sad: the HTTP statuses | 400, 401, 403, 404 and any other permanent status are not retryable and name the status; 408, 429, 500, 502, 503 and 504 are retryable |
+| OAI21 | Sad: `Retry-After` | Seconds and an HTTP date both become a wait, a date in the past and a missing header give none, and an absurd value is capped |
+| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key |
+| OAI23 | Sad: the network | A `fetch` that rejects, and a body that fails while it is being read, are retryable `provider_error`s |
+| OAI24 | Sad: a stall | A call that never answers is abandoned at the deadline as a retryable `timeout`, on the fake clock |
+| OAI25 | Bad: a stop | Stopped before the request, during connect, mid-stream and after the last chunk, the call is an error the loop reads as a stop, and the stream is not left open |
+| OAI26 | Happy: the whole slot | A scripted stream through the fake server comes back as that reply, with its usage and cost, and what the server received is the mapped request with the key in one header |
+| OAI27 | Happy: a retry that succeeds | A 429 followed by a good stream completes the run, and the record keeps one `retry` |
+| OAI28 | Sad: retries exhausted | Four 500s park the run `model_unavailable` |
+| OAI29 | Bad: cut off on the token limit | A stream that ends on `length` while holding a tool call never runs that tool |

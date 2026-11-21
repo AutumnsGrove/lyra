@@ -29,6 +29,10 @@
 		"./cloudflare": {
 			"types": "./dist/adapters/cloudflare/index.d.ts",
 			"default": "./dist/adapters/cloudflare/index.js"
+		},
+		"./openai": {
+			"types": "./dist/adapters/openai/index.d.ts",
+			"default": "./dist/adapters/openai/index.js"
 		}
 	},
 	"files": [

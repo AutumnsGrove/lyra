@@ -42,5 +42,74 @@ declare class TextEncoder {
 
 declare class TextDecoder {
 	constructor(label?: string);
-	decode(input?: Uint8Array): string;
+	/** `{ stream: true }` keeps a split multi-byte character for the next call. */
+	decode(input?: Uint8Array, options?: { stream?: boolean }): string;
 }
+
+/**
+ * The model adapters' slice of `fetch`: a request it can make and the response
+ * it reads back. `fetch` is web-standard, so nothing here is a dependency; the
+ * declarations only keep the library build's `types: []` honest about what a
+ * consumer's runtime provides.
+ */
+interface FetchInit {
+	method?: string;
+	headers?: Record<string, string>;
+	body?: string;
+	signal?: AbortSignal;
+}
+
+interface FetchHeaders {
+	get(name: string): string | null;
+}
+
+declare class Headers {
+	constructor(init?: Record<string, string>);
+	get(name: string): string | null;
+}
+
+interface StreamReadResult<R> {
+	done: boolean;
+	value?: R;
+}
+
+interface StreamReader<R> {
+	read(): Promise<StreamReadResult<R>>;
+	cancel(reason?: unknown): Promise<void>;
+}
+
+interface StreamController<R> {
+	enqueue(chunk: R): void;
+	close(): void;
+	error(reason?: unknown): void;
+}
+
+interface ReadableStream<R> {
+	getReader(): StreamReader<R>;
+	cancel(reason?: unknown): Promise<void>;
+}
+
+declare class ReadableStream<R = unknown> {
+	constructor(source?: {
+		start?(controller: StreamController<R>): void;
+		cancel?(reason?: unknown): void;
+	});
+}
+
+interface Response {
+	readonly ok: boolean;
+	readonly status: number;
+	readonly headers: FetchHeaders;
+	readonly body: ReadableStream<Uint8Array> | null;
+	text(): Promise<string>;
+	json(): Promise<unknown>;
+}
+
+declare class Response {
+	constructor(
+		body?: string | Uint8Array | ReadableStream<Uint8Array> | null,
+		init?: { status?: number; headers?: Record<string, string> | FetchHeaders },
+	);
+}
+
+declare function fetch(input: string, init?: FetchInit): Promise<Response>;
