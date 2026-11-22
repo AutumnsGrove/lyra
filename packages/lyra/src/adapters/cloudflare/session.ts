@@ -22,7 +22,7 @@ import { loadRecord } from "../../record/load.js";
 import { decodeCommand } from "../../protocol/commands.js";
 import { DEFAULT_LINE_CAP_BYTES } from "../../protocol/reader.js";
 import { decodeAnswer } from "../../protocol/answers.js";
-import { CAPABILITIES, decodeFrame, responseFrame } from "../../protocol/frames.js";
+import { CAPABILITIES, claimedBy, decodeFrame, responseFrame } from "../../protocol/frames.js";
 import {
 	createHttpHandler,
 	createTokenDoor,
@@ -228,6 +228,13 @@ export function createCloudflareSession(
 		return { session, tenant, greeted, seq };
 	};
 
+	/**
+	 * The sockets this object is following, by socket. It is memory, so a hibernated
+	 * object rebuilds it from `getWebSockets()` and each socket's attachment instead
+	 * of trusting it: that is the one thing a hibernating object cannot keep.
+	 */
+	const watching = new Map<WebSocket, () => void>();
+
 	/** One frame out, and the attachment's `seq` moves only when an event carried one. */
 	const send = (socket: WebSocket, frame: string, seq?: number): void => {
 		socket.send(frame);
@@ -237,6 +244,51 @@ export function createCloudflareSession(
 		const attachment = attachmentOf(socket);
 		if (attachment !== undefined) {
 			socket.serializeAttachment({ ...attachment, seq });
+		}
+	};
+
+	/**
+	 * Follow this session from the socket's last `seq`, which is the same `follow` the
+	 * HTTP stream uses: replay from the record, then live, with no gap and no
+	 * duplicate. Idempotent, because a hibernated object calls it again for every
+	 * socket it finds in `getWebSockets`.
+	 */
+	const watch = async (socket: WebSocket): Promise<void> => {
+		if (watching.has(socket)) {
+			return;
+		}
+		const attachment = attachmentOf(socket);
+		if (attachment === undefined) {
+			return;
+		}
+		const session = await build(attachment.tenant);
+		const followed = await session.follow(attachment.seq, (event) => {
+			// One frame per event, nested so the event's own `type` is not the frame's.
+			send(
+				socket,
+				JSON.stringify({ type: "event", event }),
+				"seq" in event ? event.seq : undefined,
+			);
+		});
+		if (!followed.ok) {
+			socket.close(1011, "this session cannot be followed");
+			return;
+		}
+		watching.set(socket, followed.value);
+	};
+
+	/**
+	 * Rebuild what hibernation took: the object's memory is gone, so every socket the
+	 * platform still holds is followed again from its attachment's `seq`. Called
+	 * before a frame is handled, which is the first moment the object runs after a
+	 * wake.
+	 */
+	const resumeWatching = async (): Promise<void> => {
+		for (const socket of state.getWebSockets()) {
+			const attachment = attachmentOf(socket);
+			if (attachment?.greeted === true) {
+				await watch(socket);
+			}
 		}
 	};
 
@@ -326,6 +378,7 @@ export function createCloudflareSession(
 				socket.close(1011, "this socket has no session");
 				return;
 			}
+			await resumeWatching();
 			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			// A frame over the line cap closes the socket rather than being read, which is
 			// FRM01's rule and step 8's close code 1002. Messages are already delimited,
@@ -340,9 +393,12 @@ export function createCloudflareSession(
 			}
 			const decoded = decodeFrame(text);
 			if (!decoded.ok) {
+				// A frame that is not one still names what it claimed, so a client on a
+				// multiplexed socket can pair the refusal with the request it sent.
+				const claimed = claimedBy(text);
 				socket.send(
 					JSON.stringify(
-						responseFrame("", "", {
+						responseFrame(claimed.id, claimed.command, {
 							ok: false,
 							error: decoded.error,
 						}),
@@ -368,6 +424,9 @@ export function createCloudflareSession(
 					return;
 				}
 				socket.serializeAttachment({ ...attachment, greeted: true });
+				// The exchange is done, so the events start: replay from the attachment's
+				// `seq`, then live (WSK07, WSK08).
+				await watch(socket);
 				return;
 			}
 			if (!attachment.greeted) {
@@ -434,15 +493,17 @@ export function createCloudflareSession(
 			);
 		},
 
-		/** The object's own close bookkeeping: the attachment is already the state. */
+		/** A socket that goes away stops being watched; the run does not notice. */
 		webSocketClose: (socket: WebSocket, code: number, reason: string) => {
-			void socket;
 			void code;
 			void reason;
+			watching.get(socket)?.();
+			watching.delete(socket);
 		},
 
 		webSocketError: (socket: WebSocket) => {
-			void socket;
+			watching.get(socket)?.();
+			watching.delete(socket);
 		},
 
 		send: async ({ tenant, frame }) => {
@@ -499,6 +560,21 @@ export function createSessionWorker(
 ): (request: Request) => Promise<Response> {
 	const door = createTokenDoor(options.tokens);
 	return async (request) => {
+		const early = new URL(request.url);
+		if (request.method === "GET" && early.pathname === "/v1/ws") {
+			// Routed before this Worker's door: an upgrade is answered by the object,
+			// which owns the 101 and its own token check, so a missing token is the
+			// object's 401 rather than this router's 403 (WSK04).
+			const named = early.searchParams.get("session");
+			if (named === null || named === "") {
+				return refusalResponse("bad_request", "a socket needs a session");
+			}
+			const id = sessionIdFor(options.namespace, { tenant: "upgrade", session: named });
+			if (!id.ok) {
+				return refusalResponse(id.error.code, id.error.message);
+			}
+			return options.namespace.get(id.value).fetch(request);
+		}
 		const tenant = await door(request);
 		if (!tenant.ok) {
 			return refusalResponse(tenant.error.code, tenant.error.message);
@@ -528,6 +604,18 @@ export function createSessionWorker(
 				headers: request.headers,
 				body,
 			});
+		} else if (request.method === "GET" && url.pathname === "/v1/ws") {
+			// An upgrade is forwarded as it arrived, because the object has to answer it
+			// itself: `response.webSocket` and the 101 belong to the object's own
+			// `acceptWebSocket`, and the token door is the object's too, which is what
+			// keeps one answer for a missing token (401, WSK04) rather than this
+			// router's 403.
+			const named = url.searchParams.get("session");
+			if (named === null || named === "") {
+				return refusalResponse("bad_request", "a socket needs a session");
+			}
+			target = sessionIdFor(options.namespace, { tenant: tenant.value, session: named });
+			forward = request;
 		} else if (
 			request.method === "GET" &&
 			(url.pathname === "/v1/events" || url.pathname === "/v1/state")

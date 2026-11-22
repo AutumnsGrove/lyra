@@ -95,6 +95,20 @@ export class Session implements DurableObject {
 	async alarm(): Promise<void> {
 		await this.#build().alarm();
 	}
+
+	/** A socket accepted here hibernates with the object, and a frame wakes it. */
+	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		await this.#build().webSocketMessage(ws, message);
+	}
+
+	webSocketClose(ws: WebSocket, code: number, reason: string): void {
+		this.#build().webSocketClose(ws, code, reason);
+	}
+
+	webSocketError(ws: WebSocket, error: unknown): void {
+		void error;
+		this.#build().webSocketError(ws);
+	}
 }
 
 export default {

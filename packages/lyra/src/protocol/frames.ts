@@ -89,6 +89,27 @@ export function decodeFrame(line: string): Result<DecodedFrame> {
 	return { ok: true, value: { type, fields } };
 }
 
+/**
+ * The id and command a line claims, for a refusal to name the frame it refuses.
+ * A line that is not an object claims nothing.
+ */
+export function claimedBy(line: string): { id: string; command: string } {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		return { id: "", command: "" };
+	}
+	if (typeof parsed !== "object" || parsed === null) {
+		return { id: "", command: "" };
+	}
+	const fields = parsed as Record<string, unknown>;
+	return {
+		id: typeof fields["id"] === "string" ? fields["id"] : "",
+		command: typeof fields["command"] === "string" ? fields["command"] : "",
+	};
+}
+
 /** One frame as one line, newline included. */
 export function encodeFrame(frame: { type: FrameType } & JsonObject): string {
 	return `${JSON.stringify(frame)}\n`;

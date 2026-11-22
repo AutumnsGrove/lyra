@@ -19,7 +19,7 @@ import type { JsonValue } from "../core/json.js";
 import { DEFAULT_LINE_CAP_BYTES, lineReader } from "./reader.js";
 import { decodeAnswer } from "./answers.js";
 import { decodeCommand } from "./commands.js";
-import { decodeFrame, responseFrame } from "./frames.js";
+import { claimedBy, decodeFrame, responseFrame } from "./frames.js";
 import type { Session, SessionEvent } from "./session.js";
 
 /** The protocol version this build speaks, and what the header means when it is missing. */
@@ -182,23 +182,6 @@ function lineOf(body: string, cap: number): Result<string> {
 		return fail("bad_request", "a command request holds one frame, not several");
 	}
 	return ok(lines[0] as string);
-}
-
-/** The id and command name a frame claims, for an answer to a frame that was refused. */
-function claimedBy(line: string): { id: string; command: string } {
-	try {
-		const parsed: unknown = JSON.parse(line);
-		if (typeof parsed !== "object" || parsed === null) {
-			return { id: "", command: "" };
-		}
-		const fields = parsed as Record<string, unknown>;
-		return {
-			id: typeof fields["id"] === "string" ? fields["id"] : "",
-			command: typeof fields["command"] === "string" ? fields["command"] : "",
-		};
-	} catch {
-		return { id: "", command: "" };
-	}
 }
 
 /** One event as one server-sent-event message; `id` is the entry, when there is one. */
