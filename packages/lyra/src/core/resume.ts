@@ -150,6 +150,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				break;
 			case "fallback":
 			case "note":
+			case "compaction":
 			case "unknown":
 				break;
 		}

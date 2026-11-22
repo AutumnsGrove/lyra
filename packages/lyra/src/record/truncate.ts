@@ -16,6 +16,7 @@
 import {
 	encodeEntry,
 	type AssistantMessageEntry,
+	type CompactionEntry,
 	type RecordEntry,
 	type ToolMessageEntry,
 	type Truncation,
@@ -45,7 +46,7 @@ export interface Fitted {
 	refused?: string;
 }
 
-type TextField = "content" | "arguments" | "reasoning" | "text";
+type TextField = "content" | "arguments" | "reasoning" | "text" | "summary";
 
 interface Candidate {
 	field: TextField;
@@ -53,8 +54,13 @@ interface Candidate {
 	write(value: string): void;
 }
 
-/** The two kinds with content worth cutting: everything else is small by construction. */
-type Truncatable = AssistantMessageEntry | ToolMessageEntry;
+/**
+ * The kinds with content worth cutting: a summary is the fourth, because a model
+ * asked to summarize can answer at any length and the entry it becomes is an
+ * entry like any other (docs/context-size.md). Everything else is small by
+ * construction.
+ */
+type Truncatable = AssistantMessageEntry | ToolMessageEntry | CompactionEntry;
 
 /** The fields of an entry that may be cut, with the entry copied so the caller's is untouched. */
 function textCandidates(entry: Truncatable): Candidate[] {
@@ -66,6 +72,16 @@ function textCandidates(entry: Truncatable): Candidate[] {
 					read: () => entry.content,
 					write: (value) => {
 						entry.content = value;
+					},
+				},
+			];
+		case "compaction":
+			return [
+				{
+					field: "summary",
+					read: () => entry.summary,
+					write: (value) => {
+						entry.summary = value;
 					},
 				},
 			];
@@ -128,7 +144,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 	if (utf8Length(line) <= maxBytes) {
 		return { entry, line };
 	}
-	if (entry.type !== "assistant_message" && entry.type !== "tool_message") {
+	if (
+		entry.type !== "assistant_message" &&
+		entry.type !== "tool_message" &&
+		entry.type !== "compaction"
+	) {
 		// A status, a user message or an unknown kind has no content to cut, and a
 		// user message this big is refused before it is ever saved.
 		return { entry, line, refused: `a ${entry.type} entry has no content to cut` };

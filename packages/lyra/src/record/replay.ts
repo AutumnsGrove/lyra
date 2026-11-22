@@ -28,7 +28,12 @@ export function activePath(entries: readonly RecordEntry[]): RecordEntry[] {
 	return path.reverse();
 }
 
-function toMessage(entry: RecordEntry): ConversationMessage | undefined {
+/**
+ * One entry as the message the model sees, when it is one at all. The live loop
+ * and the compaction view both call this, so a replayed conversation and a live
+ * one cannot drift.
+ */
+export function entryMessage(entry: RecordEntry): ConversationMessage | undefined {
 	switch (entry.type) {
 		case "user_message":
 			return { role: "user", text: entry.text };
@@ -52,8 +57,11 @@ function toMessage(entry: RecordEntry): ConversationMessage | undefined {
 		case "note":
 		case "fallback":
 		case "recipe_updated":
+		case "compaction":
 		case "unknown":
-			// A status is progress, a note is for a person, and an unknown kind is not ours to read.
+			// A status is progress, a note is for a person, a compaction and a pin are
+			// how the view is built rather than something in it, and an unknown kind is
+			// not ours to read.
 			return undefined;
 	}
 }
@@ -61,7 +69,7 @@ function toMessage(entry: RecordEntry): ConversationMessage | undefined {
 export function replayConversation(entries: RecordEntry[]): ConversationMessage[] {
 	const messages: ConversationMessage[] = [];
 	for (const entry of activePath(entries)) {
-		const message = toMessage(entry);
+		const message = entryMessage(entry);
 		if (message !== undefined) {
 			messages.push(message);
 		}

@@ -74,3 +74,7 @@ boundaries and pointers rather than about exact counts.
 | CMP03 | Empty and one-step histories | An empty history, and a history with one step, give no cut however small the budget |
 | CMP04 | A history of huge steps | A history where every step is over the budget still cuts at a step boundary, keeping the last whole step |
 | CMP05 | `firstKept` always exists | For any generated history that cuts, `firstKept` names an entry in that history, at the position the cut reports |
+| CMP06 | Happy: the view | The conversation is the latest summary, then each tool's current state, then the entries from the pointer on, in that order, with the instructions left as the system text; a record with no compaction is the whole conversation, unchanged |
+| CMP07 | Happy: replay after a compaction | Replaying the full record rebuilds the recipe's state exactly as the live run had it, because every tool message is applied, including those the summary stands in for |
+| CMP08 | A second compaction | The view shows only the newest summary and the entries after its pointer, and the material the second summary is written from begins with the first summary and covers only the steps it never saw |
+| CMP09 | Bad: a future field | A compaction entry carrying a field this build does not know loads with its known fields intact, and the field is dropped rather than carried along unread |
