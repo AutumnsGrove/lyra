@@ -10,7 +10,7 @@ import {
 	toolReturning,
 	type ScriptedTurn,
 } from "../testkit/index.js";
-import { until } from "./run-harness.testing.js";
+import { drive, until } from "./run-harness.testing.js";
 import type { CompactionSettings } from "./compaction.js";
 import type { Usage } from "./model.js";
 import type { RunEvent } from "./events.js";
@@ -468,4 +468,40 @@ test("CMP15 a reported count over the window fails plainly, even when the view i
 		// It said so instead of spending a request the model cannot read.
 		expect(runRequests(run.model)).toHaveLength(1);
 	})();
+});
+
+test("CMP25 a compaction followed by a fallback does not fail on the pre-cut count", async () => {
+	// The count from before the cut stops describing the conversation once the
+	// compaction is written. A retry that runs out and falls back re-enters the
+	// trigger without a reply to replace it, so the base has to be dropped there
+	// too, exactly as the resume seed drops it.
+	const run = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }], usage: usage(5_000) },
+			{
+				toolCalls: [{ id: "c2", name: "finish", args: {} }],
+				usage: usage(5_000),
+				failures: [
+					{ code: "provider_error" },
+					{ code: "provider_error" },
+					{ code: "provider_error" },
+					{ code: "provider_error" },
+				],
+			},
+		],
+		{
+			window: 600,
+			summaries: [{ text: "the summary" }],
+			compaction: { reserveTokens: 100, keepTokens: 50 },
+		},
+	);
+	// A thousand fake milliseconds a turn, so the retries' growing waits all resolve.
+	const result = await drive(run.clock, run.run({ fallbackModel: "fallback/model" }), 1_000);
+
+	expect(result.reason).toBe("done");
+	// It compacted once, moved to the fallback, and did not fail on the way.
+	const entries = await entriesOf(run.storage);
+	expect(entries.filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	expect(entries.some((entry) => entry.type === "fallback")).toBe(true);
+	expect(compactionRequests(run.model)).toHaveLength(1);
 });

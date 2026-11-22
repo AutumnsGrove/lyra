@@ -10,6 +10,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 ## Step 7, review round 1, 2026-11-21
 
+- **Round 3: the live path never dropped the pre-cut count.** After a live
+  compaction `lastInputTokens` still held the reply from before the cut; the next
+  reply usually replaces it, but a request whose retries run out and a recipe with a
+  `fallbackModel` `continue` back into the trigger with nothing new, and the run
+  then failed `input_too_large` on a conversation that no longer existed. The
+  compaction path clears the base where it rebuilds the view, which is the same drop
+  the resume seed makes, so the two sides agree. CMP25 pins it: a compaction, four
+  retryable failures, a fallback, and `done`.
+
 - **Round 2: the first guard threw away a current provider count.** Comparing the
   view's own estimate with the window fixed the resume case and broke the honest
   one — a model reporting more input tokens than the window over text that estimates

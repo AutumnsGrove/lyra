@@ -889,6 +889,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		viewEntries = view.entries;
 		messages = view.messages;
 		previousSummary = view.summary;
+		// The count from before the cut no longer describes the conversation. The next
+		// reply replaces it, but a retry that runs out and falls back comes back here
+		// without one, so the base is dropped here exactly as the resume seed drops it.
+		lastInputTokens = undefined;
 		return undefined;
 	};
 
