@@ -18,6 +18,19 @@ import { isErrorCode, type ErrorCode, type Result } from "../core/result.js";
  */
 export const FRAME_TYPES = ["hello", "command", "response", "event", "ui_response"] as const;
 
+/**
+ * What a host says it can do in `hello` (step 8). A client reads it to know which
+ * commands will answer rather than refuse, so it is one list rather than a guess.
+ */
+export const CAPABILITIES = [
+	"steer",
+	"follow_up",
+	"compact",
+	"resume",
+	"proposals",
+	"approvals",
+] as const;
+
 export type FrameType = (typeof FRAME_TYPES)[number];
 
 export function isFrameType(value: unknown): value is FrameType {

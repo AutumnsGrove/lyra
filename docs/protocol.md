@@ -203,6 +203,12 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | HTP08 | Another path or method | `not_found`, as a frame |
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
+| WSK01 | An upgrade, then the hello exchange | The server speaks first with `{type: "hello", version, server, capabilities}`, the client answers with its own hello, and a command then reaches the session |
+| WSK02 | A command before `hello` | `bad_request`, and the socket stays open so the exchange can still happen |
+| WSK03 | A command over the socket | The same response frame the same command gets over HTTP |
+| WSK04 | An upgrade with no token, or for another tenant's session | 401 before a socket exists, and `not_found` for a session the caller's tenant does not own |
+| WSK05 | A frame over the 2 MiB cap | The socket closes with 1002 and the frame is not read |
+| WSK06 | A frame that is not one | A refusal frame, non-fatal, as HTTP answers the same cases; the socket stays open |
 
 The framing, command, event, HTTP and access rows above are built as far as the approvals and proposals slice (WebSocket rows arrive with step 8), and `scripts/unbuilt-rows.json` is empty. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 

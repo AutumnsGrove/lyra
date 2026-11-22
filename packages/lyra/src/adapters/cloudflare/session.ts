@@ -19,6 +19,10 @@ import type { ModelSlot } from "../../core/model.js";
 import { fail, ok, type Result } from "../../core/result.js";
 import { createRuntime, type RunDefinition, type Runtime } from "../../core/runtime.js";
 import { loadRecord } from "../../record/load.js";
+import { decodeCommand } from "../../protocol/commands.js";
+import { DEFAULT_LINE_CAP_BYTES } from "../../protocol/reader.js";
+import { decodeAnswer } from "../../protocol/answers.js";
+import { CAPABILITIES, decodeFrame, responseFrame } from "../../protocol/frames.js";
 import {
 	createHttpHandler,
 	createTokenDoor,
@@ -53,6 +57,9 @@ export interface DurableObjectNamespaceLike {
 export interface DurableObjectStateLike {
 	readonly id: DurableObjectIdLike;
 	readonly storage: DurableObjectAlarmStorage;
+	/** Hibernating sockets: the platform keeps them and wakes the object for a frame. */
+	acceptWebSocket(socket: WebSocket): void;
+	getWebSockets(): WebSocket[];
 }
 
 export interface CloudflareSessionOptions {
@@ -73,6 +80,10 @@ export interface CloudflareSession {
 	fetch(request: Request): Promise<Response>;
 	/** The object's alarm, which continues a run whose host died. */
 	alarm(): Promise<void>;
+	/** Hibernating sockets: the platform wakes the object for a frame or a close. */
+	webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void>;
+	webSocketClose(socket: WebSocket, code: number, reason: string): void;
+	webSocketError(socket: WebSocket): void;
 	/**
 	 * The trusted door: run one command frame for a tenant a service binding named.
 	 * It answers with the response frame, exactly as the wire would, so the caller
@@ -184,6 +195,102 @@ export function createCloudflareSession(
 		},
 	};
 
+	/**
+	 * The socket's own state, in the attachment: which session, whose it is, whether
+	 * the hello exchange has happened, and the last `seq` sent. It is the only state
+	 * a hibernated object gets back (step 8, WSK14).
+	 */
+	interface Attachment {
+		session: string;
+		tenant: string;
+		greeted: boolean;
+		seq: number;
+	}
+
+	const attachmentOf = (socket: WebSocket): Attachment | undefined => {
+		const stored = socket.deserializeAttachment();
+		if (typeof stored !== "object" || stored === null) {
+			return undefined;
+		}
+		const fields = stored as Record<string, unknown>;
+		const session = fields["session"];
+		const tenant = fields["tenant"];
+		const greeted = fields["greeted"];
+		const seq = fields["seq"];
+		if (
+			typeof session !== "string" ||
+			typeof tenant !== "string" ||
+			typeof greeted !== "boolean" ||
+			typeof seq !== "number"
+		) {
+			return undefined;
+		}
+		return { session, tenant, greeted, seq };
+	};
+
+	/** One frame out, and the attachment's `seq` moves only when an event carried one. */
+	const send = (socket: WebSocket, frame: string, seq?: number): void => {
+		socket.send(frame);
+		if (seq === undefined) {
+			return;
+		}
+		const attachment = attachmentOf(socket);
+		if (attachment !== undefined) {
+			socket.serializeAttachment({ ...attachment, seq });
+		}
+	};
+
+	const upgrade = async (request: Request, url: URL): Promise<Response> => {
+		const tenant = await createTokenDoor(options.tokens)(request);
+		if (!tenant.ok) {
+			// Refused before the upgrade, so no socket ever exists for a caller with no
+			// token (WSK04). An upgrade answers 401 where an ordinary request answers
+			// 403, which is step 8's settled choice: the handshake has not happened, so
+			// there is no frame exchange to put the refusal in.
+			return new Response(
+				JSON.stringify({
+					type: "response",
+					id: "",
+					command: "",
+					ok: false,
+					error: tenant.error,
+				}),
+				{ status: 401, headers: { "content-type": "application/json" } },
+			);
+		}
+		const named = url.searchParams.get("session");
+		if (named === null || named === "") {
+			return refusalResponse("bad_request", "a socket needs a session");
+		}
+		const opened = await host.open({ tenant: tenant.value, session: named });
+		if (!opened.ok) {
+			return refusalResponse(opened.error.code, opened.error.message);
+		}
+		const pair = new WebSocketPair();
+		const client = pair[0];
+		const server = pair[1];
+		const since = url.searchParams.get("since");
+		const seq = since === null ? 0 : Number(since);
+		server.serializeAttachment({
+			session: named,
+			tenant: tenant.value,
+			greeted: false,
+			seq: Number.isSafeInteger(seq) && seq >= 0 ? seq : 0,
+		} satisfies Attachment);
+		state.acceptWebSocket(server);
+		// The server speaks first, so a client knows the version before it sends
+		// anything (step 8's settled hello).
+		server.send(
+			JSON.stringify({
+				type: "hello",
+				version: PROTOCOL_VERSION,
+				server: options.host,
+				capabilities: CAPABILITIES,
+			}),
+		);
+		return new Response(null, { status: 101, webSocket: client });
+	};
+
 	const handler = createHttpHandler(host, {
 		tenantFor: createTokenDoor(options.tokens),
 		...(options.maxQueuedEvents === undefined
@@ -192,7 +299,151 @@ export function createCloudflareSession(
 	});
 
 	return {
-		fetch: handler,
+		/**
+		 * The upgrade, then one frame at a time (step 8, WSK01 to WSK06). The socket is
+		 * accepted through the object's own `acceptWebSocket`, so it hibernates with the
+		 * object and a frame wakes it; what the object keeps between frames is the
+		 * attachment, never a set in memory.
+		 */
+		fetch: async (request) => {
+			const url = new URL(request.url);
+			if (request.method === "GET" && url.pathname === "/v1/ws") {
+				return upgrade(request, url);
+			}
+			return handler(request);
+		},
+
+		/**
+		 * One frame from a client (step 8, WSK01 to WSK06, and the answer path since
+		 * the approvals slice). Nothing a socket sends is trusted: it is decoded by the
+		 * same frame reader and the same command validator HTTP uses, and a refusal is
+		 * a response frame the socket stays open for.
+		 */
+		webSocketMessage: async (socket: WebSocket, message: string | ArrayBuffer) => {
+			const attachment = attachmentOf(socket);
+			if (attachment === undefined) {
+				// A socket this object cannot place is closed rather than guessed at.
+				socket.close(1011, "this socket has no session");
+				return;
+			}
+			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
+			// A frame over the line cap closes the socket rather than being read, which is
+			// FRM01's rule and step 8's close code 1002. Messages are already delimited,
+			// so this is the one size check the socket needs.
+			const bytes =
+				typeof message === "string"
+					? new TextEncoder().encode(message).byteLength
+					: message.byteLength;
+			if (bytes > DEFAULT_LINE_CAP_BYTES) {
+				socket.close(1002, "a frame is over the line cap");
+				return;
+			}
+			const decoded = decodeFrame(text);
+			if (!decoded.ok) {
+				socket.send(
+					JSON.stringify(
+						responseFrame("", "", {
+							ok: false,
+							error: decoded.error,
+						}),
+					),
+				);
+				return;
+			}
+			const frame = decoded.value;
+			if (frame.type === "hello") {
+				const version = frame.fields["version"];
+				if (version !== undefined && String(version) !== PROTOCOL_VERSION) {
+					socket.send(
+						JSON.stringify(
+							responseFrame("", "", {
+								ok: false,
+								error: {
+									code: "unsupported",
+									message: `this host speaks protocol version ${PROTOCOL_VERSION}`,
+								},
+							}),
+						),
+					);
+					return;
+				}
+				socket.serializeAttachment({ ...attachment, greeted: true });
+				return;
+			}
+			if (!attachment.greeted) {
+				// No command before the exchange, and the socket stays open (WSK02).
+				socket.send(
+					JSON.stringify(
+						responseFrame("", "", {
+							ok: false,
+							error: {
+								code: "bad_request",
+								message: "a command needs the hello exchange first",
+							},
+						}),
+					),
+				);
+				return;
+			}
+			if (frame.type === "command") {
+				const command = decodeCommand(frame);
+				if (!command.ok) {
+					const claimed = frame.fields;
+					socket.send(
+						JSON.stringify(
+							responseFrame(
+								typeof claimed["id"] === "string" ? claimed["id"] : "",
+								typeof claimed["command"] === "string" ? claimed["command"] : "",
+								{ ok: false, error: command.error },
+							),
+						),
+					);
+					return;
+				}
+				const session = await build(attachment.tenant);
+				const answer = await session.command(command.value);
+				socket.send(
+					JSON.stringify(responseFrame(command.value.id, command.value.command, answer)),
+				);
+				return;
+			}
+			if (frame.type === "ui_response") {
+				const answer = decodeAnswer(frame);
+				if (!answer.ok) {
+					socket.send(JSON.stringify(responseFrame("", "ui_response", answer)));
+					return;
+				}
+				const session = await build(attachment.tenant);
+				const done = await session.respond({
+					...answer.value,
+					session: attachment.session,
+				});
+				socket.send(JSON.stringify(responseFrame("", "ui_response", done)));
+				return;
+			}
+			socket.send(
+				JSON.stringify(
+					responseFrame("", "", {
+						ok: false,
+						error: {
+							code: "unsupported",
+							message: `a ${frame.type} frame is not one a client sends`,
+						},
+					}),
+				),
+			);
+		},
+
+		/** The object's own close bookkeeping: the attachment is already the state. */
+		webSocketClose: (socket: WebSocket, code: number, reason: string) => {
+			void socket;
+			void code;
+			void reason;
+		},
+
+		webSocketError: (socket: WebSocket) => {
+			void socket;
+		},
 
 		send: async ({ tenant, frame }) => {
 			const trusted = createHttpHandler(host, {

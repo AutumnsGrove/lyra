@@ -221,6 +221,20 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		await this.#build().alarm();
 	}
 
+	/** The hibernating socket handlers, delegated to the object a host ships. */
+	override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		await this.#build().webSocketMessage(ws, message);
+	}
+
+	override webSocketClose(ws: WebSocket, code: number, reason: string): void {
+		this.#build().webSocketClose(ws, code, reason);
+	}
+
+	override webSocketError(ws: WebSocket, error: unknown): void {
+		void error;
+		this.#build().webSocketError(ws);
+	}
+
 	/** The trusted door a service binding's entry point calls. */
 	async send(request: { tenant: string; frame: string }): Promise<string> {
 		return this.#build().send(request);
