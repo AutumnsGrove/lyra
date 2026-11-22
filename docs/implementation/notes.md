@@ -39,6 +39,30 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   event has to drain the replay first; two tests passed on replay alone before the
   review caught it.
 
+## Step 8, wrap-up, 2026-11-21
+
+- **The example Worker's ceiling moved to 48 KiB** (decision 143): passing the three
+  hibernation handlers through crossed 44 KiB by 91 bytes, and there is nothing to cut
+  in three delegating methods.
+- **`main`'s gate was red for everyone** when the two Claude review workflows landed
+  unformatted: `pnpm format` checks workflow files, and it is the gate's first step.
+  Fixed in pull request #31 rather than inside this branch, so the two changes stay
+  separable.
+- **`getWebSockets()` is empty after an eviction in this harness**, so the re-follow is
+  driven by the next frame on a socket, not by the platform's list. A socket that
+  never speaks again after an eviction gets no live events until it does; the record
+  is the catch-up either way.
+- **`webSocketClose` has to answer the close**, which Cloudflare's hibernation docs
+  require and the tests never awaited, so nothing caught it missing.
+- **The plain-GET 500 was the front door's fault**: forwarding a `GET /v1/ws` that did
+  not ask to upgrade made workerd throw. The header is checked before a pair is made.
+- **The gate**: 521 Node tests, 50 workerd tests, 31 socket tests, 15 fuzz/property
+  targets, `matrixcheck` 343 rows with none unbuilt, package 133,514 B of 180,224 B,
+  the example 45,147 B of 49,152 B.
+- **Not done, and said so in the PR:** WSK13 (eviction mid-run with a socket open) and
+  WSK15 (a backed-up reader) are unwritten because both hang in this harness;
+  `pnpm lyra --transport ws` is a dev tool and is not in the gate.
+
 ## Approvals, review round 4, 2026-11-21
 
 - **Every command that appends claims the record now**, not only a decision and a run

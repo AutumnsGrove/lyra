@@ -15,6 +15,10 @@ tenant, and a record from before that field loads without it. `ResumeRequest` ga
 `followUp`, `RuntimeOptions` and `RunConfig` gained an optional `tenant`, and `RunHandle` gained
 `pending()`, none of which an existing caller has to use.
 
+WebSocket arrives with the same release: the same frames over a socket, with the
+server's `hello` first, `since` as the replay cursor, hibernation through the
+Durable Object's own `acceptWebSocket`, and `pnpm lyra --transport ws`.
+
 Approvals and proposals arrive with the same release: a run can stop and ask a
 person, wait at no cost, and carry on from the answer, and a finished run can leave
 a proposal for a decision later. The seams are opt-in — `Tool.policy`, `Tool.risk`,
@@ -71,6 +75,12 @@ before, except that a tool result is now capped at 50 KiB as the model reads it.
 - Proposals: `createProposeTool` saves a `proposal` entry with the task's typed
   payload and evidence and ends the run `done`; `decide_proposal` accepts or rejects
   it once, with a note (rows PRP01 to PRP06 in `docs/consumers.md`, decision 142).
+- WebSocket (`GET /v1/ws?session=&since=`): the server speaks `hello` first, a
+  command before the exchange is `bad_request` with the socket left open, every
+  command answers what HTTP answers, and a reconnect replays the record then goes
+  live with no gap and no duplicate (rows WSK01 to WSK14 in `docs/protocol.md`,
+  decisions 101 and 143). Every scenario file now runs a fourth level over a socket,
+  and `pnpm lyra --transport ws` drives the same commands over it.
 - The protocol's `compact` neighbour `list_pending`, `decide_proposal` and
   `POST /v1/ui_response` all answer now, and the record projects `ui_request`,
   `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`
@@ -126,6 +136,8 @@ Node's timer type fits; its exported `systemClock()` and `systemIds()` are uncha
 
 ### Changed
 
+- The example Worker's ceiling moves from 44 KiB to 48 KiB gzipped, for the socket
+  handlers a hibernating socket needs (decision 143).
 - The package's size ceiling moves from 68 KiB to 84 KiB gzipped for the OpenAI-style adapter
   (decision 123), and then to 88 KiB for the misbehaving model, cassettes and the presets (decision
   128).

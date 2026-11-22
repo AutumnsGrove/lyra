@@ -81,6 +81,10 @@ This is the concrete shape, written so spec rows can have IDs (decision 62). It 
 - Client `hello`: `{type, version: 1, client, capabilities, tenant?}`. `capabilities` lists the request kinds the client can answer: `ui.confirm`, `ui.select`, `ui.input`, `ui.form`. `tenant` is only for trusted callers (see Access below).
 - Server `hello`: `{type, version: 1, server, capabilities}`, with `capabilities` drawn from `steer`, `follow_up`, `compact`, `resume`, `proposals`.
 - Over HTTP, the version travels in a header and there is no hello frame.
+- Over a WebSocket (step 8), one socket is one session, named in the query string: `GET /v1/ws?session=<id>&since=<seq>`. The server speaks first with its `hello`, the client answers with its own, and a command before the exchange is `bad_request` with the socket left open. `since` is the replay cursor, the socket's counterpart to `Last-Event-ID`: every record-derived event after it is replayed from the record, and then the events continue live.
+- Each event travels as `{type: "event", event}`, nested because an event has its own `type`. Every frame a socket receives goes through the same 2 MiB cap as a line; a frame over it closes the socket with 1002 rather than being read.
+- Close codes: **1000** normal, **1002** a protocol error (a bad frame, a command before `hello`), **1008** policy (a client that stopped reading: its outbound buffer passed 1 MiB), **1011** internal. An unauthorized upgrade is refused with HTTP **401** before any socket exists, and an upgrade for another tenant's session with `not_found`.
+- The socket is accepted through the object's own `acceptWebSocket`, so it hibernates with the object; the per-connection state is the attachment (`session`, `tenant`, `greeted`, `seq`), and an evicted object follows its sockets again on their next frame. A scheduled alarm keeps the object awake, so a run parked with a wake time is billed for that window rather than hibernating (decision 101's caveat).
 
 ### Commands (decision 83)
 
@@ -217,7 +221,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | WSK12 | An evicted object with a socket open | The socket outlives the eviction; the first frame after it wakes a fresh object, which follows that socket again, and the run it releases reaches it |
 | WSK14 | The attachment | It carries the session, the tenant, whether the exchange happened and the `seq` a wake resumes from, and stays far inside the platform's 16,384-byte cap |
 
-The framing, command, event, HTTP and access rows above are built as far as the approvals and proposals slice (WebSocket rows arrive with step 8), and `scripts/unbuilt-rows.json` is empty. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as step 8, and `scripts/unbuilt-rows.json` is empty. The socket rows (`WSK01` to `WSK14`, `WSK16` in prose) are its own. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 

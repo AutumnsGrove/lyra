@@ -14,8 +14,10 @@ kill matrix and a long-run scenario, and the `compact` command. Decisions 135 to
 The approvals and proposals slice is merged (pull request #27, `6970a1e`): a tool's policy and risk, a
 request saved and the run parked `waiting_for_person`, the answer as its own record entry, a question
 through the same mechanism, a timeout denied by the host's alarm, and proposals a person decides. It was
-named next by Autumn on 2026-11-21 and planned in `docs/implementation/A-approvals-proposals.md`. WebSocket
-is step 8 and follows it. Approvals are outside `first-slice.md`'s version one, so they have a letter
+named next by Autumn on 2026-11-21 and planned in `docs/implementation/A-approvals-proposals.md`. Step 8,
+WebSocket, is in review on `feat/step-08-websocket` (pull request #29): the upgrade
+and `hello`, events and `since` replay, hibernation through `acceptWebSocket`, the
+scenario files over a socket, and `pnpm lyra --transport ws`. Approvals are outside `first-slice.md`'s version one, so they have a letter
 rather than a step number. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra; whether it comes before steps 7 and 8 is
 Autumn's call. Step 0, the Lumen changes in Lattice, landed on 2026-11-17, so step 5's Lumen half now has both of its dependencies: those changes, and `0.1.0` on npm. The build order is in `docs/first-slice.md`, and the resumable state is the status table and "Where the last session stopped" in `docs/implementation/README.md`. `0.1.0` is published (2026-11-19, the first release), and `0.0.0` exists only to create the package record, because npm cannot take a trusted publisher for a package that does not exist yet. A tag publishes over OIDC with no token and no login; the workflow and its notes script are step R.
