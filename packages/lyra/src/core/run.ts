@@ -15,6 +15,19 @@
 
 import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
+import {
+	buildView,
+	chooseCut,
+	DEFAULT_KEEP_TOKENS,
+	DEFAULT_SUMMARY_INSTRUCTIONS,
+	defaultReserveTokens,
+	estimateSinceLastReply,
+	shouldCompact,
+	summarize,
+	summaryMaterial,
+	validateCompactionSettings,
+	type CompactionSettings,
+} from "./compaction.js";
 import { executeTools } from "./execute-tools.js";
 import {
 	parkedReasonOf,
@@ -25,13 +38,15 @@ import {
 } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { createUsageTotal } from "./usage.js";
-import { compareTools, describeChange, pinRecipe } from "./recipe.js";
+import { compareTools, describeChange, hashText, pinRecipe } from "./recipe.js";
+import { RETRY_DELAYS_MS } from "./retry.js";
 import type { JsonValue } from "./json.js";
 import { formatErrors, type Validation } from "./schema.js";
 import { readResumeSeed, reserveIds, type ResumeSeed } from "./resume.js";
 import { replayState } from "./state.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
+import { entryMessage } from "../record/replay.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool, ToolOutcome } from "./tool.js";
 import { fitEntry, utf8Length } from "../record/truncate.js";
@@ -40,6 +55,7 @@ import {
 	encodeEntry,
 	encodeHeader,
 	type AssistantMessageEntry,
+	type CompactionEntry,
 	type FallbackEntry,
 	type NoteEntry,
 	type RecipeStamp,
@@ -56,9 +72,6 @@ export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
 
 /** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
 export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
-
-/** Three retries with growing delays, per decision 26; a healthy run never waits. */
-const RETRY_DELAYS_MS: readonly number[] = [1_000, 4_000, 16_000];
 
 /** The cap an entry has: the record's own, lowered to the storage's when that is smaller. */
 export function entryCapBytes(storage: StorageSlot, requested?: number): number {
@@ -142,6 +155,8 @@ export interface RunConfig {
 	fallbackModel?: string;
 	/** What the recipe allows before the run parks (decision 18, LIM01). */
 	limits?: Limits;
+	/** How the recipe shapes compaction, when it says anything (decision 41). */
+	compaction?: CompactionSettings;
 	/** What the run's owner may steer or follow up with while it runs. */
 	control?: RunControl;
 	/** The stuck safeguard: on by default, because the default has no limits (decision 25). */
@@ -236,7 +251,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const signal = config.signal ?? new AbortController().signal;
 	const control = config.control;
 
-	const messages: ConversationMessage[] = [];
+	/**
+	 * The conversation as the model sees it: the latest summary, each tool's current
+	 * state, and the entries the record's pointer keeps. It is rebuilt from the
+	 * record at a compaction, so the live view and a resumed one cannot drift.
+	 */
+	let messages: ConversationMessage[] = [];
+	/** The entries the view keeps, which is what a later cut is chosen from. */
+	let viewEntries: RecordEntry[] = [];
+	/** The latest summary, which a new one updates rather than restarts (decision 40). */
+	let previousSummary: string | undefined;
+	/** The last request's reported input tokens, which the estimate starts from. */
+	let lastInputTokens: number | undefined;
 	const tools = new Map<string, Tool>(config.tools.map((tool) => [tool.spec.name, tool]));
 
 	let live = true;
@@ -310,6 +336,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		}
 		const seq = await save(line);
 		parent = entry.id;
+		// One place keeps the conversation in step with the record: an entry the model
+		// would read becomes a message. A compaction is the caller's to handle, because
+		// it rebuilds the view rather than adding to it.
+		const message = entryMessage(entry);
+		if (message !== undefined) {
+			viewEntries.push(entry);
+			messages.push(message);
+		}
 		return seq;
 	};
 
@@ -449,9 +483,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			label,
 			text: message.text,
 		};
-		const seq = await append(entry);
-		messages.push({ role: "user", text: message.text });
-		return seq;
+		return append(entry);
 	};
 
 	/**
@@ -485,14 +517,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (outcome.done === true) {
 			entry.done = true;
 		}
-		const seq = await append(entry);
-		messages.push({
-			role: "tool",
-			toolCallId: call.id,
-			content: outcome.content,
-			isError: outcome.isError,
-		});
-		return seq;
+		return append(entry);
 	};
 
 	type Attempt = { ok: true; reply: ModelReply } | { ok: false; error: ModelError };
@@ -690,10 +715,134 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			? { reason: "parked", parkedReason: "stopped", usage: usageTotal.total(), turns }
 			: undefined;
 
+	/** Why a failed run failed, when it has a reason worth keeping on the record. */
+	let failureDetail: string | undefined;
+
+	// A window is the model slot's unless the recipe overrides it. Without one, the
+	// run never compacts on its own: there is no number to compare against
+	// (decision 41), and the manual command is the only way to ask for a summary.
+	const contextWindow = config.compaction?.contextWindow ?? config.model.contextWindow;
+	const reserveTokens =
+		config.compaction?.reserveTokens ??
+		(contextWindow === undefined ? 0 : defaultReserveTokens(contextWindow));
+	const keepTokens = config.compaction?.keepTokens ?? DEFAULT_KEEP_TOKENS;
+	const summaryInstructions = config.compaction?.instructions ?? DEFAULT_SUMMARY_INSTRUCTIONS;
+	const summaryModel = config.compaction?.model;
+
+	/** The view as a summary call sees it: the summary it updates, and the steps since. */
+	const viewFor = (): Parameters<typeof summaryMaterial>[0] => ({
+		entries: viewEntries,
+		summary: previousSummary,
+		stateTexts: [],
+		messages,
+	});
+
+	/**
+	 * Compact if the next request would come too close to the model's window.
+	 *
+	 * It runs before the request it makes room for, and it is the only place the
+	 * record's view changes. A failure parks the run as `model_unavailable` with
+	 * the detail `compaction_failed`: continuing without the summary would mean
+	 * sending a request the model cannot read.
+	 */
+	const compactIfNeeded = async (): Promise<RunResult | undefined> => {
+		if (contextWindow === undefined) {
+			return undefined;
+		}
+		const estimate = (lastInputTokens ?? 0) + estimateSinceLastReply(messages);
+		if (!shouldCompact(estimate, contextWindow, reserveTokens)) {
+			return undefined;
+		}
+
+		const cut = chooseCut(viewEntries, keepTokens);
+		if (cut === undefined) {
+			if (estimate <= contextWindow) {
+				// There is nothing older to summarize yet, and the request still fits.
+				return undefined;
+			}
+			// No summary can make a single step fit, so the run says so plainly rather
+			// than spending a call on it and failing differently (decision 6's limit).
+			const error: LyraError = {
+				code: "bad_request",
+				message: `input_too_large: the conversation is about ${estimate} tokens and this model's context window is ${contextWindow}, so compacting cannot make it fit`,
+			};
+			emit({ type: "error", run: runId, ts: clock.now(), error });
+			failureDetail = "input_too_large";
+			return { reason: "failed", error, usage: usageTotal.total(), turns };
+		}
+
+		const summarized = await summarize({
+			summarizer: {
+				model: config.model,
+				instructions: summaryInstructions,
+				...(summaryModel === undefined ? {} : { modelName: summaryModel }),
+			},
+			material: summaryMaterial(viewFor(), cut),
+			clock,
+			signal,
+			onRetry: (attempt, delayMs, error) => {
+				emit({ type: "retry", run: runId, ts: clock.now(), attempt, delayMs, error });
+			},
+		});
+		if (!summarized.ok) {
+			const stoppedWhileCompacting = stopped();
+			if (stoppedWhileCompacting !== undefined) {
+				return stoppedWhileCompacting;
+			}
+			emit({ type: "error", run: runId, ts: clock.now(), error: summarized.error });
+			return {
+				reason: "parked",
+				parkedReason: "model_unavailable",
+				parkedDetail: "compaction_failed",
+				usage: usageTotal.total(),
+				turns,
+			};
+		}
+
+		// The summary is a call like any other, so it counts toward what the run
+		// spent and toward its token limit (decision 40).
+		usageTotal.add(summarized.value.usage);
+		const entry: CompactionEntry = {
+			type: "compaction",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			summary: summarized.value.summary,
+			firstKept: cut.firstKept,
+			replaces: cut.replaces,
+			usage: summarized.value.usage,
+			model: summarized.value.model,
+			trigger: "auto",
+			instructionsHash: await hashText(summaryInstructions),
+		};
+		const seq = await append(entry);
+		emit({
+			type: "compaction",
+			run: runId,
+			ts: clock.now(),
+			seq,
+			summary: entry.summary,
+			replaces: entry.replaces,
+			trigger: entry.trigger,
+		});
+
+		// The view is now the record's: the summary, the tools' state, and the
+		// entries the pointer keeps. Nothing before it left the record (decision 39).
+		const view = buildView([...viewEntries, entry]);
+		viewEntries = view.entries;
+		messages = view.messages;
+		previousSummary = view.summary;
+		return undefined;
+	};
+
 	// A bad limit fails here rather than parking a run that cannot start (LIM03).
 	const checkedLimits = config.limits === undefined ? undefined : validateLimits(config.limits);
 	const limits =
 		checkedLimits !== undefined && checkedLimits.ok ? checkedLimits.value : undefined;
+	// A compaction setting that cannot mean anything is a recipe's mistake, and it
+	// fails here rather than at the first compaction (the same rule as a limit).
+	const checkedCompaction =
+		config.compaction === undefined ? undefined : validateCompactionSettings(config.compaction);
 
 	const loop = async (): Promise<RunResult> => {
 		for (;;) {
@@ -723,6 +872,13 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					usage: usageTotal.total(),
 					turns,
 				};
+			}
+
+			// Compaction happens at the same gap a steer is read at, before the request
+			// it makes room for, so it never splits a call from its result.
+			const compacted = await compactIfNeeded();
+			if (compacted !== undefined) {
+				return compacted;
 			}
 
 			// A turn is one step, however many times it is retried.
@@ -776,6 +932,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			const calls = normalizeCalls(reply.toolCalls, config.ids);
 
 			usageTotal.add(reply.usage);
+			// What this request actually cost the provider is the base the next
+			// compaction estimate starts from (decision 41).
+			lastInputTokens = reply.usage.inputTokens;
 			emit(
 				reply.usage.cost === undefined
 					? {
@@ -821,17 +980,6 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				text: reply.text,
 				toolCalls: calls,
 			});
-
-			const assistant: ConversationMessage =
-				reply.reasoning === undefined
-					? { role: "assistant", text: reply.text, toolCalls: calls }
-					: {
-							role: "assistant",
-							text: reply.text,
-							reasoning: reply.reasoning,
-							toolCalls: calls,
-						};
-			messages.push(assistant);
 
 			// A cost limit it cannot measure is not a limit, so the run says so once
 			// and carries on without enforcing it (decision 15, LIM05).
@@ -915,7 +1063,6 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						text: REMINDER_TEXT,
 					};
 					await append(reminder);
-					messages.push({ role: "user", text: REMINDER_TEXT });
 					continue;
 				}
 				if (!stuck.enabled) {
@@ -1009,7 +1156,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		emit({ type: "run_start", run: runId, ts: clock.now(), task: config.task });
 
 		const refused =
-			checkedLimits !== undefined && !checkedLimits.ok ? checkedLimits.error : undefined;
+			checkedLimits !== undefined && !checkedLimits.ok
+				? checkedLimits.error
+				: checkedCompaction !== undefined && !checkedCompaction.ok
+					? checkedCompaction.error
+					: undefined;
 		if (refused !== undefined) {
 			emit({ type: "error", run: runId, ts: clock.now(), error: refused });
 			result = { reason: "failed", error: refused, usage: usageTotal.total(), turns };
@@ -1039,8 +1190,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				for (const usage of seed.usages) {
 					usageTotal.add(usage);
 				}
-				messages.push(...seed.messages);
 				turns = seed.turns;
+				lastInputTokens = seed.usages.at(-1)?.inputTokens;
 				parent = seed.parent;
 				closedActiveMs = seed.activeMs;
 				let prepared: TaskStart | undefined;
@@ -1118,13 +1269,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					if (refused !== undefined) {
 						throw new Error(refused);
 					}
+					// The conversation is the record's view, up to the latest compaction's
+					// pointer, so a resumed run sees what the compacted one saw (decision 39).
+					const seededView = buildView(seed.record.entries);
+					viewEntries = seededView.entries;
+					messages = seededView.messages;
+					previousSummary = seededView.summary;
 					if (seed.messages.length === 0) {
 						// The kill landed after the header and before the task message, so the
 						// resume writes the job the caller is asking for. This comes after the
 						// seed sets `parent`, or the write would leave the message orphaned.
 						const first = makeFirst(prepared?.message ?? config.input, seed.input);
 						await append(first);
-						messages.push({ role: "user", text: first.text });
 					}
 					if (current !== undefined) {
 						await noteRecipeChange(seed, current);
@@ -1144,7 +1300,6 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							text: config.resume.followUp,
 						};
 						await append(message);
-						messages.push({ role: "user", text: message.text });
 					}
 					// A repeated safe call may itself have passed the done-check (a
 					// finish is safe to repeat for exactly this reason).
@@ -1192,7 +1347,6 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				recordStarted = true;
 
 				await append(first);
-				messages.push({ role: "user", text: first.text });
 				state = prepared?.state;
 				await saveStatus("running");
 				activeSince = clock.now();
@@ -1224,7 +1378,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						? "parked"
 						: "failed",
 				result.reason === "parked" ? result.parkedReason : undefined,
-				result.reason === "parked" ? result.parkedDetail : undefined,
+				result.reason === "parked" ? result.parkedDetail : failureDetail,
 			);
 		}
 	} catch (caught) {

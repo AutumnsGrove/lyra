@@ -38,14 +38,15 @@ export function canonicalJson(value: unknown): string {
 		.join(",")}}`;
 }
 
-async function sha256Hex(text: string): Promise<string> {
+/** SHA-256 of a text, as hex. A pin and a summary's instructions are both hashed this way. */
+export async function hashText(text: string): Promise<string> {
 	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(text));
 	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** One tool's pin: its name and the hash of its name and arguments, never its description. */
 export async function stampTool(spec: ToolSpec): Promise<ToolStamp> {
-	const hash = await sha256Hex(canonicalJson({ name: spec.name, parameters: spec.parameters }));
+	const hash = await hashText(canonicalJson({ name: spec.name, parameters: spec.parameters }));
 	return { name: spec.name, hash };
 }
 
@@ -66,8 +67,8 @@ export async function pinRecipe(definition: RecipeDefinition): Promise<RecipeSta
 	return {
 		name: definition.name,
 		version: definition.version,
-		toolSetHash: await sha256Hex(canonicalJson(stamps)),
-		instructionsHash: await sha256Hex(definition.instructions),
+		toolSetHash: await hashText(canonicalJson(stamps)),
+		instructionsHash: await hashText(definition.instructions),
 		tools: stamps,
 	};
 }

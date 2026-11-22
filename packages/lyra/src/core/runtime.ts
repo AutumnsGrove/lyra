@@ -202,6 +202,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				? {}
 				: { fallbackModel: definition.fallbackModel }),
 			...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
+			...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(extra.resume === undefined ? {} : { resume: extra.resume }),
 		};
@@ -297,6 +298,9 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 					? {}
 					: { fallbackModel: definition.fallbackModel }),
 				...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
+				...(definition.compaction === undefined
+					? {}
+					: { compaction: definition.compaction }),
 				...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			};
 			const handle = createRun(setup);

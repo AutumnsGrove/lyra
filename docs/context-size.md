@@ -78,3 +78,10 @@ boundaries and pointers rather than about exact counts.
 | CMP07 | Happy: replay after a compaction | Replaying the full record rebuilds the recipe's state exactly as the live run had it, because every tool message is applied, including those the summary stands in for |
 | CMP08 | A second compaction | The view shows only the newest summary and the entries after its pointer, and the material the second summary is written from begins with the first summary and covers only the steps it never saw |
 | CMP09 | Bad: a future field | A compaction entry carrying a field this build does not know loads with its known fields intact, and the field is dropped rather than carried along unread |
+| CMP10 | Happy: the trigger | A run with a known window compacts when the last reply's reported input tokens plus a four-characters-to-a-token estimate for what arrived since passes the window minus the reserve, and not when it does not; the record, the event and the next request all show it |
+| CMP11 | No known window | A model slot with no `contextWindow` and a recipe with none never compact on their own, however long the run, and a slot that reports one does |
+| CMP12 | Sad: the summary call fails | The run parks `model_unavailable` with detail `compaction_failed`, nothing is written that a summary would stand for, and a person's resume tries again |
+| CMP13 | Sad: an empty summary | A summary that is empty or only whitespace parks the run the same way, because continuing on it would have lost the history |
+| CMP14 | The summary's usage counts | The tokens the summary spent are in the run's usage and count toward its token limit, so the limit is reached a turn earlier than without it |
+| CMP15 | Bad: the first message alone is too large | The run fails with `bad_request`, the message names `input_too_large` with the estimate and the window, the closing status keeps the detail, and no model request is made |
+| CMP16 | Oversized older results | A result over the per-entry cap is cut for the summary call with a marker saying so, and the record keeps the whole result the model saw |

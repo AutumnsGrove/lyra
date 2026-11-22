@@ -17,7 +17,11 @@
  * question it cannot see, and a provider refuses that (CMP02).
  */
 
+import type { Clock } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
+import type { ModelError, ModelReply, ModelRequest, ModelSlot, Usage } from "./model.js";
+import { RETRY_DELAYS_MS } from "./retry.js";
+import { err, fail, ok, type Result } from "./result.js";
 import type { CompactionEntry, RecordEntry } from "../record/entries.js";
 import { entryMessage } from "../record/replay.js";
 
@@ -246,4 +250,228 @@ export function summaryMaterial(view: ModelView, cut: Cut): string {
 	}
 	parts.push(`The steps since then, oldest first:\n${steps.join("\n")}`);
 	return parts.join("\n\n");
+}
+
+/**
+ * How a recipe shapes compaction. Every field is optional: the defaults are
+ * Nova's numbers, chosen at step 7 and recorded in `decisions.md`.
+ */
+export interface CompactionSettings {
+	/** The model's context window, when the recipe knows it and the slot does not. */
+	contextWindow?: number;
+	/** How close to the window a run may come before it compacts. */
+	reserveTokens?: number;
+	/** How much of the most recent history to keep verbatim, in estimated tokens. */
+	keepTokens?: number;
+	/** The model that writes the summary, when it is not the run's own. */
+	model?: string;
+	/** The recipe's own summarizer instructions, replacing the default. */
+	instructions?: string;
+}
+
+/** `max(16384, 10% of the window)`, which is Nova's reserve (decision 41). */
+export function defaultReserveTokens(window: number): number {
+	return Math.max(16_384, Math.floor(window / 10));
+}
+
+/** What the run keeps if a recipe says nothing: Nova's 20000 tokens (decision 41). */
+export const DEFAULT_KEEP_TOKENS = 20_000;
+
+/** A recipe's compaction settings, checked once so a bad one fails fast (LIM03's rule). */
+export function validateCompactionSettings(
+	settings: CompactionSettings,
+): Result<CompactionSettings> {
+	const checked: CompactionSettings = {};
+	const positive = (value: number | undefined, field: string): Result<number | undefined> => {
+		if (value === undefined) {
+			return ok(undefined);
+		}
+		if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+			return fail("bad_request", `compaction's ${field} must be a whole number of tokens`);
+		}
+		return ok(value);
+	};
+	const window = positive(settings.contextWindow, "contextWindow");
+	if (!window.ok) {
+		return window;
+	}
+	if (window.value === 0) {
+		return fail("bad_request", "compaction's contextWindow must be more than zero");
+	}
+	const reserve = positive(settings.reserveTokens, "reserveTokens");
+	if (!reserve.ok) {
+		return reserve;
+	}
+	const keep = positive(settings.keepTokens, "keepTokens");
+	if (!keep.ok) {
+		return keep;
+	}
+	if (window.value !== undefined) {
+		checked.contextWindow = window.value;
+	}
+	if (reserve.value !== undefined) {
+		checked.reserveTokens = reserve.value;
+	}
+	if (keep.value !== undefined) {
+		checked.keepTokens = keep.value;
+	}
+	if (settings.model !== undefined) {
+		if (typeof settings.model !== "string" || settings.model === "") {
+			return fail("bad_request", "compaction's model must be a non-empty name");
+		}
+		checked.model = settings.model;
+	}
+	if (settings.instructions !== undefined) {
+		if (typeof settings.instructions !== "string" || settings.instructions.trim() === "") {
+			return fail("bad_request", "compaction's instructions must be text");
+		}
+		checked.instructions = settings.instructions;
+	}
+	return ok(checked);
+}
+
+/**
+ * The instructions the summarizer is given when a recipe does not replace them.
+ *
+ * Shaped for a Lyra run rather than a coding chat: the goal is pinned in the system
+ * text and never summarized, the tools can hand back their own exact state, and
+ * what is left is progress, decisions and what is open (decision 40).
+ */
+export const DEFAULT_SUMMARY_INSTRUCTIONS = [
+	"You are compacting the history of a run so it can go on with less context.",
+	"Write a summary of the work so far, under these headings:",
+	"- Goal: what the run is trying to do, in one sentence.",
+	"- Progress: what has been done, in order, including any result that changed something.",
+	"- Decisions: what was decided and why, where the record shows it.",
+	"- Open items: what is still to do, and anything that failed and needs another try.",
+	"- Exact identifiers: every handle, id, path, URL and name you copy must be copied exactly, never paraphrased.",
+	"If a previous summary is given, update it: keep what is still true, correct what moved, and do not start again.",
+	"Answer with the summary alone, with no preamble and no commentary.",
+].join("\n");
+
+/** What the model is asked for when the run compacts itself. */
+export interface Summarizer {
+	model: ModelSlot;
+	/** The model to ask, when the recipe names one. */
+	modelName?: string;
+	instructions: string;
+}
+
+export interface Summary {
+	summary: string;
+	/** The model that answered, which the entry records. */
+	model: string;
+	usage: Usage;
+}
+
+/**
+ * Ask the model for a summary, retrying a retryable failure the way the loop's own
+ * requests are retried (decision 26).
+ *
+ * An answer that is empty or only whitespace is a failure rather than a summary: a
+ * run that continued on it would have thrown away the history it meant to keep,
+ * and there is no smaller answer to fall back on.
+ */
+export async function summarize(options: {
+	summarizer: Summarizer;
+	material: string;
+	clock: Clock;
+	signal: AbortSignal;
+	/** Told about each wait, so a host can show it the way it shows a turn's retry. */
+	onRetry?: (attempt: number, delayMs: number, error: ModelError) => void;
+}): Promise<Result<Summary, ModelError>> {
+	const request: ModelRequest = {
+		system: options.summarizer.instructions,
+		messages: [{ role: "user", text: options.material }],
+		tools: [],
+		purpose: "compaction",
+		signal: options.signal,
+	};
+	if (options.summarizer.modelName !== undefined) {
+		request.model = options.summarizer.modelName;
+	}
+
+	let retries = 0;
+	for (;;) {
+		let answered: Result<ModelReply, ModelError>;
+		try {
+			answered = await options.summarizer.model.complete(request);
+		} catch (error) {
+			const text = error instanceof Error ? error.message : String(error);
+			return err({
+				code: "internal",
+				message: `the summarizer threw: ${text.slice(0, 300)}`,
+				retryable: false,
+			});
+		}
+		if (answered.ok) {
+			if (answered.value.text.trim() === "") {
+				return err({
+					code: "provider_error",
+					message: "the summarizer answered with nothing",
+					retryable: false,
+				});
+			}
+			return ok({
+				summary: answered.value.text,
+				model: answered.value.model,
+				usage: answered.value.usage,
+			});
+		}
+		const delay = RETRY_DELAYS_MS[retries];
+		if (!answered.error.retryable || delay === undefined) {
+			return answered;
+		}
+		const waitMs = Math.max(delay, answered.error.retryAfterMs ?? 0);
+		options.onRetry?.(retries + 1, waitMs, answered.error);
+		retries += 1;
+		try {
+			await options.clock.sleep(waitMs, options.signal);
+		} catch {
+			// Stopped while waiting: the caller checks the signal before believing
+			// this error, so the run parks `stopped` rather than failing.
+			return answered;
+		}
+	}
+}
+
+/** Whether the conversation is close enough to the window to compact (decision 41). */
+export function shouldCompact(estimate: number, window: number, reserveTokens: number): boolean {
+	return estimate > window - reserveTokens;
+}
+
+/** The tokens a conversation is guessed to cost. */
+export function estimateConversation(messages: readonly ConversationMessage[]): number {
+	let tokens = 0;
+	for (const message of messages) {
+		if (message.role === "assistant") {
+			tokens += estimateTokens(message.text);
+			if (message.reasoning !== undefined) {
+				tokens += estimateTokens(message.reasoning);
+			}
+			for (const call of message.toolCalls) {
+				tokens += estimateTokens(call.name) + estimateTokens(call.arguments);
+			}
+		} else if (message.role === "user") {
+			tokens += estimateTokens(message.text);
+		} else {
+			tokens += estimateTokens(message.content);
+		}
+	}
+	return tokens;
+}
+
+/**
+ * What was added since the last request: the reply it produced, and every message
+ * after it. A provider's reported input tokens only cover that request, so this is
+ * the part it could not know about (decision 41).
+ */
+export function estimateSinceLastReply(messages: readonly ConversationMessage[]): number {
+	let last = -1;
+	for (const [index, message] of messages.entries()) {
+		if (message.role === "assistant") {
+			last = index;
+		}
+	}
+	return last < 0 ? estimateConversation(messages) : estimateConversation(messages.slice(last));
 }

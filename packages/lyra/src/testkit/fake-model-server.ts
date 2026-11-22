@@ -49,6 +49,23 @@ export interface FakeModelServerOptions {
 	model?: string;
 	/** One fault per request, by the request's position; a hole answers the script. */
 	faults?: (FakeModelFault | undefined)[];
+	/**
+	 * The answers to compaction's summary calls, in order.
+	 *
+	 * Over the wire the generic `ModelRequest`'s `purpose` does not travel, because a
+	 * provider has no such field. What does travel is the tools list, and the adapter
+	 * leaves an empty one out, so a request with no tools is a summary. A run with no
+	 * tools at all would be taken for one, which is why a scenario that compacts
+	 * always has at least one.
+	 */
+	summaries?: readonly ScriptedTurn[];
+	/**
+	 * How a run request's turn is chosen, with the same two rules and the same
+	 * reason as the in-process scripted model's.
+	 */
+	position?: "conversation" | "sequence";
+	/** Where a `"sequence"` script starts, so a resumed run continues its script. */
+	startTurn?: number;
 }
 
 /**
@@ -267,6 +284,15 @@ function assistantMessages(body: unknown): number {
 		.length;
 }
 
+/** Whether a request is a summary: the adapter sends no tools for one. */
+function asksForASummary(body: unknown): boolean {
+	if (!isPlainObject(body)) {
+		return false;
+	}
+	const tools = body["tools"];
+	return tools === undefined || (Array.isArray(tools) && tools.length === 0);
+}
+
 function parseBody(body: string | undefined): unknown {
 	if (body === undefined) {
 		return undefined;
@@ -285,9 +311,13 @@ export function fakeModelServer(
 	const model = options.model ?? "scripted/model";
 	const faults = [...(options.faults ?? [])];
 	const requests: FakeModelRequest[] = [];
+	const summaries = options.summaries ?? [];
+	/** How many run requests and summaries have been answered, for a sequence script. */
+	let servedRuns = options.startTurn ?? 0;
+	let servedSummaries = 0;
 
 	const serve = async (url: string, init?: FakeFetchInit): Promise<Response> => {
-		const position = requests.length;
+		const requestPosition = requests.length;
 		const body = parseBody(init?.body);
 		requests.push({
 			url,
@@ -296,25 +326,38 @@ export function fakeModelServer(
 			body,
 		});
 
-		const fault = faults[position];
+		const fault = faults[requestPosition];
 		if (fault !== undefined) {
 			return answer(fault, init?.signal);
 		}
 
-		// The reply comes from the turn whose position matches the assistant messages
-		// already in the request, exactly as the in-process scripted model does.
-		const turn = turns[assistantMessages(body)];
+		// A summary is answered from its own script, and the run's turns from theirs.
+		// Only a server that scripts summaries reads a request without tools as one:
+		// otherwise every request is a turn, which is what it was before compaction.
+		const summary = summaries.length > 0 && asksForASummary(body);
+		const script = summary ? summaries : turns;
+		const position = summary
+			? servedSummaries
+			: options.position === "sequence"
+				? servedRuns
+				: assistantMessages(body);
+		const turn = script[position];
 		if (turn === undefined) {
 			return json(
 				{
 					error: {
-						message: `the fake server has no turn ${assistantMessages(body) + 1}`,
+						message: `the fake server has no ${summary ? "summary" : "turn"} ${position + 1}`,
 					},
 				},
 				500,
 			);
 		}
-		return streamed(sseFor(turn, model));
+		if (summary) {
+			servedSummaries += 1;
+		} else {
+			servedRuns += 1;
+		}
+		return streamed(sseFor(summary ? { ...turn, toolCalls: [] } : turn, model));
 	};
 
 	return Object.assign(serve, { requests });

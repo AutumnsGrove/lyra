@@ -12,6 +12,8 @@
 import { isJsonValue, type JsonObject, type JsonValue } from "./json.js";
 import { validateLimits, type Limits } from "./limits.js";
 import { compileSchema, SchemaDefinitionError, type InferSchema } from "./schema.js";
+import type { CompactionSettings } from "./compaction.js";
+import { validateCompactionSettings } from "./compaction.js";
 import type { StuckSettings } from "./run.js";
 import type { Tool } from "./tool.js";
 
@@ -36,6 +38,8 @@ export interface Recipe<S = unknown> {
 	limits?: Limits;
 	fallbackModel?: string;
 	stuck?: StuckSettings;
+	/** How the run compacts when its history outgrows the model's window (decision 41). */
+	compaction?: CompactionSettings;
 }
 
 function refuse(message: string): never {
@@ -59,6 +63,7 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	limits?: Limits;
 	fallbackModel?: string;
 	stuck?: StuckSettings;
+	compaction?: CompactionSettings;
 }): Recipe<S> {
 	const name = checkText(options.name, "name");
 	checkText(options.instructions, "instructions");
@@ -114,6 +119,12 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 			refuse(`a recipe's limits cannot be enforced: ${limits.error.message}`);
 		}
 	}
+	if (options.compaction !== undefined) {
+		const compaction = validateCompactionSettings(options.compaction);
+		if (!compaction.ok) {
+			refuse(`a recipe's compaction settings cannot be used: ${compaction.error.message}`);
+		}
+	}
 
 	const recipe: Recipe<S> = {
 		name,
@@ -133,6 +144,9 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	}
 	if (options.stuck !== undefined) {
 		recipe.stuck = options.stuck;
+	}
+	if (options.compaction !== undefined) {
+		recipe.compaction = options.compaction;
 	}
 	return recipe;
 }
