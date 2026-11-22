@@ -42,10 +42,10 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
   (CMP17 to CMP19), the kill matrix over compacting scripts, the long run and a
   scenario that runs at all three levels (CMP20 to CMP22, plus EVT07 in
   `protocol.md`), and `compact` over the protocol (CMD20). Decisions 135 to 138 are
-  step 7's own. The gate on the branch: 458 Node tests, 48 workerd tests, 14
-  fuzz/property targets, coverage 91.76% statements and 85.33% branches, the package
-  at 116,878 B of 180,224 B, the example at 36,328 B of 45,056 B, and `matrixcheck`
-  309 rows (299 tested, 10 unbuilt, all approvals and proposals). No ceiling moved.
+  step 7's own. The gate on the merged head: 465 Node tests, 48 workerd tests, 14
+  fuzz/property targets, coverage 91.74% statements and 85.34% branches, the package
+  at 117,873 B of 180,224 B, the example at 36,546 B of 45,056 B, and `matrixcheck`
+  312 rows (302 tested, 10 unbuilt, all approvals and proposals). No ceiling moved.
   What is unfinished is in the PR body: the long run's results are the timeline's
   small ones, so "big results" is covered at the loop level instead; and
   `list_sessions` still answers `unsupported`, which is a design of its own.
