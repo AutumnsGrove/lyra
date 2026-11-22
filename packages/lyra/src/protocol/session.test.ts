@@ -736,3 +736,55 @@ test("REQ06 the host's alarm behind a pending request leaves it parked", async (
 	);
 	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
 });
+
+test("REQ04 an expired request is not_found, even after the clock answered it", async () => {
+	// The wake writes the timeout's own deny. A person who arrives afterwards is
+	// looking at an expired id, which decision 85 says is `not_found`, not a second
+	// answer to something still open.
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+	const parent = (JSON.parse(storage.saved().at(-1) ?? "{}") as { id?: string }).id ?? null;
+	const timedOut = await storage.append(
+		JSON.stringify({
+			type: "request_answered",
+			id: "e_expired",
+			parent,
+			ts: 100,
+			request: String(request["request"]),
+			decision: "deny",
+			timedOut: true,
+		}),
+	);
+	expect(timedOut.ok).toBe(true);
+
+	const late = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(late.ok ? "" : late.error.code).toBe("not_found");
+});
+
+test("REQ06 a prompt or a follow_up behind a pending request is busy, not dropped", async () => {
+	// Both would continue the record, which a run waiting for a person cannot do;
+	// answering `ok` and writing nothing would lose what the person said.
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+	const written = storage.saved().length;
+
+	for (const command of ["prompt", "follow_up"]) {
+		const refused = errorOf(
+			await send(session, { command, session: "s1", text: "one more thing" }),
+		);
+		expect({ command, code: refused.code }).toEqual({ command, code: "busy" });
+		expect({ command, names: refused.message.includes("waiting for a person") }).toEqual({
+			command,
+			names: true,
+		});
+	}
+	// Nothing was written, and the text is not on the record pretending it was read.
+	expect(storage.saved()).toHaveLength(written);
+});

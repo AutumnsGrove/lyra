@@ -288,9 +288,19 @@ export function createSessionWorker(
 			target = sessionIdFor(options.namespace, { tenant: tenant.value, session: named });
 			forward = request;
 		} else if (request.method === "POST" && url.pathname === "/v1/ui_response") {
-			// Approvals are a later slice, and the answer is the handler's, because no
-			// session exists for a question that cannot be asked yet.
-			return refusalResponse("unsupported", "approvals arrive in a later slice");
+			// An answer names its session in the frame, the way a command does, and the
+			// object serves the route itself with its own token door (REQ02).
+			const body = await request.text();
+			const route = answerRouteOf(body, tenant.value);
+			if (!route.ok) {
+				return refusalResponse(route.error.code, route.error.message);
+			}
+			target = sessionIdFor(options.namespace, route.value);
+			forward = new Request(request.url, {
+				method: "POST",
+				headers: request.headers,
+				body,
+			});
 		} else {
 			return refusalResponse("not_found", `there is nothing at ${url.pathname}`);
 		}
@@ -302,6 +312,28 @@ export function createSessionWorker(
 }
 
 /** Which session a command request names, read from the frame it carries. */
+/**
+ * Which session an answer is for, read off the frame the way a command's is. The
+ * object still checks the token and the tenant; this only chooses the door (REQ02).
+ */
+function answerRouteOf(body: string, tenant: string): Result<{ tenant: string; session: string }> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(body);
+	} catch {
+		return fail("bad_request", "an answer holds one frame of JSON");
+	}
+	if (typeof parsed !== "object" || parsed === null) {
+		return fail("bad_request", "an answer holds one frame of JSON");
+	}
+	const fields = parsed as Record<string, unknown>;
+	const session = fields["session"];
+	if (typeof session !== "string" || session === "") {
+		return fail("bad_request", "an answer over HTTP needs a session");
+	}
+	return ok({ tenant, session });
+}
+
 function routeOf(
 	body: string,
 	tenant: string,

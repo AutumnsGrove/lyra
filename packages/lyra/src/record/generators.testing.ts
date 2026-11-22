@@ -219,9 +219,13 @@ function entryArbitrary(
 						fc.constantFrom("reads" as const, "changes" as const, "dangerous" as const),
 						{ nil: undefined },
 					),
+					options: fc.option(
+						fc.array(fc.record({ id: word, label: text }), { maxLength: 2 }),
+						{ nil: undefined },
+					),
 					timeoutMs: fc.option(fc.integer({ min: 1, max: 100_000 }), { nil: undefined }),
 				})
-				.map(({ preview, callId, tool, args, risk, timeoutMs, ...rest }) => ({
+				.map(({ preview, callId, tool, args, risk, options, timeoutMs, ...rest }) => ({
 					type: "request" as const,
 					...base,
 					...rest,
@@ -230,6 +234,7 @@ function entryArbitrary(
 					...(tool === undefined ? {} : { tool }),
 					...(args === undefined ? {} : { args }),
 					...(risk === undefined ? {} : { risk }),
+					...(options === undefined ? {} : { options }),
 					...(timeoutMs === undefined ? {} : { timeoutMs }),
 				}));
 		case "answered":
@@ -238,13 +243,17 @@ function entryArbitrary(
 					request: word,
 					decision: fc.constantFrom("approve" as const, "deny" as const),
 					note: fc.option(text, { nil: undefined }),
+					text: fc.option(text, { nil: undefined }),
+					ids: fc.option(fc.array(word, { maxLength: 2 }), { nil: undefined }),
 					timedOut: fc.constantFrom(undefined, true),
 				})
-				.map(({ note, timedOut, ...rest }) => ({
+				.map(({ note, text: answerText, ids, timedOut, ...rest }) => ({
 					type: "request_answered" as const,
 					...base,
 					...rest,
 					...(note === undefined ? {} : { note }),
+					...(answerText === undefined ? {} : { text: answerText }),
+					...(ids === undefined ? {} : { ids }),
 					// A present `false` is normalised away on the way out, so only true or
 					// absent round-trips.
 					...(timedOut === true ? { timedOut: true as const } : {}),

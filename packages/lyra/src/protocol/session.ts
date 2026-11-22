@@ -474,12 +474,16 @@ export function createSession(options: SessionOptions): Session {
 			if (request === undefined) {
 				return fail("not_found", `this session has no request ${answer.request}`);
 			}
-			if (
-				path.some(
-					(entry) =>
-						entry.type === "request_answered" && entry.request === answer.request,
-				)
-			) {
+			const earlier = path.find(
+				(entry): entry is RequestAnsweredEntry =>
+					entry.type === "request_answered" && entry.request === answer.request,
+			);
+			if (earlier !== undefined) {
+				if (earlier.timedOut === true) {
+					// The clock answered it, so the id has expired: decision 85's `not_found`,
+					// not a conflict with a request a person could still decide.
+					return fail("not_found", `the request ${answer.request} has expired`);
+				}
 				// One answer each, and the first one stands (decisions 34, 85).
 				return fail("conflict", "that request has already been answered");
 			}
@@ -726,6 +730,15 @@ export function createSession(options: SessionOptions): Session {
 					return listPending(seed);
 				case "prompt":
 				case "follow_up": {
+					const waiting = pendingOf(seed);
+					if (active === undefined && waiting !== undefined) {
+						// Both would continue the record, which a run waiting for a person
+						// cannot do. Answering `ok` and writing nothing would lose the text.
+						return fail(
+							"busy",
+							`this run is waiting for a person to answer ${waiting.request}, so a ${command.command} cannot be read yet`,
+						);
+					}
 					if (active !== undefined) {
 						if (command.command === "prompt" && !command.queue) {
 							return fail("busy", "a run is active in this session");

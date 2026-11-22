@@ -132,7 +132,7 @@ Nova's `ui_request` and `ui_response` shapes, made durable. A request is saved i
 | `timeout_ms?` | After this, the request resolves to its default, which is **deny** (decision 37). |
 
 - **Answers cannot be forged, and need no extra code.** The id is unguessable and single use. A second answer to the same id is `conflict`, and an answer to an unknown or expired id is `not_found`. This answers the "one-time codes" open question.
-- A `ui_response` is `{id, ok?, note?, text?, ids?, answers?, cancelled?}`, as in Nova, with `note` read by the model on a deny (decision 34).
+- A `ui_response` is `{type: "ui_response", request, session, ok?, note?, text?, ids?, cancelled?}`, with `note` read by the model on a deny (decision 34). It names the request with `request` rather than Nova's `id`: every frame in Lyra already carries an `id`, and one frame using it for something else is a trap for whatever reads frames next. `session` is there because HTTP has no connection to say which session is being answered. `ok` must be `true` to approve; anything else, including `cancelled`, is a deny (decision 37's default). `text` answers a question and `ids` answers a choice, and an id the request did not offer is `bad_request`.
 - Over HTTP, `POST /v1/ui_response`. A client that is not connected simply answers later, possibly from a different client and after the run's host was evicted.
 
 ### Replay from the record (decision 86)
@@ -199,12 +199,12 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | HTP04 | The version header | Missing or `1` is accepted; anything else is `unsupported`, before a session is opened |
 | HTP05 | `GET /v1/events` | A server-sent-event stream whose `id` is the entry's `seq`; `Last-Event-ID` sends only what follows it, and a live-only event has no `id` |
 | HTP06 | A client that stops reading | Dropped once more than the cap is queued for it, and a reconnect with `Last-Event-ID` catches up from the record |
-| HTP07 | `GET /v1/state` and `POST /v1/ui_response` | The `get_state` answer, and `unsupported` until approvals exist |
+| HTP07 | `GET /v1/state` and `POST /v1/ui_response` | The `get_state` answer, and an answer routed to the session its frame names — through the handler and through the Worker's front door alike, with `not_found` for a request that session does not hold |
 | HTP08 | Another path or method | `not_found`, as a frame |
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 
-The framing, command, event, HTTP and access rows above are built as far as step 7 (WebSocket rows arrive with step 8). What is **not** built is everything that waits for a person: `CMD08` to `CMD10`, `EVT04`, and `REQ01` to `REQ06` stay in `scripts/unbuilt-rows.json`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as the approvals slice (WebSocket rows arrive with step 8). What is **not** built is proposals: `CMD10` stays in `scripts/unbuilt-rows.json` until that slice. `CMD08`, `CMD09`, `EVT04` and `REQ01` to `REQ06` are built with the approvals slice: `list_pending` answers, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, and the record projects `ui_request`, `ui_resolved` and `ui_expired`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 
