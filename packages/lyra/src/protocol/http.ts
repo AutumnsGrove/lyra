@@ -17,6 +17,7 @@
 import { isErrorCode, fail, ok, type ErrorCode, type Result } from "../core/result.js";
 import type { JsonValue } from "../core/json.js";
 import { DEFAULT_LINE_CAP_BYTES, lineReader } from "./reader.js";
+import { decodeAnswer } from "./answers.js";
 import { decodeCommand } from "./commands.js";
 import { decodeFrame, responseFrame } from "./frames.js";
 import type { Session, SessionEvent } from "./session.js";
@@ -133,6 +134,12 @@ export function refusalResponse(code: ErrorCode, message: string): Response {
 
 /** The same, for the paths inside this module. */
 const refusal = refusalResponse;
+
+/** An answer's frame echoes the caller's own `id` when it gave one, and names the route. */
+function answerForFrame(fields: Record<string, unknown>, outcome: Result<JsonValue>): Response {
+	const id = typeof fields["id"] === "string" ? fields["id"] : "";
+	return answer(id, "ui_response", outcome);
+}
 
 /** The body, in bytes, refusing to read past the cap rather than reading and then complaining. */
 async function readBody(request: Request, cap: number): Promise<Result<string>> {
@@ -334,6 +341,35 @@ export function createHttpHandler(
 		return answer(command.value.id, command.value.command, done);
 	};
 
+	/**
+	 * A person's answer (REQ03, REQ04). It is not a command, so it has its own
+	 * decoder and names the request with `request`: every frame already has an `id`.
+	 */
+	const uiResponse = async (request: Request, tenant: string): Promise<Response> => {
+		const body = await readBody(request, maxBodyBytes);
+		if (!body.ok) {
+			return refusal(body.error.code as ErrorCode, body.error.message);
+		}
+		const line = lineOf(body.value, maxBodyBytes);
+		if (!line.ok) {
+			return refusal(line.error.code as ErrorCode, line.error.message);
+		}
+		const decoded = decodeFrame(line.value);
+		if (!decoded.ok) {
+			return refusal(decoded.error.code, decoded.error.message);
+		}
+		const answer = decodeAnswer(decoded.value);
+		if (!answer.ok) {
+			return refusal(answer.error.code, answer.error.message);
+		}
+		const opened = await openFor(tenant, answer.value.session);
+		if (!opened.ok) {
+			return refusal(opened.error.code, opened.error.message);
+		}
+		const done = await opened.value.respond(answer.value);
+		return answerForFrame(decoded.value.fields, done);
+	};
+
 	const events = async (url: URL, request: Request, tenant: string): Promise<Response> => {
 		const named = url.searchParams.get("session");
 		if (named === null || named === "") {
@@ -404,7 +440,7 @@ export function createHttpHandler(
 			return state(url, tenant.value);
 		}
 		if (request.method === "POST" && url.pathname === "/v1/ui_response") {
-			return refusal("unsupported", "approvals arrive in a later slice");
+			return uiResponse(request, tenant.value);
 		}
 		return refusal("not_found", `there is nothing at ${url.pathname}`);
 	};

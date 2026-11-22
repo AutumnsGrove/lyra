@@ -266,12 +266,66 @@ test("CFL26 the trusted door runs a command for a named tenant", async () => {
 	expect(answer).toMatchObject({ ok: true, data: { session } });
 });
 
-test("HTP07 the Worker answers ui_response as the handler does", async () => {
-	// A client cannot tell which door answered, so the Worker must not invent a
-	// different answer for a route the handler owns.
-	const approval = await postRaw("/v1/ui_response", { id: "u1", ok: true });
-	expect(approval.status).toBe(501);
-	expect(await answerOf(approval)).toMatchObject({ error: { code: "unsupported" } });
+test("HTP07 the Worker routes an answer to the session it names, as the handler does", async () => {
+	// A client cannot tell which door answered, so the Worker must reach the same
+	// handler for a route it does not own itself. This session has no such request,
+	// which the handler answers `not_found` — and the Worker must not answer 501.
+	const approval = await postRaw("/v1/ui_response", {
+		type: "ui_response",
+		request: "auth-nope",
+		session: "s-nope",
+		ok: true,
+	});
+	expect(approval.status).toBe(404);
+	expect(await answerOf(approval)).toMatchObject({ error: { code: "not_found" } });
+
+	const noSession = await postRaw("/v1/ui_response", {
+		type: "ui_response",
+		request: "r",
+		ok: true,
+	});
+	expect(noSession.status).toBe(400);
+	expect(await answerOf(noSession)).toMatchObject({ error: { code: "bad_request" } });
+});
+
+test("HTP07 an answer travels through the Worker to the run waiting for it", async () => {
+	// The refusal paths above are the easy half: this is a real request, listed and
+	// answered over the same front door a deployed client uses (REQ02, CMD09).
+	const session = await startSession({
+		turns: [{ calls: [{ name: "approve" }] }, { calls: [{ name: "finish" }] }],
+	});
+
+	/** The request the session is waiting on, asked for the way a client would. */
+	const pending = async (): Promise<string | undefined> => {
+		const listed = await send({ command: "list_pending", session });
+		const answer = (await answerOf(listed)) as {
+			data?: { requests?: { request?: string }[] };
+		};
+		return answer.data?.requests?.[0]?.request;
+	};
+	await until(async () => (await pending()) !== undefined);
+	const request = await pending();
+	expect(request).toBeDefined();
+
+	const answered = await postRaw("/v1/ui_response", {
+		type: "ui_response",
+		id: "f1",
+		request,
+		session,
+		ok: true,
+	});
+	expect(answered.status).toBe(200);
+	expect(await answerOf(answered)).toMatchObject({ ok: true, command: "ui_response" });
+
+	// The approved call ran and the run went on to its end.
+	let state = "";
+	await until(async () => {
+		const read = await get(`/v1/state?session=${session}`);
+		const answer = (await answerOf(read)) as { data?: { state?: string } };
+		state = answer.data?.state ?? "";
+		return state === "done";
+	});
+	expect(state).toBe("done");
 });
 
 test("HTP08 the Worker answers an unknown path or a session-less route as the handler does", async () => {

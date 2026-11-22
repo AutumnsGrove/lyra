@@ -9,6 +9,7 @@
  * same code runs on Cloudflare Workers and on Node (decisions 12 and 13).
  */
 
+export * from "./core/approval.js";
 export * from "./core/clock.js";
 export * from "./core/conversation.js";
 export * from "./core/decode-reply.js";
@@ -20,6 +21,7 @@ export * from "./core/handles.js";
 export * from "./core/json.js";
 export * from "./core/limits.js";
 export * from "./core/model.js";
+export * from "./core/propose.js";
 export * from "./core/result.js";
 export * from "./core/recipe.js";
 export * from "./core/run.js";

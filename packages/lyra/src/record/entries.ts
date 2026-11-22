@@ -155,6 +155,89 @@ export interface NoteEntry extends EntryBase {
 	text: string;
 }
 
+/** What a request asks a person for (docs/approvals.md, decision 34). */
+export type RequestKind = "approve" | "question" | "choice";
+
+/** One thing a person may choose between, for a `choice` (decision 34). */
+export interface RequestOption {
+	id: string;
+	label: string;
+}
+
+/**
+ * A run needs a person (docs/approvals.md, decisions 34 and 85).
+ *
+ * It is saved before anything is sent, so an answer can always be paired with the
+ * question it answers, and its `request` id is unguessable on a host, so an answer
+ * cannot be forged. It names the call it is about when it is an approval.
+ */
+export interface RequestEntry extends EntryBase {
+	type: "request";
+	/** The id a client answers with, made by the host's unguessable `Ids`. */
+	request: string;
+	kind: RequestKind;
+	title: string;
+	message: string;
+	/** The thing to look at before answering, for a preview-then-confirm flow. */
+	preview?: JsonValue;
+	/** The call this request is about, for an approval. */
+	callId?: string;
+	/** The tool the call named, and the arguments it carried, for a viewer. */
+	tool?: string;
+	args?: string;
+	risk?: string;
+	/** What a choice offers, so an answer can only be one of them (decision 34). */
+	options?: RequestOption[];
+	/** After this many milliseconds, an unanswered request is denied (decision 37). */
+	timeoutMs?: number;
+	/** Set when this entry was cut to fit the cap; the preview went whole. */
+	truncated?: Truncation;
+}
+
+/** What a person decided about a request (docs/approvals.md, decision 34). */
+export interface RequestAnsweredEntry extends EntryBase {
+	type: "request_answered";
+	/** The `request` id from the request entry. */
+	request: string;
+	decision: "approve" | "deny";
+	/** What the person said, which the model reads on a deny (decision 34). */
+	note?: string;
+	/** A question's answer, when the request asked for text rather than approval. */
+	text?: string;
+	/** A choice's answer: the ids of the options the person picked. */
+	ids?: string[];
+	/** Set when nobody answered and the request's timeout decided (decision 37). */
+	timedOut?: boolean;
+}
+
+/**
+ * A finished run's result, left for a person to decide later (decisions 50, 52, 53).
+ *
+ * It is not an approval: nothing paused, the run is over, and the typed payload is
+ * the task's own shape with references to what supports it. The decision is a
+ * separate entry, so the proposal itself is never rewritten.
+ */
+export interface ProposalEntry extends EntryBase {
+	type: "proposal";
+	/** The id a decision names, unguessable on a host like a request's. */
+	proposal: string;
+	/** The task's own shape, checked by the tool that made it. */
+	payload: JsonValue;
+	/** References to what supports it, in the recipe's own shape. */
+	evidence: JsonValue[];
+	/** Open until somebody decides; the decision is its own entry. */
+	state: "open";
+}
+
+/** What a person decided about a proposal (decision 53). */
+export interface ProposalDecidedEntry extends EntryBase {
+	type: "proposal_decided";
+	proposal: string;
+	decision: "accept" | "reject";
+	/** What they said, which a viewer shows and the app may copy out. */
+	note?: string;
+}
+
 /**
  * The record moved to a shorter view of itself (docs/context-size.md, decision 39).
  *
@@ -199,6 +282,10 @@ export type RecordEntry =
 	| FallbackEntry
 	| RecipeUpdatedEntry
 	| CompactionEntry
+	| RequestEntry
+	| RequestAnsweredEntry
+	| ProposalEntry
+	| ProposalDecidedEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -359,9 +446,97 @@ export function encodeEntry(entry: RecordEntry): string {
 			}
 			return JSON.stringify(line);
 		}
+		case "request": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				request: entry.request,
+				kind: entry.kind,
+				title: entry.title,
+				message: entry.message,
+			};
+			if (entry.preview !== undefined) {
+				line["preview"] = entry.preview;
+			}
+			if (entry.callId !== undefined) {
+				line["callId"] = entry.callId;
+			}
+			if (entry.tool !== undefined) {
+				line["tool"] = entry.tool;
+			}
+			if (entry.args !== undefined) {
+				line["args"] = entry.args;
+			}
+			if (entry.risk !== undefined) {
+				line["risk"] = entry.risk;
+			}
+			if (entry.options !== undefined) {
+				line["options"] = entry.options.map((option) => ({
+					id: option.id,
+					label: option.label,
+				}));
+			}
+			if (entry.timeoutMs !== undefined) {
+				line["timeoutMs"] = entry.timeoutMs;
+			}
+			if (entry.truncated !== undefined) {
+				line["truncated"] = entry.truncated;
+			}
+			return JSON.stringify(line);
+		}
+		case "request_answered": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				request: entry.request,
+				decision: entry.decision,
+			};
+			if (entry.note !== undefined) {
+				line["note"] = entry.note;
+			}
+			if (entry.text !== undefined) {
+				line["text"] = entry.text;
+			}
+			if (entry.ids !== undefined) {
+				line["ids"] = entry.ids;
+			}
+			if (entry.timedOut === true) {
+				line["timedOut"] = true;
+			}
+			return JSON.stringify(line);
+		}
+		case "proposal": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				proposal: entry.proposal,
+				payload: entry.payload,
+				evidence: entry.evidence,
+				state: entry.state,
+			};
+			return JSON.stringify(line);
+		}
+		case "proposal_decided": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				proposal: entry.proposal,
+				decision: entry.decision,
+			};
+			if (entry.note !== undefined) {
+				line["note"] = entry.note;
+			}
+			return JSON.stringify(line);
+		}
 		case "unknown":
 			return entry.raw;
 	}
+}
+
+const REQUEST_KINDS: readonly RequestKind[] = ["approve", "question", "choice"];
+
+function isRequestKind(value: unknown): value is RequestKind {
+	return REQUEST_KINDS.some((known) => known === value);
 }
 
 /**
@@ -775,6 +950,176 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			};
 			if (truncation.value !== undefined) {
 				entry.truncated = truncation.value;
+			}
+			return ok(entry);
+		}
+		case "request": {
+			const request = value["request"];
+			const kind = value["kind"];
+			const title = value["title"];
+			const message = value["message"];
+			if (!isName(request)) {
+				return bad("a request entry has no request id");
+			}
+			if (!isRequestKind(kind)) {
+				return bad("a request entry has a kind this build does not know");
+			}
+			if (typeof title !== "string" || typeof message !== "string") {
+				return bad("a request entry has no title and message");
+			}
+			const preview = value["preview"];
+			const callId = value["callId"];
+			const tool = value["tool"];
+			const args = value["args"];
+			const risk = value["risk"];
+			const timeoutMs = value["timeoutMs"];
+			const rawOptions = value["options"];
+			let options: RequestOption[] | undefined;
+			if (rawOptions !== undefined) {
+				if (!Array.isArray(rawOptions)) {
+					return bad("a request entry has options that are not a list");
+				}
+				options = [];
+				for (const raw of rawOptions) {
+					if (!isPlainObject(raw)) {
+						return bad("a request entry has an option that is not an object");
+					}
+					const optionId = raw["id"];
+					const label = raw["label"];
+					if (!isName(optionId) || typeof label !== "string") {
+						return bad("a request entry has an option without an id and a label");
+					}
+					options.push({ id: optionId, label });
+				}
+			}
+			if (preview !== undefined && !isJsonValue(preview)) {
+				return bad("a request entry has a preview that is not JSON");
+			}
+			if (callId !== undefined && !isName(callId)) {
+				return bad("a request entry names a call that is not an id");
+			}
+			if (tool !== undefined && !isName(tool)) {
+				return bad("a request entry names a tool that is not a name");
+			}
+			if (args !== undefined && typeof args !== "string") {
+				return bad("a request entry has arguments that are not text");
+			}
+			if (risk !== undefined && !isName(risk)) {
+				return bad("a request entry has a risk that is not a name");
+			}
+			if (timeoutMs !== undefined && (!isTimestamp(timeoutMs) || timeoutMs === 0)) {
+				return bad("a request entry has a timeout that is not a length of time");
+			}
+			const truncation = decodeTruncation(value["truncated"]);
+			if (!truncation.ok) {
+				return truncation;
+			}
+			const entry: RequestEntry = { type, ...base, request, kind, title, message };
+			if (preview !== undefined) {
+				entry.preview = preview;
+			}
+			if (callId !== undefined) {
+				entry.callId = callId;
+			}
+			if (tool !== undefined) {
+				entry.tool = tool;
+			}
+			if (args !== undefined) {
+				entry.args = args;
+			}
+			if (risk !== undefined) {
+				entry.risk = risk;
+			}
+			if (options !== undefined) {
+				entry.options = options;
+			}
+			if (timeoutMs !== undefined) {
+				entry.timeoutMs = timeoutMs;
+			}
+			if (truncation.value !== undefined) {
+				entry.truncated = truncation.value;
+			}
+			return ok(entry);
+		}
+		case "request_answered": {
+			const request = value["request"];
+			const decision = value["decision"];
+			const note = value["note"];
+			const text = value["text"];
+			const ids = value["ids"];
+			const timedOut = value["timedOut"];
+			if (!isName(request)) {
+				return bad("a request_answered entry names no request");
+			}
+			if (text !== undefined && typeof text !== "string") {
+				return bad("a request_answered entry has an answer that is not text");
+			}
+			if (
+				ids !== undefined &&
+				(!Array.isArray(ids) || !ids.every((id): id is string => typeof id === "string"))
+			) {
+				return bad(
+					"a request_answered entry has chosen ids that are not a list of strings",
+				);
+			}
+			if (decision !== "approve" && decision !== "deny") {
+				return bad("a request_answered entry has a decision this build does not know");
+			}
+			if (note !== undefined && typeof note !== "string") {
+				return bad("a request_answered entry has a note that is not text");
+			}
+			if (timedOut !== undefined && typeof timedOut !== "boolean") {
+				return bad("a request_answered entry has a timeout marker that is not a boolean");
+			}
+			const entry: RequestAnsweredEntry = { type, ...base, request, decision };
+			if (note !== undefined) {
+				entry.note = note;
+			}
+			if (text !== undefined) {
+				entry.text = text;
+			}
+			if (ids !== undefined) {
+				entry.ids = ids;
+			}
+			if (timedOut === true) {
+				entry.timedOut = true;
+			}
+			return ok(entry);
+		}
+		case "proposal": {
+			const proposal = value["proposal"];
+			const payload = value["payload"];
+			const evidence = value["evidence"];
+			if (!isName(proposal)) {
+				return bad("a proposal entry has no proposal id");
+			}
+			if (!isJsonValue(payload)) {
+				return bad("a proposal entry has a payload that is not JSON");
+			}
+			if (!Array.isArray(evidence) || !evidence.every((item) => isJsonValue(item))) {
+				return bad("a proposal entry has evidence that is not a list of JSON");
+			}
+			if (value["state"] !== "open") {
+				return bad("a proposal entry has a state this build does not know");
+			}
+			return ok({ type, ...base, proposal, payload, evidence, state: "open" });
+		}
+		case "proposal_decided": {
+			const proposal = value["proposal"];
+			const decision = value["decision"];
+			const note = value["note"];
+			if (!isName(proposal)) {
+				return bad("a proposal_decided entry names no proposal");
+			}
+			if (decision !== "accept" && decision !== "reject") {
+				return bad("a proposal_decided entry has a decision this build does not know");
+			}
+			if (note !== undefined && typeof note !== "string") {
+				return bad("a proposal_decided entry has a note that is not text");
+			}
+			const entry: ProposalDecidedEntry = { type, ...base, proposal, decision };
+			if (note !== undefined) {
+				entry.note = note;
 			}
 			return ok(entry);
 		}

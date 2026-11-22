@@ -6,7 +6,7 @@ category: features
 
 # Approvals and questions
 
-Last updated: 2026-11-14. Everything here is decided.
+Last updated: 2026-11-21. Everything here is decided, and the approvals slice built it.
 
 ## The problem
 
@@ -30,8 +30,31 @@ This builds on what is already decided: a run can be parked with a reason (decis
 - **Answers must be genuine.** Each request carries a one-time code, so an answer to it cannot be forged. The exact scheme is decided with the transport.
 - **The shell tool needs a command policy.** Nova's approach is the reference: an allow-list of command patterns, anything else asks, and a headless run denies. Allow rules reject shell control operators, so an allowed command cannot be chained into something else, and the most restrictive matching rule wins. The exact patterns are decided when the shell tool is.
 
+## The rows approvals is built against
+
+Decision 34's one mechanism is two things that behave the same: a risky call the
+recipe wants a person to approve, and a question only a person can answer. The
+policy is decided per call before anything runs, and a call that needs an answer
+stops the batch rather than being guessed at.
+
+| ID | Case | Expected |
+|---|---|---|
+| APR01 | Happy: a call the recipe allows | It runs untouched, with no request and no park |
+| APR02 | Happy: a call that asks | The run parks as `waiting_for_person`, the request is saved before anything is sent, the tool never ran, and a resume with no answer parks again and writes nothing |
+| APR03 | Sad: a call the recipe denies | It never asks and never runs, and the model is told why in an error result it can adapt to |
+| APR04 | Sad: nothing can deliver the question | A run with nobody to ask (`canAsk` false) denies the call instead of parking, which is decision 35's "it is denied" |
+| APR05 | The policy's order | A risk label of `changes` or `dangerous` asks and `reads` does not; a tool's own policy wins over its label; and a batch stops at the first call that needs an answer, leaving the calls after it unanswered |
+| APR06 | A tool that says nothing | It is allowed, because silence meaning "ask" would stop every recipe built before this slice |
+| APR07 | Happy: an approved call | The call runs on the resume, once, and its result is what the model reads next |
+| APR08 | Sad: a denied call with a note | The call never runs, and the person's own words are in the error result the model corrects from |
+| APR15 | Sad: a choice answered with something else | A choice is answered with one of the options it offered: anything else is `bad_request` and nothing is written, and an offered one becomes the call's result |
+| APR14 | Happy: a question | A tool that needs an answer parks the run as a question, and the person's words become that call's result, which the model reads and the tool's `apply` records the same way a replay would |
+| APR11 | Sad: a timeout | A request past its `timeout_ms` is denied by the clock, the record says it expired rather than that a person decided, the host had a wake scheduled for it, and a wake does not overrule the park before then |
+| APR12 | Bad: an answer that is not one | A `ui_response` that is a different frame type, names no request or session, or carries a field this build cannot read is `bad_request` naming the field; anything but a clear `ok: true` is a deny; an unknown field is ignored; and no hostile frame makes the decoder throw |
+
 ## Not discussed yet
 
-- **Who may approve** and **approve with edits.** Proposed in decision 88: the session's owner, and no edited approvals in version one.
-- **How the indicator works in the viewer.** Built later, on top of the list of pending requests.
-- **The shell tool's command policy.** Decided in decision 81, with details in `shell-tool.md`.
+- **How the indicator works in the viewer.** Built later, on top of the list of pending requests: `list_pending` (and `get_state`'s count) is what a viewer needs, and the glow itself is a viewer concern (decision 36).
+- **The shell tool's command policy.** Decided in decision 81, with details in `shell-tool.md`; it is the shell's, not this slice's.
+
+Settled while building: who may approve is the session's owner with no edited approvals (decision 88), a tool that says nothing is allowed and `canAsk` decides whether a question can be delivered (decision 139), an answer is its own record entry and an expired id is `not_found` (decision 140), a question is the same mechanism as an approval and an ask stops the batch (decision 141), and a proposal ends the run and is decided once (decision 142).

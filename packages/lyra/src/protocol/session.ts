@@ -37,10 +37,16 @@ import { createRuntime, type RunDefinition, type Runtime } from "../core/runtime
 import type { RunHandle } from "../core/run-handle.js";
 import type { StorageSlot, WakingSlot } from "../core/slots.js";
 import { createUsageTotal } from "../core/usage.js";
-import type { RecordEntry } from "../record/entries.js";
+import type {
+	ProposalDecidedEntry,
+	RecordEntry,
+	RequestAnsweredEntry,
+	RequestEntry,
+} from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
 import { fitEntry, utf8Length } from "../record/truncate.js";
+import type { RequestAnswer } from "./answers.js";
 import type { Command } from "./commands.js";
 import { eventsAfter, projectEvents, type RecordEvent } from "./events.js";
 
@@ -94,6 +100,8 @@ export interface Session {
 	follow(after: number, listener: (event: SessionEvent) => void): Promise<Result<() => void>>;
 	/** The host's alarm: continue the run it names, and watch it like any other. */
 	wake(runId: string): Promise<Result<JsonValue>>;
+	/** Answer a request this session asked, and continue the run from it (decision 34). */
+	respond(answer: RequestAnswer): Promise<Result<JsonValue>>;
 }
 
 /** A value this module built out of the record or its own answers, as response data. */
@@ -144,6 +152,8 @@ export function createSession(options: SessionOptions): Session {
 			model: options.model,
 			host: options.host,
 			...(options.tenant === undefined ? {} : { tenant: options.tenant }),
+			// A session is where a person is reachable, so its runs may ask (decision 35).
+			canAsk: true,
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(options.waking === undefined ? {} : { waking: options.waking }),
 		});
@@ -155,6 +165,57 @@ export function createSession(options: SessionOptions): Session {
 	 * would read an empty record and start a rival run (found in review).
 	 */
 	let started: { task: string; input: JsonValue; runId: string } | undefined;
+
+	/**
+	 * Which command is writing the record: a decision, or a run being continued. Both
+	 * are a read, a check and an append, and either arriving inside the other's window
+	 * would chain from a parent that is about to move, so both are refused until the
+	 * other is done (found in review). `runtime.active` cannot see a resume that is
+	 * still reading the record, which is why the session tracks it here too.
+	 */
+	let writing: "decision" | "run" | "compact" | undefined;
+	/** Command-less callers waiting their turn, which is how a wake is not lost. */
+	const waiting = new Set<() => void>();
+
+	/** Claim the record for one command, or say why it is busy. */
+	const claim = (kind: "decision" | "run" | "compact"): Result<void> => {
+		if (writing !== undefined) {
+			return fail(
+				"busy",
+				writing === "decision"
+					? "a decision is being written in this session"
+					: writing === "compact"
+						? "a compaction is being written in this session"
+						: "a run is being continued in this session",
+			);
+		}
+		writing = kind;
+		return ok(undefined);
+	};
+
+	/**
+	 * The same claim, waited for rather than refused. The host's alarm uses it: a wake
+	 * has nobody to report `busy` to, and it may be the only thing that will ever
+	 * deny a timed request, so losing it would strand the run (found in review).
+	 */
+	const claimWhenFree = async (kind: "decision" | "run" | "compact"): Promise<void> => {
+		while (writing !== undefined) {
+			await new Promise<void>((resolve) => {
+				waiting.add(resolve);
+			});
+		}
+		writing = kind;
+	};
+
+	/** Hand the record on, and let one waiter look again. */
+	const release = (): void => {
+		writing = undefined;
+		const next = waiting.values().next();
+		if (next.done !== true) {
+			waiting.delete(next.value);
+			next.value();
+		}
+	};
 
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
@@ -257,6 +318,45 @@ export function createSession(options: SessionOptions): Session {
 
 	/** A message that continues the record without starting a rival run. */
 	const continueWith = async (seed: ResumeSeed, text: string): Promise<Result<JsonValue>> => {
+		const claimed = claim("run");
+		if (!claimed.ok) {
+			return claimed;
+		}
+		try {
+			return await continueRun(seed, text);
+		} finally {
+			release();
+		}
+	};
+
+	/** Continue a record that is parked, when a person asks (CMD07). */
+	const resumeRun = async (seed: ResumeSeed): Promise<Result<JsonValue>> => {
+		const header = seed.record.header;
+		const waiting = pendingOf(seed);
+		if (waiting !== undefined) {
+			return fail("busy", `this run is waiting for a person to answer ${waiting.request}`);
+		}
+		const definition = options.recipes.get(header.task);
+		if (definition === undefined) {
+			return fail(
+				"not_found",
+				`this session's task "${header.task}" is not one this host runs`,
+			);
+		}
+		const resumed = await runtime.resume({
+			runId: header.run,
+			task: header.task,
+			definition,
+			by: "person",
+		});
+		if (!resumed.ok) {
+			return resumed;
+		}
+		listen(resumed.value);
+		return ok(data({ session: options.id, run: header.run }));
+	};
+
+	const continueRun = async (seed: ResumeSeed, text: string): Promise<Result<JsonValue>> => {
 		const header = seed.record.header;
 		const definition = options.recipes.get(header.task);
 		if (definition === undefined) {
@@ -310,8 +410,7 @@ export function createSession(options: SessionOptions): Session {
 			turns: seed?.turns ?? 0,
 			usage: usage.total(),
 			queue,
-			// Approvals arrive in a later slice, so nothing is waiting for a person yet.
-			pending: 0,
+			pending: pendingOf(seed) === undefined ? 0 : 1,
 		});
 	};
 
@@ -373,6 +472,105 @@ export function createSession(options: SessionOptions): Session {
 		return ok(data({ session: options.id, run: header.run, compacted: true }));
 	};
 
+	/** The request the run is waiting on, when nothing has answered it yet. */
+	const pendingOf = (seed: ResumeSeed | undefined): RequestEntry | undefined => {
+		const request = seed?.pendingRequest;
+		return request !== undefined && seed?.answer === undefined ? request : undefined;
+	};
+
+	/** What a client needs to answer a request, without the record's own ids (REQ02). */
+	const pendingRequest = (request: RequestEntry): JsonValue =>
+		data({
+			request: request.request,
+			kind: request.kind,
+			title: request.title,
+			message: request.message,
+			...(request.preview === undefined ? {} : { preview: request.preview }),
+			...(request.callId === undefined ? {} : { callId: request.callId }),
+			...(request.tool === undefined ? {} : { tool: request.tool }),
+			...(request.args === undefined ? {} : { args: request.args }),
+			...(request.risk === undefined ? {} : { risk: request.risk }),
+			...(request.options === undefined ? {} : { options: request.options }),
+			...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+		});
+
+	/** Write one decision, once the caller has the session to itself. */
+	const decideProposal = async (
+		command: Extract<Command, { command: "decide_proposal" }>,
+		seed: ResumeSeed,
+	): Promise<Result<JsonValue>> => {
+		const header = seed.record.header;
+		const path = activePath(seed.record.entries);
+		const proposal = path.find(
+			(entry) => entry.type === "proposal" && entry.proposal === command.proposal,
+		);
+		if (proposal === undefined) {
+			return fail("not_found", `this session has no proposal ${command.proposal}`);
+		}
+		if (
+			path.some(
+				(entry) => entry.type === "proposal_decided" && entry.proposal === command.proposal,
+			)
+		) {
+			// One decision each, and the first one stands (decision 53).
+			return fail("conflict", "that proposal has already been decided");
+		}
+		const entry: ProposalDecidedEntry = {
+			type: "proposal_decided",
+			id: options.ids.next("e"),
+			parent: seed.parent,
+			ts: options.clock.now(),
+			proposal: command.proposal,
+			decision: command.decision,
+		};
+		if (command.note !== undefined) {
+			entry.note = command.note;
+		}
+		const fitted = fitEntry(entry, entryCapBytes(options.storage));
+		if (fitted.refused !== undefined) {
+			return fail("internal", fitted.refused);
+		}
+		const saved = await options.storage.append(fitted.line);
+		if (!saved.ok) {
+			return saved;
+		}
+		schedule();
+		return ok(
+			data({
+				session: options.id,
+				run: header.run,
+				proposal: command.proposal,
+				decision: command.decision,
+			}),
+		);
+	};
+
+	const listPending = (seed: ResumeSeed): Result<JsonValue> => {
+		const waiting = pendingOf(seed);
+		const path = activePath(seed.record.entries);
+		const decided = new Set(
+			path.flatMap((entry) => (entry.type === "proposal_decided" ? [entry.proposal] : [])),
+		);
+		const open = path.flatMap((entry) =>
+			entry.type === "proposal" && !decided.has(entry.proposal) ? [entry] : [],
+		);
+		return ok(
+			data({
+				session: options.id,
+				run: seed.record.header.run,
+				requests: waiting === undefined ? [] : [pendingRequest(waiting)],
+				proposals: open.map((proposal) =>
+					data({
+						proposal: proposal.proposal,
+						payload: proposal.payload,
+						evidence: proposal.evidence,
+						state: proposal.state,
+					}),
+				),
+			}),
+		);
+	};
+
 	const getMessages = (
 		command: Extract<Command, { command: "get_messages" }>,
 		seed: ResumeSeed,
@@ -415,8 +613,162 @@ export function createSession(options: SessionOptions): Session {
 		return ok(data({ session: options.id, run: seed.record.header.run, entries, cursor }));
 	};
 
+	/**
+	 * Answer a request: check it is still open, write the person's decision, and
+	 * continue the run. It runs under the session's write claim, so a decision or a
+	 * second answer cannot chain from the same parent (found in review).
+	 */
+	const answerRequest = async (answer: RequestAnswer): Promise<Result<JsonValue>> => {
+		const existing = await seedOf();
+		if (!existing.ok) {
+			return existing;
+		}
+		const seed = existing.value;
+		if (seed === undefined) {
+			return fail("not_found", "this session has no record yet");
+		}
+		const path = activePath(seed.record.entries);
+		const request = path.find(
+			(entry): entry is RequestEntry =>
+				entry.type === "request" && entry.request === answer.request,
+		);
+		if (request === undefined) {
+			return fail("not_found", `this session has no request ${answer.request}`);
+		}
+		const earlier = path.find(
+			(entry): entry is RequestAnsweredEntry =>
+				entry.type === "request_answered" && entry.request === answer.request,
+		);
+		if (earlier !== undefined) {
+			if (earlier.timedOut === true) {
+				// The clock answered it, so the id has expired: decision 85's `not_found`,
+				// not a conflict with a request a person could still decide.
+				return fail("not_found", `the request ${answer.request} has expired`);
+			}
+			// One answer each, and the first one stands (decisions 34, 85).
+			return fail("conflict", "that request has already been answered");
+		}
+		if (request.kind === "choice" && answer.ok) {
+			// A choice is answered with the options it offered, so a client cannot
+			// answer with something the run never asked about (decision 34).
+			const offered = new Set((request.options ?? []).map((option) => option.id));
+			const unknown = (answer.ids ?? []).filter((id) => !offered.has(id));
+			if ((answer.ids ?? []).length === 0 || unknown.length > 0) {
+				return fail(
+					"bad_request",
+					`that request offers ${[...offered].join(", ")}, so the answer has to be one of them`,
+				);
+			}
+		}
+		if (request.kind === "approve" && (answer.text !== undefined || answer.ids !== undefined)) {
+			// An approval is run or refused; a question's answer has no meaning here,
+			// and taking it as a result would skip the call it was about (APR07).
+			return fail(
+				"bad_request",
+				"an approval is answered with ok and a note, not with a text or ids",
+			);
+		}
+		if (
+			request.timeoutMs !== undefined &&
+			options.clock.now() >= request.ts + request.timeoutMs
+		) {
+			// An id past its timeout is expired, and an expired id is not found.
+			return fail("not_found", `the request ${answer.request} has expired`);
+		}
+		const header = seed.record.header;
+		if (runtime.active(header.run) !== undefined) {
+			return fail("busy", "a run is already active in this session");
+		}
+		const definition = options.recipes.get(header.task);
+		if (definition === undefined) {
+			return fail(
+				"not_found",
+				`this session's task "${header.task}" is not one this host runs`,
+			);
+		}
+
+		const entry: RequestAnsweredEntry = {
+			type: "request_answered",
+			id: options.ids.next("e"),
+			parent: seed.parent,
+			ts: options.clock.now(),
+			request: answer.request,
+			decision: answer.ok ? "approve" : "deny",
+		};
+		if (answer.note !== undefined) {
+			entry.note = answer.note;
+		}
+		if (answer.text !== undefined) {
+			entry.text = answer.text;
+		}
+		if (answer.ids !== undefined) {
+			entry.ids = answer.ids;
+		}
+		const fitted = fitEntry(entry, entryCapBytes(options.storage));
+		if (fitted.refused !== undefined) {
+			return fail("internal", fitted.refused);
+		}
+		const saved = await options.storage.append(fitted.line);
+		if (!saved.ok) {
+			return saved;
+		}
+
+		const resumed = await runtime.resume({
+			runId: header.run,
+			task: header.task,
+			definition,
+			by: "person",
+		});
+		if (!resumed.ok) {
+			return resumed;
+		}
+		listen(resumed.value);
+		return ok(data({ session: options.id, run: header.run }));
+	};
+
+	/** The host's alarm: continue the run it names, under the session's write claim. */
+	const wakeRun = async (runId: string): Promise<Result<JsonValue>> => {
+		const existing = await seedOf();
+		if (!existing.ok) {
+			return existing;
+		}
+		const seed = existing.value;
+		if (seed === undefined) {
+			return fail("not_found", "this session has no record to wake");
+		}
+		const header = seed.record.header;
+		if (header.run !== runId) {
+			return fail("not_found", `this session does not hold run ${runId}`);
+		}
+		const definition = options.recipes.get(header.task);
+		if (definition === undefined) {
+			return fail(
+				"not_found",
+				`this session's task "${header.task}" is not one this host runs`,
+			);
+		}
+		const woken = await runtime.wake({ runId, task: header.task, definition });
+		if (!woken.ok) {
+			return woken;
+		}
+		listen(woken.value);
+		return ok(data({ session: options.id, run: runId }));
+	};
+
 	return {
 		id: options.id,
+
+		respond: async (answer: RequestAnswer): Promise<Result<JsonValue>> => {
+			const claimed = claim("run");
+			if (!claimed.ok) {
+				return claimed;
+			}
+			try {
+				return await answerRequest(answer);
+			} finally {
+				release();
+			}
+		},
 
 		replay: async (after) => {
 			const read = await options.storage.read();
@@ -441,31 +793,12 @@ export function createSession(options: SessionOptions): Session {
 		},
 
 		wake: async (runId) => {
-			const existing = await seedOf();
-			if (!existing.ok) {
-				return existing;
+			await claimWhenFree("run");
+			try {
+				return await wakeRun(runId);
+			} finally {
+				release();
 			}
-			const seed = existing.value;
-			if (seed === undefined) {
-				return fail("not_found", "this session has no record to wake");
-			}
-			const header = seed.record.header;
-			if (header.run !== runId) {
-				return fail("not_found", `this session does not hold run ${runId}`);
-			}
-			const definition = options.recipes.get(header.task);
-			if (definition === undefined) {
-				return fail(
-					"not_found",
-					`this session's task "${header.task}" is not one this host runs`,
-				);
-			}
-			const woken = await runtime.wake({ runId, task: header.task, definition });
-			if (!woken.ok) {
-				return woken;
-			}
-			listen(woken.value);
-			return ok(data({ session: options.id, run: runId }));
 		},
 
 		follow: async (after, listener) => {
@@ -585,10 +918,46 @@ export function createSession(options: SessionOptions): Session {
 			switch (command.command) {
 				case "get_messages":
 					return getMessages(command, seed);
-				case "compact":
-					return compactNow(command, seed);
+				case "compact": {
+					const claimed = claim("compact");
+					if (!claimed.ok) {
+						return claimed;
+					}
+					try {
+						return await compactNow(command, seed);
+					} finally {
+						release();
+					}
+				}
+				case "list_pending":
+					return listPending(seed);
+				case "decide_proposal": {
+					if (runtime.active(header.run) !== undefined) {
+						// A run is writing to this record; a decision now would chain from a
+						// parent it is about to move past (decision 53's one decision).
+						return fail("busy", "a run is active in this session");
+					}
+					const claimed = claim("decision");
+					if (!claimed.ok) {
+						return claimed;
+					}
+					try {
+						return await decideProposal(command, seed);
+					} finally {
+						release();
+					}
+				}
 				case "prompt":
 				case "follow_up": {
+					const waiting = pendingOf(seed);
+					if (active === undefined && waiting !== undefined) {
+						// Both would continue the record, which a run waiting for a person
+						// cannot do. Answering `ok` and writing nothing would lose the text.
+						return fail(
+							"busy",
+							`this run is waiting for a person to answer ${waiting.request}, so a ${command.command} cannot be read yet`,
+						);
+					}
 					if (active !== undefined) {
 						if (command.command === "prompt" && !command.queue) {
 							return fail("busy", "a run is active in this session");
@@ -622,24 +991,15 @@ export function createSession(options: SessionOptions): Session {
 					if (active !== undefined) {
 						return fail("busy", "a run is already active in this session");
 					}
-					const definition = options.recipes.get(header.task);
-					if (definition === undefined) {
-						return fail(
-							"not_found",
-							`this session's task "${header.task}" is not one this host runs`,
-						);
+					const claimed = claim("run");
+					if (!claimed.ok) {
+						return claimed;
 					}
-					const resumed = await runtime.resume({
-						runId: header.run,
-						task: header.task,
-						definition,
-						by: "person",
-					});
-					if (!resumed.ok) {
-						return resumed;
+					try {
+						return await resumeRun(seed);
+					} finally {
+						release();
 					}
-					listen(resumed.value);
-					return ok(data({ session: options.id, run: header.run }));
 				}
 			}
 		},

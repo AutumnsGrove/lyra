@@ -11,8 +11,12 @@
 import { isJsonValue, isPlainObject, type JsonObject, type JsonValue } from "../core/json.js";
 import { isErrorCode, type ErrorCode, type Result } from "../core/result.js";
 
-/** The frame types Lyra speaks. `hello` is WebSocket-only (step 8). */
-export const FRAME_TYPES = ["hello", "command", "response", "event"] as const;
+/**
+ * The frame types Lyra speaks. `hello` is WebSocket-only (step 8); `ui_response`
+ * answers a request rather than telling Lyra to do something, which is why it is
+ * its own type and not a command (decision 34).
+ */
+export const FRAME_TYPES = ["hello", "command", "response", "event", "ui_response"] as const;
 
 export type FrameType = (typeof FRAME_TYPES)[number];
 

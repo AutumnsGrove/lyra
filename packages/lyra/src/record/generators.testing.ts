@@ -107,7 +107,17 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe" | "compaction",
+	kind:
+		| "user"
+		| "assistant"
+		| "tool"
+		| "status"
+		| "note"
+		| "fallback"
+		| "recipe"
+		| "compaction"
+		| "request"
+		| "answered",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -190,6 +200,64 @@ function entryArbitrary(
 						? { type: "recipe_updated" as const, ...base, to }
 						: { type: "recipe_updated" as const, ...base, from, to },
 				);
+		case "request":
+			return fc
+				.record({
+					request: word,
+					kind: fc.constantFrom(
+						"approve" as const,
+						"question" as const,
+						"choice" as const,
+					),
+					title: text,
+					message: text,
+					preview: fc.option(jsonValueArbitrary(), { nil: undefined }),
+					callId: fc.option(word, { nil: undefined }),
+					tool: fc.option(word, { nil: undefined }),
+					args: fc.option(text, { nil: undefined }),
+					risk: fc.option(
+						fc.constantFrom("reads" as const, "changes" as const, "dangerous" as const),
+						{ nil: undefined },
+					),
+					options: fc.option(
+						fc.array(fc.record({ id: word, label: text }), { maxLength: 2 }),
+						{ nil: undefined },
+					),
+					timeoutMs: fc.option(fc.integer({ min: 1, max: 100_000 }), { nil: undefined }),
+				})
+				.map(({ preview, callId, tool, args, risk, options, timeoutMs, ...rest }) => ({
+					type: "request" as const,
+					...base,
+					...rest,
+					...(preview === undefined ? {} : { preview }),
+					...(callId === undefined ? {} : { callId }),
+					...(tool === undefined ? {} : { tool }),
+					...(args === undefined ? {} : { args }),
+					...(risk === undefined ? {} : { risk }),
+					...(options === undefined ? {} : { options }),
+					...(timeoutMs === undefined ? {} : { timeoutMs }),
+				}));
+		case "answered":
+			return fc
+				.record({
+					request: word,
+					decision: fc.constantFrom("approve" as const, "deny" as const),
+					note: fc.option(text, { nil: undefined }),
+					text: fc.option(text, { nil: undefined }),
+					ids: fc.option(fc.array(word, { maxLength: 2 }), { nil: undefined }),
+					timedOut: fc.constantFrom(undefined, true),
+				})
+				.map(({ note, text: answerText, ids, timedOut, ...rest }) => ({
+					type: "request_answered" as const,
+					...base,
+					...rest,
+					...(note === undefined ? {} : { note }),
+					...(answerText === undefined ? {} : { text: answerText }),
+					...(ids === undefined ? {} : { ids }),
+					// A present `false` is normalised away on the way out, so only true or
+					// absent round-trips.
+					...(timedOut === true ? { timedOut: true as const } : {}),
+				}));
 		case "compaction":
 			return fc
 				.record({
@@ -218,6 +286,8 @@ export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 				"fallback",
 				"recipe",
 				"compaction",
+				"request",
+				"answered",
 			),
 			{ maxLength: 5 },
 		)

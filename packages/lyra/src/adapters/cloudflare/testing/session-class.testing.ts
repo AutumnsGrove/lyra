@@ -110,6 +110,9 @@ function recipeFor(clock: FakeClock): RunDefinition {
 		tools: [
 			toolReturning("read", "the file"),
 			toolReturning("write", "written"),
+			// A tool that needs a person, so a test can exercise the answer route
+			// through the Worker's own front door (REQ02).
+			toolReturning("approve", "approved and done", { policy: "ask" }),
 			toolTakingTime("slow", 5_000, clock),
 			createFinishTool(),
 		],

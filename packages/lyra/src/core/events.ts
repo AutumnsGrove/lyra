@@ -16,8 +16,9 @@ import type { LyraError } from "./result.js";
 
 export type RunEndReason = "done" | "parked" | "failed";
 
-/** Why a run parked. Approvals join in a later slice (decision 84). */
-export type ParkedReason = "stopped" | "stuck" | "limit" | "model_unavailable";
+/** Why a run parked (decision 84). */
+export type ParkedReason =
+	"stopped" | "stuck" | "limit" | "model_unavailable" | "waiting_for_person";
 
 interface EventBase {
 	/** The run this event belongs to. Constant for every event of a run. */
@@ -63,6 +64,18 @@ export type RunEvent =
 	/** The run moved to another model after the first failed its retries (decision 58). */
 	| (EventBase & { type: "fallback"; from: string; to: string; reason: string })
 	/**
+	 * The run is waiting for a person, and the request is on the record (decision 34).
+	 * A host with a Waking slot arranges the timeout from here, and a client that is
+	 * watching learns what is being asked.
+	 */
+	| (EventBase & {
+			type: "request";
+			seq: number;
+			request: string;
+			callId?: string;
+			timeoutMs?: number;
+	  })
+	/**
 	 * The run summarized its older steps and moved the model's view forward
 	 * (docs/context-size.md, decision 39). `seq` is the `compaction` entry's
 	 * position in the record, so a reconnecting client sees it too.
@@ -85,12 +98,13 @@ export type RunEvent =
 /** A listener is never allowed to be the reason a run fails. */
 export type RunEventListener = (event: RunEvent) => void;
 
-/** The parked reasons this build knows. Approvals add `waiting_for_person` later. */
+/** The parked reasons this build knows. */
 const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
 	"stopped",
 	"stuck",
 	"limit",
 	"model_unavailable",
+	"waiting_for_person",
 ];
 
 /**

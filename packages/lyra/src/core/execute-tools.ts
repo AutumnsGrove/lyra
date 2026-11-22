@@ -16,6 +16,7 @@ import type { Clock } from "./clock.js";
 import { isPlainObject } from "./json.js";
 import { formatErrors } from "./schema.js";
 import type { ToolCall } from "./model.js";
+import type { PersonQuestion } from "./tool.js";
 import { type Tool, type ToolOutcome } from "./tool.js";
 
 export interface ExecuteToolsOptions {
@@ -33,6 +34,12 @@ export interface ExecuteToolsOptions {
 	 * that ran carries the arguments it ran with, which is what `apply` needs.
 	 */
 	onFinish(call: ToolCall, outcome: ToolOutcome, args?: unknown): Promise<void>;
+	/**
+	 * Called instead of `onFinish` when a tool needs a person before it can answer
+	 * (decision 34). The run saves the question and parks, and the answer becomes
+	 * this call's result on the resume.
+	 */
+	onAsk?(call: ToolCall, ask: PersonQuestion): Promise<void>;
 	/** The recipe's state, read at the moment a call runs (not copied, not changed). */
 	readState?(): unknown;
 	/** True once the run has already finished, so later calls are answered but not run. */
@@ -141,6 +148,12 @@ export async function executeTools(options: ExecuteToolsOptions): Promise<void> 
 
 		options.onStart(call);
 		const outcome = await runOne(tool, args.value, call.id, options);
+		if (outcome.ask !== undefined) {
+			// The tool needs a person before it can answer, so this call gets no result
+			// yet: the question is saved and the run parks (decision 34).
+			await options.onAsk?.(call, outcome.ask);
+			return;
+		}
 		await options.onFinish(call, outcome, args.value);
 	}
 }

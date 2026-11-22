@@ -2,16 +2,19 @@ import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage, type MemoryStorage } from "../adapters/memory/index.js";
 import type { Recipe } from "../core/define-recipe.js";
+import { createProposeTool } from "../core/propose.js";
 import type { JsonValue } from "../core/json.js";
 import type { Result } from "../core/result.js";
 import type { RunDefinition } from "../core/runtime.js";
 import type { Tool } from "../core/tool.js";
 import { until } from "../core/run-harness.testing.js";
 import { loadRecord } from "../record/load.js";
+import { activePath } from "../record/replay.js";
 import {
 	createFinishTool,
 	fakeClock,
 	scriptedModel,
+	toolAsking,
 	toolReturning,
 	toolTakingTime,
 	type FakeClock,
@@ -79,6 +82,19 @@ async function send(session: Session, fields: Record<string, unknown>): Promise<
 		throw new Error(`${decoded.error.code}: ${decoded.error.message}`);
 	}
 	return session.command(decoded.value);
+}
+
+/** One command through the same validator the wire uses. */
+function decodeCommandOf(fields: Record<string, unknown>): import("./commands.js").Command {
+	const frame = decodeFrame(JSON.stringify({ type: "command", id: "c1", ...fields }));
+	if (!frame.ok) {
+		throw new Error(frame.error.message);
+	}
+	const decoded = decodeCommand(frame.value);
+	if (!decoded.ok) {
+		throw new Error(`${decoded.error.code}: ${decoded.error.message}`);
+	}
+	return decoded.value;
 }
 
 function valueOf(outcome: Result<JsonValue>): JsonValue {
@@ -570,4 +586,1016 @@ test("CMD20 compact summarizes the record now, and is busy while a run is active
 	expect(errorOf(await send(empty.session, { command: "compact", session: "s1" })).code).toBe(
 		"not_found",
 	);
+});
+
+/** A recipe whose one tool asks, which is what every test here needs. */
+function asking(turns: readonly ScriptedTurn[]): Harness {
+	return harness(
+		turns,
+		() => [toolReturning("write", "wrote one line", { policy: "ask" }), createFinishTool()],
+		{ summaries: [] },
+	);
+}
+
+const ASK_TURNS: ScriptedTurn[] = [
+	{ toolCalls: [{ id: "c1", name: "write", args: {} }] },
+	{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+];
+
+/** The request the session is waiting on, once the run has parked. */
+async function waitingRequest(storage: MemoryStorage): Promise<Record<string, unknown>> {
+	await until(() => entriesOf(storage).some((entry) => entry.type === "request"));
+	const request = entriesOf(storage).find((entry) => entry.type === "request");
+	if (request === undefined) {
+		throw new Error("the run never asked");
+	}
+	return request as Record<string, unknown>;
+}
+
+function finished(storage: MemoryStorage): boolean {
+	return storage.saved().some((line) => line.includes('"state":"done"'));
+}
+
+test("REQ02 a request with no client connected is listed and answerable later", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	// Nothing was ever watching, which is the whole point of a durable request.
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({
+		session: "s1",
+		requests: [
+			{
+				request: request["request"],
+				kind: "approve",
+				callId: "c1",
+				tool: "write",
+			},
+		],
+		proposals: [],
+	});
+
+	const answered = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(answered.ok).toBe(true);
+	await until(() => finished(storage));
+	// One answer, one result, and the run went on to its done-check.
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+});
+
+test("REQ03 a second answer to the same request is conflict, and the first stands", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	const first = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: false,
+	});
+	expect(first.ok).toBe(true);
+	const second = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(second.ok ? "" : second.error.code).toBe("conflict");
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+	expect(entriesOf(storage).find((entry) => entry.type === "request_answered")).toMatchObject({
+		decision: "deny",
+	});
+});
+
+test("REQ04 an answer to a request this session never asked is not_found", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+
+	const unknown = await session.respond({ session: "s1", request: "auth-nope", ok: true });
+	expect(unknown.ok ? "" : unknown.error.code).toBe("not_found");
+
+	// A session with no record at all has nothing to answer either.
+	const empty = asking(ASK_TURNS);
+	const nothing = await empty.session.respond({ session: "s1", request: "auth-nope", ok: true });
+	expect(nothing.ok ? "" : nothing.error.code).toBe("not_found");
+});
+
+test("CMD08 resume is busy while a person is deciding, and the ids are named", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const refused = errorOf(await send(session, { command: "resume", session: "s1" }));
+	expect(refused.code).toBe("busy");
+	expect(refused.message).toContain(String(request["request"]));
+});
+
+test("CMD09 list_pending is empty once the answer is in, and get_state counts what waits", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	// `get_state` counts what is waiting, so a viewer knows to glow (decision 36).
+	expect(valueOf(await send(session, { command: "get_state", session: "s1" }))).toMatchObject({
+		pending: 1,
+	});
+
+	await session.respond({ session: "s1", request: String(request["request"]), ok: false });
+	await until(() => finished(storage));
+
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({ requests: [] });
+	expect(valueOf(await send(session, { command: "get_state", session: "s1" }))).toMatchObject({
+		pending: 0,
+	});
+});
+
+test("REQ06 a wake behind a pending request does not deliver the run", async () => {
+	// A finished job's wake must not carry the model past a question a person has
+	// not answered (decision 34's queueing rule).
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const runsBefore = entriesOf(storage).filter(
+		(entry) => entry.type === "assistant_message",
+	).length;
+	const woken = await send(session, { command: "resume", session: "s1" });
+	expect(errorOf(woken).code).toBe("busy");
+	expect(entriesOf(storage).filter((entry) => entry.type === "assistant_message")).toHaveLength(
+		runsBefore,
+	);
+	// The request is still the thing being waited on.
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
+
+test("REQ06 the host's alarm behind a pending request leaves it parked", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const before = entriesOf(storage).filter((entry) => entry.type === "assistant_message").length;
+	const woken = await session.wake(started.run);
+	expect(woken.ok).toBe(true);
+	await until(() => entriesOf(storage).at(-1)?.type === "status");
+	expect(entriesOf(storage).filter((entry) => entry.type === "assistant_message")).toHaveLength(
+		before,
+	);
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
+
+test("REQ04 an expired request is not_found, even after the clock answered it", async () => {
+	// The wake writes the timeout's own deny. A person who arrives afterwards is
+	// looking at an expired id, which decision 85 says is `not_found`, not a second
+	// answer to something still open.
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+	const parent = (JSON.parse(storage.saved().at(-1) ?? "{}") as { id?: string }).id ?? null;
+	const timedOut = await storage.append(
+		JSON.stringify({
+			type: "request_answered",
+			id: "e_expired",
+			parent,
+			ts: 100,
+			request: String(request["request"]),
+			decision: "deny",
+			timedOut: true,
+		}),
+	);
+	expect(timedOut.ok).toBe(true);
+
+	const late = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(late.ok ? "" : late.error.code).toBe("not_found");
+});
+
+test("REQ06 a prompt or a follow_up behind a pending request is busy, not dropped", async () => {
+	// Both would continue the record, which a run waiting for a person cannot do;
+	// answering `ok` and writing nothing would lose what the person said.
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+	const written = storage.saved().length;
+
+	for (const command of ["prompt", "follow_up"]) {
+		const refused = errorOf(
+			await send(session, { command, session: "s1", text: "one more thing" }),
+		);
+		expect({ command, code: refused.code }).toEqual({ command, code: "busy" });
+		expect({ command, names: refused.message.includes("waiting for a person") }).toEqual({
+			command,
+			names: true,
+		});
+	}
+	// Nothing was written, and the text is not on the record pretending it was read.
+	expect(storage.saved()).toHaveLength(written);
+});
+
+test("APR15 a choice can be denied, and an approval cannot be answered with a text", async () => {
+	// Decision 34 gives every request a deny, and the timeout denies a choice too;
+	// only approving a choice has to name one of the options it offered.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const choosing: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "choose", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const model = scriptedModel(choosing, { clock });
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model,
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						toolAsking("choose", {
+							kind: "choice",
+							title: "Which one?",
+							message: "Pick one.",
+							options: [
+								{ id: "a", label: "A" },
+								{ id: "b", label: "B" },
+							],
+						}),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(storage).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+
+	// The run has to have parked before an answer can continue it.
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+	const denied = await session.respond({
+		session: "s1",
+		request: id,
+		ok: false,
+		note: "none thanks",
+	});
+	expect(denied.ok).toBe(true);
+	await until(() => storage.saved().some((line) => line.includes('"state":"done"')));
+	expect(entriesOf(storage).find((entry) => entry.type === "request_answered")).toMatchObject({
+		decision: "deny",
+		note: "none thanks",
+	});
+});
+
+test("APR15 an approval answered with a text is refused, and the call is untouched", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	const refused = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+		text: "here you are",
+	});
+	expect(refused.ok ? "" : refused.error.code).toBe("bad_request");
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
+
+test("CMD10 PRP03 PRP04 PRP05 decide_proposal decides once, and refuses the second decision", async () => {
+	// A proposal is a finished run's result: a person accepts or rejects it, the
+	// decision is its own entry, and a second one conflicts (decisions 53, 85).
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+	expect(id).not.toBe("");
+
+	// The proposal and its decision are events a viewer can follow, from the record.
+	const events = await session.replay(0);
+	expect(events.ok ? events.value.filter((event) => event.type === "proposal") : []).toHaveLength(
+		1,
+	);
+
+	// An open proposal is listed, with enough to decide it (CMD09).
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({
+		proposals: [{ proposal: id, payload: { verdict: "deny", score: 0.9 }, state: "open" }],
+	});
+
+	const decided = valueOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "reject",
+			note: "not our call",
+		}),
+	);
+	expect(decided).toMatchObject({ session: "s1", proposal: id, decision: "reject" });
+	expect(entriesOf(storage).find((entry) => entry.type === "proposal_decided")).toMatchObject({
+		proposal: id,
+		decision: "reject",
+		note: "not our call",
+	});
+
+	const second = errorOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	expect(second.code).toBe("conflict");
+	const decided_events = await session.replay(0);
+	expect(
+		decided_events.ok
+			? decided_events.value.filter((event) => event.type === "proposal_decided")
+			: [],
+	).toMatchObject([{ proposal: id, decision: "reject" }]);
+
+	// An unknown proposal is not found, and the decided one leaves the list.
+	expect(
+		errorOf(
+			await send(session, {
+				command: "decide_proposal",
+				session: "s1",
+				proposal: "prop_nope",
+				decision: "accept",
+			}),
+		).code,
+	).toBe("not_found");
+	expect(valueOf(await send(session, { command: "list_pending", session: "s1" }))).toMatchObject({
+		proposals: [],
+	});
+});
+
+test("CMD10 two decisions at once write one, and a decision waits for no run", async () => {
+	// A decision is a write into a record a run may also be writing to, so it is
+	// refused while a run is active and serialized against another decision; the
+	// second command must not chain from a parent the first one has moved on from.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	const frame = (decision: "accept" | "reject") => {
+		const decoded = decodeFrame(
+			JSON.stringify({
+				type: "command",
+				id: `c-${decision}`,
+				command: "decide_proposal",
+				session: "s1",
+				proposal: id,
+				decision,
+			}),
+		);
+		if (!decoded.ok) {
+			throw new Error(decoded.error.message);
+		}
+		const command = decodeCommand(decoded.value);
+		if (!command.ok) {
+			throw new Error(command.error.message);
+		}
+		return command.value;
+	};
+
+	const [first, second] = await Promise.all([
+		session.command(frame("accept")),
+		session.command(frame("reject")),
+	]);
+	expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+	expect(entriesOf(storage).filter((entry) => entry.type === "proposal_decided")).toHaveLength(1);
+	// The one decision is on the active path, which is what `list_pending` reads.
+	const loaded = loadRecord(storage.saved());
+	expect(loaded.ok).toBe(true);
+	const path = loaded.ok
+		? (activePath(loaded.value.entries) as { type: string }[]).map((entry) => entry.type)
+		: [];
+	expect(path).toContain("proposal_decided");
+});
+
+/** A storage whose `append` can be held on one line, to open a race on purpose. */
+function holdableStorage(inner: MemoryStorage) {
+	let held: (() => void) | undefined;
+	let armWhen: string | undefined;
+	let holdReadAt: number | undefined;
+	let reads = 0;
+	return {
+		slot: {
+			append: async (line: string) => {
+				if (armWhen !== undefined && line.includes(armWhen)) {
+					await new Promise<void>((resolve) => {
+						held = resolve;
+					});
+				}
+				return inner.append(line);
+			},
+			read: async () => {
+				reads += 1;
+				if (holdReadAt !== undefined && reads === holdReadAt) {
+					await new Promise<void>((resolve) => {
+						held = resolve;
+					});
+				}
+				return inner.read();
+			},
+			// The slot's optional shape, so a session sees the same storage it would
+			// otherwise be given.
+			...(inner.maxEntryBytes === undefined ? {} : { maxEntryBytes: inner.maxEntryBytes }),
+			saved: () => inner.saved(),
+		},
+		/** Hold the next append whose line contains this text. */
+		arm: (text: string): void => {
+			armWhen = text;
+		},
+		/** Hold the nth read from now, which is where a resume sits while it claims. */
+		holdRead: (nth: number): void => {
+			reads = 0;
+			holdReadAt = nth;
+		},
+		release: (): void => {
+			armWhen = undefined;
+			holdReadAt = undefined;
+			held?.();
+			held = undefined;
+		},
+	};
+}
+
+test("CMD10 a follow_up cannot slip in while a decision is being written", async () => {
+	// A decision and a run both append to one record: a follow-up accepted between
+	// the decision's read and its append would chain from the same parent and drop
+	// one of the two branches off the active path, with no error to anyone.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	// Let the decision reach its append, where it is holding the record.
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const slipped = await session.command(
+		decodeCommandOf({ command: "follow_up", session: "s1", text: "one more thing" }),
+	);
+	const refused = slipped.ok ? "" : slipped.error.code;
+	holding.release();
+	expect({ refused, decided: (await deciding).ok }).toEqual({ refused: "busy", decided: true });
+	expect(inner.saved().some((line) => line.includes("one more thing"))).toBe(false);
+});
+
+test("CMD10 a decision is refused while a run is writing the record", async () => {
+	// The other half of the same race: a run that is mid-step is writing too, so the
+	// decision waits rather than chaining from a parent the run will move past.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "slow", args: {} }] },
+		{ toolCalls: [{ id: "c3", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						toolTakingTime("slow", 5_000, clock),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	// A follow-up starts a run whose next turn sits in a slow tool.
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => storage.saved().some((line) => line.includes('"name":"slow"')));
+
+	const refused = errorOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	expect(refused.code).toBe("busy");
+	expect(entriesOf(storage).filter((entry) => entry.type === "proposal_decided")).toHaveLength(0);
+	clock.advance(5_000);
+});
+
+test("CMD20 a start or a resume is refused while a decision is being written", async () => {
+	// The lock has to hold in both directions, or the branch that is written second
+	// falls off the active path (found in review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	const resumed = await session.command(decodeCommandOf({ command: "resume", session: "s1" }));
+	const prompted = await session.command(
+		decodeCommandOf({ command: "prompt", session: "s1", text: "and then", queue: true }),
+	);
+	holding.release();
+	expect({ resumed: resumed.ok ? "" : resumed.error.code }).toEqual({ resumed: "busy" });
+	expect({ prompted: prompted.ok ? "" : prompted.error.code }).toEqual({ prompted: "busy" });
+	expect((await deciding).ok).toBe(true);
+});
+
+/** A session whose one tool asks and whose recipe can propose, for the answer paths. */
+function claiming(clock: FakeClock, inner: MemoryStorage) {
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "write", args: {} }] },
+		{ toolCalls: [{ id: "c3", name: "finish", args: {} }] },
+	];
+	return createSession({
+		id: "s1",
+		storage: inner,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						toolReturning("write", "wrote one line", { policy: "ask" }),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+}
+
+test("REQ03 two answers at once write one, and the other is refused", async () => {
+	// An answer is a read, a check and an append like a decision, so two of them
+	// arriving together must not both pass the check (the approvals path of the same
+	// race the decision lock covers).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const first = session.respond({ session: "s1", request: id, ok: true });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const second = await session.respond({ session: "s1", request: id, ok: false });
+	holding.release();
+	expect({ first: (await first).ok, second: second.ok ? "" : second.error.code }).toEqual({
+		first: true,
+		second: "busy",
+	});
+	expect(entriesOf(inner).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+});
+
+test("CMD10 a decision cannot chain from a parent an answer is about to move past", async () => {
+	// The approvals answer path and a decision both append; the one that lands second
+	// would fall off the active path, so the second is refused while the first writes.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const proposalId = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const answering = session.respond({ session: "s1", request: id, ok: false });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const decided = await session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: proposalId,
+			decision: "accept",
+		}),
+	);
+	holding.release();
+	expect({ decided: decided.ok ? "" : decided.error.code }).toEqual({ decided: "busy" });
+	expect((await answering).ok).toBe(true);
+});
+
+test("CMD20 a compaction waits for a decision being written", async () => {
+	// A compaction appends an entry of its own, so it claims the record like the
+	// others: two writers chaining from one parent is the same loss (found in review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const compacted = await session.command(decodeCommandOf({ command: "compact", session: "s1" }));
+	holding.release();
+	expect({ compacted: compacted.ok ? "" : compacted.error.code }).toEqual({ compacted: "busy" });
+	expect((await deciding).ok).toBe(true);
+});
+
+test("REQ05 a wake that lands during another command waits for it instead of being lost", async () => {
+	// The alarm has nobody to report `busy` to: the wake it carries is the only thing
+	// that will ever deny a timed request, so it queues behind the claim (found in
+	// review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const answering = session.respond({ session: "s1", request: id, ok: false });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	// The alarm arrives while the answer is still being written.
+	let settled = false;
+	const waking = session.wake(started.run);
+	void waking.then(() => {
+		settled = true;
+	});
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	expect(settled).toBe(false);
+
+	holding.release();
+	const woken = await waking;
+	expect({ woken: woken.ok, answered: (await answering).ok }).toEqual({
+		woken: true,
+		answered: true,
+	});
+});
+
+test("REQ05 a wake queued behind a resume is woken when the resume finishes", async () => {
+	// Only `release` wakes a waiter, so a command that clears the claim by hand would
+	// leave a queued alarm hanging — the same lost timeout by another route.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [toolTakingTime("slow", 5_000, clock), createFinishTool()],
+				},
+			],
+		]),
+	});
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await until(() => inner.saved().some((line) => line.includes('"name":"slow"')));
+	valueOf(await send(session, { command: "abort", session: "s1" }));
+	await until(() => inner.saved().some((line) => line.includes('"reason":"stopped"')));
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	// The resume claims the record and then waits on its first read of it; a wake
+	// arriving in that window has to queue, not be dropped.
+	holding.holdRead(2);
+	const resumed = session.command(decodeCommandOf({ command: "resume", session: "s1" }));
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const waking = session.wake(started.run);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	holding.release();
+
+	const answer = await resumed;
+	expect({ resumed: answer.ok ? "" : answer.error.code, woken: (await waking).ok }).toEqual({
+		resumed: "",
+		woken: true,
+	});
+	clock.advance(5_000);
 });

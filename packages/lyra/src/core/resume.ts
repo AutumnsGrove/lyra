@@ -20,6 +20,8 @@ import type {
 	AssistantMessageEntry,
 	RecipeStamp,
 	RecordEntry,
+	RequestAnsweredEntry,
+	RequestEntry,
 	StatusEntry,
 	UserMessageEntry,
 } from "../record/entries.js";
@@ -71,6 +73,13 @@ export interface ResumeSeed {
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
 	/**
+	 * The request the run is waiting on, when it is waiting for a person. Until the
+	 * answer is on the record, a resume has nothing to continue with (decision 34).
+	 */
+	pendingRequest: RequestEntry | undefined;
+	/** What a person decided about that request, once the record holds it. */
+	answer: RequestAnsweredEntry | undefined;
+	/**
 	 * The task's input as JSON, from the `task` message's details, so a resume can run
 	 * the recipe's `setup` again. Absent on a record written before step 3, and on one
 	 * whose task message never landed (decision 112).
@@ -98,12 +107,33 @@ function inputOf(message: UserMessageEntry | undefined): JsonValue | undefined {
  * and costs a random source one draw, which is why it is a loop rather than a check.
  */
 export function reserveIds(ids: Ids, entries: readonly RecordEntry[]): void {
-	const used = new Set(entries.map((entry) => entry.id));
-	// A finite source that can only answer with used ids must not hang the resume; the
-	// loader skips a duplicate rather than crashing, so giving up is safe.
-	for (let attempt = 0; attempt <= used.size; attempt += 1) {
-		if (!used.has(ids.next("e"))) {
-			return;
+	// Every prefix the record used, not only the entry ids: a request's id and a
+	// proposal's are made by the same source, so a resume that only skipped `e`
+	// would hand out `auth1` and `prop1` twice and make the second undecidable.
+	const usedByPrefix = new Map<string, Set<string>>();
+	const note = (prefix: string, id: string): void => {
+		const used = usedByPrefix.get(prefix) ?? new Set<string>();
+		used.add(id);
+		usedByPrefix.set(prefix, used);
+	};
+	for (const entry of entries) {
+		note("e", entry.id);
+		if (entry.type === "request") {
+			note("auth", entry.request);
+		}
+		if (entry.type === "proposal") {
+			note("prop", entry.proposal);
+		}
+	}
+	// The entry prefix is always reserved, because the next write is an entry.
+	usedByPrefix.set("e", usedByPrefix.get("e") ?? new Set<string>());
+	for (const [prefix, used] of usedByPrefix) {
+		// A finite source that can only answer with used ids must not hang the resume;
+		// the loader skips a duplicate rather than crashing, so giving up is safe.
+		for (let attempt = 0; attempt <= used.size; attempt += 1) {
+			if (!used.has(ids.next(prefix))) {
+				break;
+			}
 		}
 	}
 }
@@ -127,6 +157,8 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let lastReplyAt = -1;
 	let lastCompactionAt = -1;
 	let pin = loaded.value.header.recipe;
+	let pendingRequest: RequestEntry | undefined;
+	let answer: RequestAnsweredEntry | undefined;
 	let taskMessage: UserMessageEntry | undefined;
 	const usedTools = new Set<string>();
 
@@ -164,6 +196,15 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 			case "recipe_updated":
 				pin = entry.to;
 				break;
+			case "request":
+				pendingRequest = entry;
+				answer = undefined;
+				break;
+			case "request_answered":
+				if (pendingRequest?.request === entry.request) {
+					answer = entry;
+				}
+				break;
 			case "compaction":
 				summaryUsages.push(entry.usage);
 				lastCompactionAt = index;
@@ -172,6 +213,21 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 			case "note":
 			case "unknown":
 				break;
+		}
+	}
+
+	// A request stops being live once the call it named has a result: the answer has
+	// done its work, and every later resume is about what came after it.
+	if (pendingRequest !== undefined && pendingRequest.callId !== undefined) {
+		const callId = pendingRequest.callId;
+		const requestAt = path.findIndex((entry) => entry.id === pendingRequest?.id);
+		const settled = path.some(
+			(entry, index) =>
+				index > requestAt && entry.type === "tool_message" && entry.toolCallId === callId,
+		);
+		if (settled) {
+			pendingRequest = undefined;
+			answer = undefined;
 		}
 	}
 
@@ -206,6 +262,8 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		unansweredCalls,
 		finished: last?.type === "tool_message" && last.done === true,
 		pin,
+		pendingRequest,
+		answer,
 		input: inputOf(taskMessage),
 	});
 }

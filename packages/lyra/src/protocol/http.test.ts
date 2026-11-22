@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
 import type { Recipe } from "../core/define-recipe.js";
-import type { JsonValue } from "../core/json.js";
+import { isPlainObject, type JsonValue } from "../core/json.js";
 import { fail, ok, type Result } from "../core/result.js";
 import type { RunDefinition } from "../core/runtime.js";
 import type { Tool } from "../core/tool.js";
@@ -11,6 +11,7 @@ import {
 	createFinishTool,
 	fakeClock,
 	scriptedModel,
+	toolReturning,
 	toolTakingTime,
 	type FakeClock,
 	type ScriptedTurn,
@@ -430,7 +431,7 @@ test("HTP06 a client that stops reading is dropped, and a reconnect catches up",
 	expect(caught.filter((frame) => frame.event.type === "run_end")).toHaveLength(1);
 });
 
-test("HTP07 the state route answers get_state, and approvals are unsupported", async () => {
+test("HTP07 the state route answers get_state, and an answer names its request", async () => {
 	const host = createHost(
 		[
 			{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
@@ -449,9 +450,22 @@ test("HTP07 the state route answers get_state, and approvals are unsupported", a
 		data: { session, run: expect.any(String), state: "running" },
 	});
 
-	const approval = await post(handler, "/v1/ui_response", { id: "u1", ok: true });
-	expect(approval.status).toBe(501);
-	expect(await answerOf(approval)).toMatchObject({ error: { code: "unsupported" } });
+	// An answer to a request this session never asked is `not_found`, and the frame
+	// says what it was about so a client can pair it.
+	const approval = await post(handler, "/v1/ui_response", {
+		type: "ui_response",
+		id: "f1",
+		request: "u1",
+		session,
+		ok: true,
+	});
+	expect(approval.status).toBe(404);
+	expect(await answerOf(approval)).toMatchObject({
+		ok: false,
+		id: "f1",
+		command: "ui_response",
+		error: { code: "not_found" },
+	});
 	host.clock.advance(5_000);
 });
 
@@ -503,4 +517,79 @@ test("ACC01 another tenant's session is not_found, and does not leak", async () 
 	expect(answer).toMatchObject({ error: { code: "not_found" } });
 	// The refusal must not say whose session it is.
 	expect(JSON.stringify(answer)).not.toContain("acme");
+});
+
+test("REQ02 an approval parks a run over HTTP, and the answer finishes it", async () => {
+	const host = createHost(
+		[
+			{ toolCalls: [{ id: "c1", name: "write", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+		],
+		() => [toolReturning("write", "wrote one line", { policy: "ask" }), createFinishTool()],
+	);
+	const handler = handlerFor(host);
+	const session = await startRun(handler);
+
+	/**
+	 * Ask the session rather than reading its storage: over HTTP the commands and
+	 * their answers are all a client has, so they are all this test uses.
+	 */
+	const pendingRequest = async (): Promise<string | undefined> => {
+		const listed = await post(handler, "/v1/commands", {
+			type: "command",
+			id: "c-pending",
+			command: "list_pending",
+			session,
+		});
+		const answer = await answerOf(listed);
+		const requests = isPlainObject(answer.data) ? answer.data["requests"] : undefined;
+		const first = Array.isArray(requests) ? requests[0] : undefined;
+		return isPlainObject(first) && typeof first["request"] === "string"
+			? first["request"]
+			: undefined;
+	};
+	await until(() => host.model.requests.length === 1);
+	let request = await pendingRequest();
+	for (let tick = 0; tick < 200 && request === undefined; tick += 1) {
+		await Promise.resolve();
+		request = await pendingRequest();
+	}
+	expect(request).toBeDefined();
+
+	const answered = await post(handler, "/v1/ui_response", {
+		type: "ui_response",
+		id: "f1",
+		request,
+		session,
+		ok: true,
+	});
+	expect(answered.status).toBe(200);
+	const stateNow = async (): Promise<string> => {
+		const state = await get(handler, `/v1/state?session=${session}`);
+		const answer = await answerOf(state);
+		const value = isPlainObject(answer.data) ? answer.data["state"] : undefined;
+		return typeof value === "string" ? value : "";
+	};
+	for (let tick = 0; tick < 200 && (await stateNow()) !== "done"; tick += 1) {
+		await Promise.resolve();
+	}
+	expect(await stateNow()).toBe("done");
+
+	// The same answer again is a conflict, and an unknown request is not found.
+	const again = await post(handler, "/v1/ui_response", {
+		type: "ui_response",
+		id: "f2",
+		request,
+		session,
+		ok: true,
+	});
+	expect(again.status).toBe(409);
+	const unknown = await post(handler, "/v1/ui_response", {
+		type: "ui_response",
+		id: "f3",
+		request: "auth-nope",
+		session,
+		ok: true,
+	});
+	expect(unknown.status).toBe(404);
 });
