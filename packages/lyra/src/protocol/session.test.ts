@@ -84,6 +84,19 @@ async function send(session: Session, fields: Record<string, unknown>): Promise<
 	return session.command(decoded.value);
 }
 
+/** One command through the same validator the wire uses. */
+function decodeCommandOf(fields: Record<string, unknown>): import("./commands.js").Command {
+	const frame = decodeFrame(JSON.stringify({ type: "command", id: "c1", ...fields }));
+	if (!frame.ok) {
+		throw new Error(frame.error.message);
+	}
+	const decoded = decodeCommand(frame.value);
+	if (!decoded.ok) {
+		throw new Error(`${decoded.error.code}: ${decoded.error.message}`);
+	}
+	return decoded.value;
+}
+
 function valueOf(outcome: Result<JsonValue>): JsonValue {
 	if (!outcome.ok) {
 		throw new Error(`expected a response, got ${outcome.error.code}: ${outcome.error.message}`);
@@ -1066,4 +1079,256 @@ test("CMD10 two decisions at once write one, and a decision waits for no run", a
 		? (activePath(loaded.value.entries) as { type: string }[]).map((entry) => entry.type)
 		: [];
 	expect(path).toContain("proposal_decided");
+});
+
+/** A storage whose `append` can be held on one line, to open a race on purpose. */
+function holdableStorage(inner: MemoryStorage) {
+	let held: (() => void) | undefined;
+	let armWhen: string | undefined;
+	return {
+		slot: {
+			append: async (line: string) => {
+				if (armWhen !== undefined && line.includes(armWhen)) {
+					await new Promise<void>((resolve) => {
+						held = resolve;
+					});
+				}
+				return inner.append(line);
+			},
+			read: () => inner.read(),
+		},
+		/** Hold the next append whose line contains this text. */
+		arm: (text: string): void => {
+			armWhen = text;
+		},
+		release: (): void => {
+			armWhen = undefined;
+			held?.();
+			held = undefined;
+		},
+	};
+}
+
+test("CMD10 a follow_up cannot slip in while a decision is being written", async () => {
+	// A decision and a run both append to one record: a follow-up accepted between
+	// the decision's read and its append would chain from the same parent and drop
+	// one of the two branches off the active path, with no error to anyone.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	// Let the decision reach its append, where it is holding the record.
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const slipped = await session.command(
+		decodeCommandOf({ command: "follow_up", session: "s1", text: "one more thing" }),
+	);
+	const refused = slipped.ok ? "" : slipped.error.code;
+	holding.release();
+	expect({ refused, decided: (await deciding).ok }).toEqual({ refused: "busy", decided: true });
+	expect(inner.saved().some((line) => line.includes("one more thing"))).toBe(false);
+});
+
+test("CMD10 a decision is refused while a run is writing the record", async () => {
+	// The other half of the same race: a run that is mid-step is writing too, so the
+	// decision waits rather than chaining from a parent the run will move past.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "slow", args: {} }] },
+		{ toolCalls: [{ id: "c3", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						toolTakingTime("slow", 5_000, clock),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	// A follow-up starts a run whose next turn sits in a slow tool.
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => storage.saved().some((line) => line.includes('"name":"slow"')));
+
+	const refused = errorOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	expect(refused.code).toBe("busy");
+	expect(entriesOf(storage).filter((entry) => entry.type === "proposal_decided")).toHaveLength(0);
+	clock.advance(5_000);
+});
+
+test("CMD20 a start or a resume is refused while a decision is being written", async () => {
+	// The lock has to hold in both directions, or the branch that is written second
+	// falls off the active path (found in review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	const resumed = await session.command(decodeCommandOf({ command: "resume", session: "s1" }));
+	const prompted = await session.command(
+		decodeCommandOf({ command: "prompt", session: "s1", text: "and then", queue: true }),
+	);
+	holding.release();
+	expect({ resumed: resumed.ok ? "" : resumed.error.code }).toEqual({ resumed: "busy" });
+	expect({ prompted: prompted.ok ? "" : prompted.error.code }).toEqual({ prompted: "busy" });
+	expect((await deciding).ok).toBe(true);
 });

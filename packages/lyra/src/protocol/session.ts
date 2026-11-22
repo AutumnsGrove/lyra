@@ -167,11 +167,27 @@ export function createSession(options: SessionOptions): Session {
 	let started: { task: string; input: JsonValue; runId: string } | undefined;
 
 	/**
-	 * A decision is a read, a check and an append, and a second one arriving in that
-	 * window would chain from a parent the first has moved on from (found in review).
-	 * One at a time, and the other answers `busy`.
+	 * Which command is writing the record: a decision, or a run being continued. Both
+	 * are a read, a check and an append, and either arriving inside the other's window
+	 * would chain from a parent that is about to move, so both are refused until the
+	 * other is done (found in review). `runtime.active` cannot see a resume that is
+	 * still reading the record, which is why the session tracks it here too.
 	 */
-	let deciding = false;
+	let writing: "decision" | "run" | undefined;
+
+	/** Claim the record for one command, or say why it is busy. */
+	const claim = (kind: "decision" | "run"): Result<void> => {
+		if (writing !== undefined) {
+			return fail(
+				"busy",
+				writing === "decision"
+					? "a decision is being written in this session"
+					: "a run is being continued in this session",
+			);
+		}
+		writing = kind;
+		return ok(undefined);
+	};
 
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
@@ -274,6 +290,45 @@ export function createSession(options: SessionOptions): Session {
 
 	/** A message that continues the record without starting a rival run. */
 	const continueWith = async (seed: ResumeSeed, text: string): Promise<Result<JsonValue>> => {
+		const claimed = claim("run");
+		if (!claimed.ok) {
+			return claimed;
+		}
+		try {
+			return await continueRun(seed, text);
+		} finally {
+			writing = undefined;
+		}
+	};
+
+	/** Continue a record that is parked, when a person asks (CMD07). */
+	const resumeRun = async (seed: ResumeSeed): Promise<Result<JsonValue>> => {
+		const header = seed.record.header;
+		const waiting = pendingOf(seed);
+		if (waiting !== undefined) {
+			return fail("busy", `this run is waiting for a person to answer ${waiting.request}`);
+		}
+		const definition = options.recipes.get(header.task);
+		if (definition === undefined) {
+			return fail(
+				"not_found",
+				`this session's task "${header.task}" is not one this host runs`,
+			);
+		}
+		const resumed = await runtime.resume({
+			runId: header.run,
+			task: header.task,
+			definition,
+			by: "person",
+		});
+		if (!resumed.ok) {
+			return resumed;
+		}
+		listen(resumed.value);
+		return ok(data({ session: options.id, run: header.run }));
+	};
+
+	const continueRun = async (seed: ResumeSeed, text: string): Promise<Result<JsonValue>> => {
 		const header = seed.record.header;
 		const definition = options.recipes.get(header.task);
 		if (definition === undefined) {
@@ -821,14 +876,14 @@ export function createSession(options: SessionOptions): Session {
 						// parent it is about to move past (decision 53's one decision).
 						return fail("busy", "a run is active in this session");
 					}
-					if (deciding) {
-						return fail("busy", "another decision is being written");
+					const claimed = claim("decision");
+					if (!claimed.ok) {
+						return claimed;
 					}
-					deciding = true;
 					try {
 						return await decideProposal(command, seed);
 					} finally {
-						deciding = false;
+						writing = undefined;
 					}
 				}
 				case "prompt":
@@ -875,31 +930,15 @@ export function createSession(options: SessionOptions): Session {
 					if (active !== undefined) {
 						return fail("busy", "a run is already active in this session");
 					}
-					const waiting = pendingOf(seed);
-					if (waiting !== undefined) {
-						return fail(
-							"busy",
-							`this run is waiting for a person to answer ${waiting.request}`,
-						);
+					const claimed = claim("run");
+					if (!claimed.ok) {
+						return claimed;
 					}
-					const definition = options.recipes.get(header.task);
-					if (definition === undefined) {
-						return fail(
-							"not_found",
-							`this session's task "${header.task}" is not one this host runs`,
-						);
+					try {
+						return await resumeRun(seed);
+					} finally {
+						writing = undefined;
 					}
-					const resumed = await runtime.resume({
-						runId: header.run,
-						task: header.task,
-						definition,
-						by: "person",
-					});
-					if (!resumed.ok) {
-						return resumed;
-					}
-					listen(resumed.value);
-					return ok(data({ session: options.id, run: header.run }));
 				}
 			}
 		},
