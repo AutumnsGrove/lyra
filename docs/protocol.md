@@ -183,6 +183,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | EVT03 | The fallback model takes over | A `fallback` event, and a record entry |
 | EVT04 | A request is answered by one of two clients | The other receives `ui_resolved` |
 | EVT06 | A resume finds a changed tool set | `parked` with reason `stuck` and detail `recipe_changed` |
+| EVT07 | A record with a compaction | A `compaction` event carrying the entry's `seq`, its summary, how many entries it replaced and whether the run or a person asked for it, so a reconnect replays it |
 | EVT05 | A client reconnects with `Last-Event-ID` | Receives every missed record-derived event in order, and no live deltas |
 | REQ01 | A request is created | Saved in the record before it is sent |
 | REQ02 | A request with no connected client | Listed by `list_pending`, answerable later |

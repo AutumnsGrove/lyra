@@ -842,20 +842,28 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			trigger: "auto",
 			instructionsHash: await hashText(summaryInstructions),
 		};
-		const seq = await append(entry);
+		// The entry is fitted before it is saved, because the view has to show what
+		// the record will hold: a summary over the entry cap is cut like any other
+		// content, and the model must not read something a resume could not replay.
+		const fitted = fitEntry(entry, entryCap);
+		if (fitted.refused !== undefined) {
+			throw new SaveFailed({ code: "internal", message: fitted.refused });
+		}
+		const saved = fitted.entry.type === "compaction" ? fitted.entry : entry;
+		const seq = await appendLine(entry, fitted.line);
 		emit({
 			type: "compaction",
 			run: runId,
 			ts: clock.now(),
 			seq,
-			summary: entry.summary,
-			replaces: entry.replaces,
-			trigger: entry.trigger,
+			summary: saved.summary,
+			replaces: saved.replaces,
+			trigger: saved.trigger,
 		});
 
 		// The view is now the record's: the summary, the tools' state, and the
 		// entries the pointer keeps. Nothing before it left the record (decision 39).
-		const view = buildView([...viewEntries, entry], stateTexts());
+		const view = buildView([...viewEntries, saved], stateTexts());
 		viewEntries = view.entries;
 		messages = view.messages;
 		previousSummary = view.summary;

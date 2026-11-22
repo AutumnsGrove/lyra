@@ -16,6 +16,7 @@ import type { FakeClock } from "./clock.js";
 import type { ModelSlot } from "../core/model.js";
 import type { RunEvent } from "../core/events.js";
 import { isJsonValue, isPlainObject, type JsonValue } from "../core/json.js";
+import type { CompactionSettings } from "../core/compaction.js";
 import { isFinishReason } from "../core/decode-reply.js";
 import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
@@ -29,6 +30,7 @@ import { timelineTestRecipe } from "./timeline-recipe.js";
 import {
 	scriptedModel,
 	type ScriptedFailure,
+	type ScriptedModelOptions,
 	type ScriptedToolCall,
 	type ScriptedTurn,
 } from "./model.js";
@@ -53,6 +55,12 @@ export interface ScenarioTool {
 /** An expectation is matched as a subset, so extra fields on the actual value are fine. */
 export type Expectation = Record<string, unknown>;
 
+/** A scenario that compacts: the recipe's settings, and the answers to its summary. */
+export interface ScenarioCompaction {
+	settings: CompactionSettings;
+	summaries: ScriptedTurn[];
+}
+
 export interface Scenario {
 	name: string;
 	task: string;
@@ -67,6 +75,8 @@ export interface Scenario {
 	expectRecord: Expectation[];
 	/** Stop the run when the nth event arrives, for the stop scenarios. */
 	abortAfter?: number;
+	/** How the run compacts, and how its summaries are answered. */
+	compaction?: ScenarioCompaction;
 }
 
 export interface ScenarioOutcome {
@@ -239,6 +249,49 @@ function decodeTurn(value: unknown, where: string): Result<ScriptedTurn> {
 	return ok(turn);
 }
 
+/** The scenario words for the settings, and the field each one sets. */
+const COMPACTION_FIELDS: readonly (readonly [string, keyof CompactionSettings])[] = [
+	["context_window", "contextWindow"],
+	["reserve_tokens", "reserveTokens"],
+	["keep_tokens", "keepTokens"],
+];
+
+function decodeCompaction(value: unknown): Result<ScenarioCompaction> {
+	if (!isPlainObject(value)) {
+		return bad("scenario.compaction must be an object");
+	}
+	const settings: CompactionSettings = {};
+	for (const [word, field] of COMPACTION_FIELDS) {
+		const raw = value[word];
+		if (raw === undefined) {
+			continue;
+		}
+		if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0) {
+			return bad(`scenario.compaction.${word} must be a whole number of tokens`);
+		}
+		if (field === "contextWindow") {
+			settings.contextWindow = raw;
+		} else if (field === "reserveTokens") {
+			settings.reserveTokens = raw;
+		} else {
+			settings.keepTokens = raw;
+		}
+	}
+	const rawSummaries = value["summaries"];
+	if (!Array.isArray(rawSummaries) || rawSummaries.length === 0) {
+		return bad("scenario.compaction.summaries must be a non-empty list of turns");
+	}
+	const summaries: ScriptedTurn[] = [];
+	for (const [index, raw] of rawSummaries.entries()) {
+		const turn = decodeTurn(raw, `scenario.compaction.summaries[${index}]`);
+		if (!turn.ok) {
+			return turn;
+		}
+		summaries.push(turn.value);
+	}
+	return ok({ settings, summaries });
+}
+
 function decodeExpectations(value: unknown, where: string): Result<Expectation[]> {
 	if (value === undefined) {
 		return ok([]);
@@ -363,6 +416,15 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	};
 	if (recipe.value !== undefined) {
 		scenario.recipe = recipe.value;
+	}
+
+	const rawCompaction = value["compaction"];
+	if (rawCompaction !== undefined) {
+		const compaction = decodeCompaction(rawCompaction);
+		if (!compaction.ok) {
+			return compaction;
+		}
+		scenario.compaction = compaction.value;
 	}
 
 	const abortAfter = value["abort_after"];
@@ -539,7 +601,29 @@ export interface ScenarioRunOptions {
 	 * that wants a real adapter and a fake server passes one here, so a scenario runs
 	 * through the wire as well (SCN04).
 	 */
-	makeModel?: (turns: readonly ScriptedTurn[], clock: FakeClock) => ModelSlot;
+	makeModel?: (
+		turns: readonly ScriptedTurn[],
+		clock: FakeClock,
+		options: ScriptedModelOptions,
+	) => ModelSlot;
+}
+
+/**
+ * The model a scenario runs against. A scenario that compacts is scripted by
+ * request order, because a compaction folds older turns into a summary and the
+ * conversation's length stops counting the turns that were taken.
+ */
+function modelFor(scenario: Scenario, clock: FakeClock, options: ScenarioRunOptions): ModelSlot {
+	const compaction = scenario.compaction;
+	const settings: ScriptedModelOptions = { clock };
+	if (compaction !== undefined) {
+		settings.summaries = compaction.summaries;
+		settings.position = "sequence";
+	}
+	if (options.makeModel === undefined) {
+		return scriptedModel(scenario.model, settings);
+	}
+	return options.makeModel(scenario.model, clock, settings);
 }
 
 export async function runScenario(
@@ -574,13 +658,11 @@ export async function runScenario(
 		...recipeParts,
 		system: recipe?.instructions ?? scenario.system,
 		tools,
-		model:
-			options.makeModel === undefined
-				? scriptedModel(scenario.model, { clock })
-				: options.makeModel(scenario.model, clock),
+		model: modelFor(scenario, clock, options),
 		storage,
 		clock,
 		ids: counterIds(),
+		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
 		toolDeadlineMs: 60_000,
 		signal: controller.signal,
 		onEvent: (event) => {

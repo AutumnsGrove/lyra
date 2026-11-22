@@ -173,9 +173,11 @@ export function buildView(
 		start = pointer >= 0 ? pointer : last.index + 1;
 	}
 
-	// A compaction is how the view is built rather than something in it, so a later
-	// cut is chosen from the conversation entries only.
-	const entries = path.slice(start).filter((entry) => entry.type !== "compaction");
+	// Only what carries a message is part of the view: a status is progress, a note
+	// is for a person, and a compaction is how the view is built rather than
+	// something in it. A later cut is chosen from these, so a live view and a
+	// resumed one count the same entries.
+	const entries = path.slice(start).filter((entry) => entryMessage(entry) !== undefined);
 	const messages: ConversationMessage[] = [];
 	if (last !== undefined) {
 		messages.push({ role: "user", text: `${SUMMARY_LABEL}\n${last.entry.summary}` });
