@@ -755,3 +755,57 @@ test("APR15 a choice is answered with one of the options it offered", async () =
 		"staging",
 	);
 });
+
+test("APR05 a call that asks stops the batch where it stands", async () => {
+	// The calls behind a question have not run, so they must not run while the person
+	// is still deciding (decision 34's "it waits").
+	const executions = executionCounter();
+	const tools = [
+		toolAsking("ask", { kind: "question", title: "Which?", message: "Pick one." }),
+		toolReturning("write", "wrote", { executions }),
+		createFinishTool(),
+	];
+	const run = harness(tools, [
+		{
+			toolCalls: [
+				{ id: "c1", name: "ask", args: {} },
+				{ id: "c2", name: "write", args: {} },
+			],
+		},
+	]);
+	const parked = await run.run({ canAsk: true });
+	expect(parked.reason).toBe("parked");
+	expect(executions.count("c2")).toBe(0);
+});
+
+test("APR07 a text field on an approval does not stand in for running the call", async () => {
+	// Only a question's answer is a result. An approval is run or refused, and a
+	// stray `text` is not the tool's answer.
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote one line", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const run = harness(tools, askingTurns);
+	await run.run({ canAsk: true });
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+	await answerWith(run.storage, request.request, "approve");
+
+	// The person's answer carries a text as well, which an approval has no use for.
+	const last = JSON.parse(run.storage.saved().at(-1) ?? "{}") as { id?: string };
+	const rewritten = run.storage
+		.saved()
+		.map((line, index, all) =>
+			index === all.length - 1 ? JSON.stringify({ ...last, text: "not an approval" }) : line,
+		);
+	const resumed = await run.run({
+		canAsk: true,
+		model: scriptedModel(askingTurns, { clock: run.clock }),
+		resume: { lines: rewritten, by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+	expect(executions.count("c1")).toBe(1);
+});

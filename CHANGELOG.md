@@ -15,6 +15,13 @@ tenant, and a record from before that field loads without it. `ResumeRequest` ga
 `followUp`, `RuntimeOptions` and `RunConfig` gained an optional `tenant`, and `RunHandle` gained
 `pending()`, none of which an existing caller has to use.
 
+Approvals and proposals arrive with the same release: a run can stop and ask a
+person, wait at no cost, and carry on from the answer, and a finished run can leave
+a proposal for a decision later. The seams are opt-in — `Tool.policy`, `Tool.risk`,
+`ToolOutcome.ask`, `ToolOutcome.propose`, `Tool.currentState`'s neighbour
+`RunConfig.canAsk`, `RunConfig.approvals`, `createProposeTool` — and a caller who
+sets none of them behaves as before.
+
 Compaction arrives with the same release: a long run summarizes its older steps
 instead of failing at the model's window, and the record keeps everything. Three
 more optional seams are new — `ModelSlot.contextWindow`, `Tool.currentState`, and
@@ -52,6 +59,22 @@ before, except that a tool result is now capped at 50 KiB as the model reads it.
 - The protocol's `compact` command works: with nothing running it summarizes the session's record now,
   with a person's own instructions added for that one summary, and answers whether there was anything to
   cut; during a run it is `busy` (row CMD20 in `docs/protocol.md`).
+- Approvals and questions: `Tool.policy` (`allow`, `ask`, `deny`) and `Tool.risk`
+  (`reads`, `changes`, `dangerous`) decide per call what needs a person, and a tool
+  can answer with `ToolOutcome.ask` instead of a result, so a question is the same
+  mechanism as an approval (rows APR01 to APR15 in `docs/approvals.md`, decisions 34
+  to 37 and 139 to 141). A call that needs an answer saves a `request` record entry
+  and parks the run `waiting_for_person`; an answer is a `request_answered` entry,
+  written through a session's `respond` or `POST /v1/ui_response`, and the run
+  continues from it. A request's `timeoutMs` is denied by the host's alarm, and a run
+  with nobody to ask (`canAsk` false) denies instead of parking.
+- Proposals: `createProposeTool` saves a `proposal` entry with the task's typed
+  payload and evidence and ends the run `done`; `decide_proposal` accepts or rejects
+  it once, with a note (rows PRP01 to PRP06 in `docs/consumers.md`, decision 142).
+- The protocol's `compact` neighbour `list_pending`, `decide_proposal` and
+  `POST /v1/ui_response` all answer now, and the record projects `ui_request`,
+  `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`
+  (rows CMD08 to CMD10, EVT04 and REQ01 to REQ06 in `docs/protocol.md`).
 - `Tool.currentState` shows the model the recipe's exact state after a compaction, `Tool.maxResultBytes`
   and `Tool.truncationHint` shape how a big result is cut, and `ModelSlot.contextWindow` is where a host
   says how much its model can read.

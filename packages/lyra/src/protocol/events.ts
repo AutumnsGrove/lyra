@@ -88,6 +88,21 @@ export type RecordEvent =
 	  })
 	/** Nobody answered in time, and the request resolved to deny (REQ05, decision 37). */
 	| (EventBase & { type: "ui_expired"; request: string })
+	/** A finished run left a result for a person to decide on (decisions 50, 52). */
+	| (EventBase & {
+			type: "proposal";
+			proposal: string;
+			payload: JsonValue;
+			evidence: JsonValue[];
+			state: "open";
+	  })
+	/** A person accepted or rejected it (decision 53, CMD10). */
+	| (EventBase & {
+			type: "proposal_decided";
+			proposal: string;
+			decision: "accept" | "reject";
+			note?: string;
+	  })
 	/**
 	 * The run summarized its older steps and moved the model's view forward
 	 * (docs/context-size.md, decision 39). It comes from the `compaction` entry, so
@@ -240,6 +255,25 @@ export function projectEvents(
 				}
 				break;
 			}
+			case "proposal":
+				events.push({
+					...base,
+					type: "proposal",
+					proposal: entry.proposal,
+					payload: entry.payload,
+					evidence: entry.evidence,
+					state: entry.state,
+				});
+				break;
+			case "proposal_decided":
+				events.push({
+					...base,
+					type: "proposal_decided",
+					proposal: entry.proposal,
+					decision: entry.decision,
+					...(entry.note === undefined ? {} : { note: entry.note }),
+				});
+				break;
 			case "compaction":
 				events.push({
 					...base,

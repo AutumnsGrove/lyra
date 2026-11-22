@@ -67,5 +67,16 @@ The issue is written in the vocabulary of the old plan: a `GroveAgent` class, `s
 
 ## Closed since (2026-11-16)
 
-- **The exact command and event names for proposals.** Decided: a run ends by producing one, which is the `proposal` event, and a person answers with the `decide_proposal` command, which emits `proposal_decided` (decisions 50, 83, 84). A second decision on the same proposal is `conflict`, and an unknown one is `not_found` (decision 85). `protocol.md` holds the frames.
+- **Proposals, built.** The rows proposals were built against (the approvals slice):
+
+| ID | Case | Expected |
+|---|---|---|
+| PRP01 | Happy: a run proposes | The run ends `done` after saving a `proposal` entry with the typed payload, the evidence references and state `open`, and the projection carries a `proposal` event |
+| PRP02 | Bad: a payload the recipe's schema refuses | It never becomes a proposal, and the model reads an error result it can correct from |
+| PRP03 | Happy: a decision | Accepting or rejecting writes a `proposal_decided` entry with the note and projects a `proposal_decided` event |
+| PRP04 | Sad: a second decision | The second is `conflict` and the first stands (CMD10) |
+| PRP05 | Bad: an unknown proposal | `not_found`, and nothing is written |
+| PRP06 | A proposal outlives its run | A resume of the finished run changes nothing and the proposal is still there to decide |
+
+- **The exact command and event names for proposals.** Decided: a run ends by producing one, which is the `proposal` event, and a person answers with the `decide_proposal` command, which emits `proposal_decided` (decisions 50, 83, 84). A second decision on the same proposal is `conflict`, and an unknown one is `not_found` (decision 85). `protocol.md` holds the frames, and the approvals slice built them (decision 142).
 - **The foundation of the Cloudflare adapter.** Plain Durable Objects (decision 72), confirmed against Cloudflare's docs on 2026-11-16 (decision 101).

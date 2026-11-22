@@ -32,6 +32,14 @@ export type Command =
 	| { command: "compact"; id: string; session: string; instructions?: string }
 	| { command: "list_pending"; id: string; session?: string }
 	| {
+			command: "decide_proposal";
+			id: string;
+			proposal: string;
+			decision: "accept" | "reject";
+			note?: string;
+			session?: string;
+	  }
+	| {
 			command: "get_messages";
 			id: string;
 			session: string;
@@ -43,7 +51,6 @@ export type Command =
 /** Commands the protocol names and this build answers `unsupported`, by slice. */
 const LATER: Readonly<Record<string, string>> = {
 	list_sessions: "listing every session needs an index of its own, which is not built yet",
-	decide_proposal: "proposals arrive in a later slice",
 };
 
 export interface CommandOptions {
@@ -204,6 +211,33 @@ export function decodeCommand(
 				return bad(`an ${name.value} needs a session that is a non-empty string`);
 			}
 			return ok({ command: name.value, id: id.value, session: needed });
+		}
+		case "decide_proposal": {
+			const proposal = textOf(frame.fields, "proposal");
+			if (!proposal.ok) {
+				return proposal;
+			}
+			const decision = frame.fields["decision"];
+			if (decision !== "accept" && decision !== "reject") {
+				return bad("decision must be accept or reject");
+			}
+			const note = optionalText(frame.fields, "note");
+			if (!note.ok) {
+				return note;
+			}
+			const command: Extract<Command, { command: "decide_proposal" }> = {
+				command: "decide_proposal",
+				id: id.value,
+				proposal: proposal.value,
+				decision,
+			};
+			if (session.value !== undefined) {
+				command.session = session.value;
+			}
+			if (note.value !== undefined) {
+				command.note = note.value;
+			}
+			return ok(command);
 		}
 		case "list_pending":
 			return ok({

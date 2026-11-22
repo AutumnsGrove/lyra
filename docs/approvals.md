@@ -6,7 +6,7 @@ category: features
 
 # Approvals and questions
 
-Last updated: 2026-11-14. Everything here is decided.
+Last updated: 2026-11-21. Everything here is decided, and the approvals slice built it.
 
 ## The problem
 
@@ -54,6 +54,7 @@ stops the batch rather than being guessed at.
 
 ## Not discussed yet
 
-- **Who may approve** and **approve with edits.** Proposed in decision 88: the session's owner, and no edited approvals in version one.
-- **How the indicator works in the viewer.** Built later, on top of the list of pending requests.
-- **The shell tool's command policy.** Decided in decision 81, with details in `shell-tool.md`.
+- **How the indicator works in the viewer.** Built later, on top of the list of pending requests: `list_pending` (and `get_state`'s count) is what a viewer needs, and the glow itself is a viewer concern (decision 36).
+- **The shell tool's command policy.** Decided in decision 81, with details in `shell-tool.md`; it is the shell's, not this slice's.
+
+Settled while building: who may approve is the session's owner with no edited approvals (decision 88), a tool that says nothing is allowed and `canAsk` decides whether a question can be delivered (decision 139), an answer is its own record entry and an expired id is `not_found` (decision 140), a question is the same mechanism as an approval and an ask stops the batch (decision 141), and a proposal ends the run and is decided once (decision 142).

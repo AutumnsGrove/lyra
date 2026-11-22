@@ -144,6 +144,8 @@ export function createCloudflareSession(
 			model: options.model,
 			host: options.host,
 			tenant,
+			// A session is where a person is reachable, so its runs may ask (decision 35).
+			canAsk: true,
 		});
 		session = createSession({
 			id,

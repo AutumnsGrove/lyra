@@ -11,7 +11,10 @@ event projection, the session, the HTTP handler, the Durable Object host, and `p
 Step 7, compaction, is merged (pull request #25, `eb95d42`): the cut, the `compaction` entry and the view
 built from it, the trigger and the summarizer, `Tool.currentState` and the on-arrival cap on a result, the
 kill matrix and a long-run scenario, and the `compact` command. Decisions 135 to 138 are its own.
-Approvals and proposals are the slice after it, named next by Autumn on 2026-11-21 and planned in
+The approvals and proposals slice is in review (pull request #27) on `feat/step-09-approvals`: a tool's
+policy and risk, a request saved and the run parked `waiting_for_person`, the answer as its own record
+entry, a question through the same mechanism, a timeout denied by the host's alarm, and proposals a person
+decides. It was named next by Autumn on 2026-11-21 and planned in
 `docs/implementation/A-approvals-proposals.md`; WebSocket is step 8 and follows it. Approvals are outside
 `first-slice.md`'s version one, so they have a letter rather than a step number. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra; whether it comes before steps 7 and 8 is

@@ -17,6 +17,7 @@ import type { ModelSlot } from "../core/model.js";
 import type { RunEvent } from "../core/events.js";
 import { isJsonValue, isPlainObject, type JsonValue } from "../core/json.js";
 import type { CompactionSettings } from "../core/compaction.js";
+import { TOOL_POLICIES, isToolPolicy, type ToolPolicy } from "../core/approval.js";
 import { isFinishReason } from "../core/decode-reply.js";
 import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
@@ -47,6 +48,8 @@ export type ScenarioToolBehavior = "ok" | "error" | "throw" | "slow";
 export interface ScenarioTool {
 	name: string;
 	behavior: ScenarioToolBehavior;
+	/** Allow, ask or deny, which is what an approval needs to exercise (decision 35). */
+	policy?: ToolPolicy;
 	content?: string;
 	/** For a `slow` tool: how long it takes on the fake clock. */
 	ms?: number;
@@ -364,6 +367,13 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 				return bad(`${where}.behavior must be one of ${BEHAVIORS.join(", ")}`);
 			}
 			const tool: ScenarioTool = { name: toolName.value, behavior };
+			const policy = raw["policy"];
+			if (policy !== undefined) {
+				if (!isToolPolicy(policy)) {
+					return bad(`${where}.policy must be one of ${TOOL_POLICIES.join(", ")}`);
+				}
+				tool.policy = policy;
+			}
 			const content = optionalString(raw, "content", where);
 			if (!content.ok) {
 				return content;
@@ -439,15 +449,16 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 }
 
 export function makeScenarioTool(tool: ScenarioTool, clock: ReturnType<typeof fakeClock>): Tool {
+	const options = tool.policy === undefined ? {} : { policy: tool.policy };
 	switch (tool.behavior) {
 		case "error":
-			return toolReturningError(tool.name, tool.content ?? `${tool.name} says no`);
+			return toolReturningError(tool.name, tool.content ?? `${tool.name} says no`, options);
 		case "throw":
-			return toolThatThrows(tool.name, tool.content ?? `${tool.name} broke`);
+			return toolThatThrows(tool.name, tool.content ?? `${tool.name} broke`, options);
 		case "slow":
-			return toolTakingTime(tool.name, tool.ms ?? 100, clock);
+			return toolTakingTime(tool.name, tool.ms ?? 100, clock, options);
 		case "ok":
-			return toolReturning(tool.name, tool.content ?? `${tool.name} says yes`);
+			return toolReturning(tool.name, tool.content ?? `${tool.name} says yes`, options);
 	}
 }
 
@@ -662,6 +673,9 @@ export async function runScenario(
 		storage,
 		clock,
 		ids: counterIds(),
+		// A scenario runs as a host where a person is reachable, so an `ask` policy
+		// parks the run rather than being denied (decision 35).
+		canAsk: true,
 		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
 		toolDeadlineMs: 60_000,
 		signal: controller.signal,

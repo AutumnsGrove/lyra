@@ -211,6 +211,34 @@ export interface RequestAnsweredEntry extends EntryBase {
 }
 
 /**
+ * A finished run's result, left for a person to decide later (decisions 50, 52, 53).
+ *
+ * It is not an approval: nothing paused, the run is over, and the typed payload is
+ * the task's own shape with references to what supports it. The decision is a
+ * separate entry, so the proposal itself is never rewritten.
+ */
+export interface ProposalEntry extends EntryBase {
+	type: "proposal";
+	/** The id a decision names, unguessable on a host like a request's. */
+	proposal: string;
+	/** The task's own shape, checked by the tool that made it. */
+	payload: JsonValue;
+	/** References to what supports it, in the recipe's own shape. */
+	evidence: JsonValue[];
+	/** Open until somebody decides; the decision is its own entry. */
+	state: "open";
+}
+
+/** What a person decided about a proposal (decision 53). */
+export interface ProposalDecidedEntry extends EntryBase {
+	type: "proposal_decided";
+	proposal: string;
+	decision: "accept" | "reject";
+	/** What they said, which a viewer shows and the app may copy out. */
+	note?: string;
+}
+
+/**
  * The record moved to a shorter view of itself (docs/context-size.md, decision 39).
  *
  * Everything before `firstKept` is still in the record and still replayed, so a
@@ -256,6 +284,8 @@ export type RecordEntry =
 	| CompactionEntry
 	| RequestEntry
 	| RequestAnsweredEntry
+	| ProposalEntry
+	| ProposalDecidedEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -472,6 +502,29 @@ export function encodeEntry(entry: RecordEntry): string {
 			}
 			if (entry.timedOut === true) {
 				line["timedOut"] = true;
+			}
+			return JSON.stringify(line);
+		}
+		case "proposal": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				proposal: entry.proposal,
+				payload: entry.payload,
+				evidence: entry.evidence,
+				state: entry.state,
+			};
+			return JSON.stringify(line);
+		}
+		case "proposal_decided": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				proposal: entry.proposal,
+				decision: entry.decision,
+			};
+			if (entry.note !== undefined) {
+				line["note"] = entry.note;
 			}
 			return JSON.stringify(line);
 		}
@@ -1030,6 +1083,43 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			}
 			if (timedOut === true) {
 				entry.timedOut = true;
+			}
+			return ok(entry);
+		}
+		case "proposal": {
+			const proposal = value["proposal"];
+			const payload = value["payload"];
+			const evidence = value["evidence"];
+			if (!isName(proposal)) {
+				return bad("a proposal entry has no proposal id");
+			}
+			if (!isJsonValue(payload)) {
+				return bad("a proposal entry has a payload that is not JSON");
+			}
+			if (!Array.isArray(evidence) || !evidence.every((item) => isJsonValue(item))) {
+				return bad("a proposal entry has evidence that is not a list of JSON");
+			}
+			if (value["state"] !== "open") {
+				return bad("a proposal entry has a state this build does not know");
+			}
+			return ok({ type, ...base, proposal, payload, evidence, state: "open" });
+		}
+		case "proposal_decided": {
+			const proposal = value["proposal"];
+			const decision = value["decision"];
+			const note = value["note"];
+			if (!isName(proposal)) {
+				return bad("a proposal_decided entry names no proposal");
+			}
+			if (decision !== "accept" && decision !== "reject") {
+				return bad("a proposal_decided entry has a decision this build does not know");
+			}
+			if (note !== undefined && typeof note !== "string") {
+				return bad("a proposal_decided entry has a note that is not text");
+			}
+			const entry: ProposalDecidedEntry = { type, ...base, proposal, decision };
+			if (note !== undefined) {
+				entry.note = note;
 			}
 			return ok(entry);
 		}

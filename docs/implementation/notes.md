@@ -8,6 +8,42 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Approvals, wrap-up, 2026-11-21
+
+- **The slice has a letter, not a step number**, because `first-slice.md` puts
+  approvals under **Later**. Its done-when is the protocol's own rows plus the ones
+  it added to `approvals.md` and `consumers.md`, and it stays additive so step 8
+  does not wait on any of it.
+- **`canAsk` is the seam decision 35 needed.** False is a headless runner and a
+  session sets it true, which meant two runtime constructions (the session's and the
+  Cloudflare session object's). I missed the second one and the workerd scenario
+  showed it: the run did not park, because nothing could deliver the question and it
+  was denied. Worth remembering: anything a session sets has to be set where a
+  session is *built*, and there are two such places.
+- **A tool that says nothing is allowed.** Every tool built before this slice is
+  silent; silence meaning "ask" would have stopped every existing recipe at its first
+  call. A recipe can set its own default for silent tools.
+- **The answer is an entry, and it stops being live once its call has a result.**
+  That single rule fixed three findings at once: a wake no longer continued a run
+  parked for a limit, a `failed` record no longer spent a turn before saying so, and
+  an old approval could no longer settle a later call that reused a call id.
+- **A question's answer is the call's result**, saved as a `tool_message` whose
+  `details` carry the text or the chosen ids, so `apply` and a replay see the same
+  shape. The branch that reads it is chosen by the request's kind, not by whether the
+  client sent a `text`: an approval answered with a stray `text` must still run.
+- **An ask stops the batch.** The calls behind it have not run and must not run while
+  a person is deciding; the first version let them, which is exactly the class of bug
+  the "never split a call from its result" rule exists for.
+- **`ui_response` names the request with `request`**, not Nova's `id`, and carries
+  `session` because HTTP has no connection to name it. That is a deviation from
+  decision 85's Nova shape, recorded in decision 140 with the reason.
+- **A proposal ends the run** and is decided once; the payload is checked twice (the
+  tool's parameters and the recipe's payload schema), because the toolbox's parameter
+  check only knows it is JSON.
+- **The gate**: 511 Node tests, 50 workerd tests, 15 fuzz/property targets,
+  `matrixcheck` 330 rows with **none unbuilt** — every row written during planning is
+  now built.
+
 ## Approvals, review round 1, 2026-11-21
 
 - **An answer stopped being live too late.** `readResumeSeed` kept the last request

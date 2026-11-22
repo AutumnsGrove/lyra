@@ -37,7 +37,12 @@ import { createRuntime, type RunDefinition, type Runtime } from "../core/runtime
 import type { RunHandle } from "../core/run-handle.js";
 import type { StorageSlot, WakingSlot } from "../core/slots.js";
 import { createUsageTotal } from "../core/usage.js";
-import type { RecordEntry, RequestAnsweredEntry, RequestEntry } from "../record/entries.js";
+import type {
+	ProposalDecidedEntry,
+	RecordEntry,
+	RequestAnsweredEntry,
+	RequestEntry,
+} from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
 import { fitEntry, utf8Length } from "../record/truncate.js";
@@ -401,13 +406,26 @@ export function createSession(options: SessionOptions): Session {
 
 	const listPending = (seed: ResumeSeed): Result<JsonValue> => {
 		const waiting = pendingOf(seed);
+		const path = activePath(seed.record.entries);
+		const decided = new Set(
+			path.flatMap((entry) => (entry.type === "proposal_decided" ? [entry.proposal] : [])),
+		);
+		const open = path.flatMap((entry) =>
+			entry.type === "proposal" && !decided.has(entry.proposal) ? [entry] : [],
+		);
 		return ok(
 			data({
 				session: options.id,
 				run: seed.record.header.run,
 				requests: waiting === undefined ? [] : [pendingRequest(waiting)],
-				// Proposals arrive with their own slice; a list without them is honest.
-				proposals: [],
+				proposals: open.map((proposal) =>
+					data({
+						proposal: proposal.proposal,
+						payload: proposal.payload,
+						evidence: proposal.evidence,
+						state: proposal.state,
+					}),
+				),
 			}),
 		);
 	};
@@ -487,7 +505,7 @@ export function createSession(options: SessionOptions): Session {
 				// One answer each, and the first one stands (decisions 34, 85).
 				return fail("conflict", "that request has already been answered");
 			}
-			if (request.kind === "choice") {
+			if (request.kind === "choice" && answer.ok) {
 				// A choice is answered with the options it offered, so a client cannot
 				// answer with something the run never asked about (decision 34).
 				const offered = new Set((request.options ?? []).map((option) => option.id));
@@ -498,6 +516,17 @@ export function createSession(options: SessionOptions): Session {
 						`that request offers ${[...offered].join(", ")}, so the answer has to be one of them`,
 					);
 				}
+			}
+			if (
+				request.kind === "approve" &&
+				(answer.text !== undefined || answer.ids !== undefined)
+			) {
+				// An approval is run or refused; a question's answer has no meaning here,
+				// and taking it as a result would skip the call it was about (APR07).
+				return fail(
+					"bad_request",
+					"an approval is answered with ok and a note, not with a text or ids",
+				);
 			}
 			if (
 				request.timeoutMs !== undefined &&
@@ -728,6 +757,56 @@ export function createSession(options: SessionOptions): Session {
 					return compactNow(command, seed);
 				case "list_pending":
 					return listPending(seed);
+				case "decide_proposal": {
+					const path = activePath(seed.record.entries);
+					const proposal = path.find(
+						(entry) => entry.type === "proposal" && entry.proposal === command.proposal,
+					);
+					if (proposal === undefined) {
+						return fail(
+							"not_found",
+							`this session has no proposal ${command.proposal}`,
+						);
+					}
+					if (
+						path.some(
+							(entry) =>
+								entry.type === "proposal_decided" &&
+								entry.proposal === command.proposal,
+						)
+					) {
+						// One decision each, and the first one stands (decision 53).
+						return fail("conflict", "that proposal has already been decided");
+					}
+					const entry: ProposalDecidedEntry = {
+						type: "proposal_decided",
+						id: options.ids.next("e"),
+						parent: seed.parent,
+						ts: options.clock.now(),
+						proposal: command.proposal,
+						decision: command.decision,
+					};
+					if (command.note !== undefined) {
+						entry.note = command.note;
+					}
+					const fitted = fitEntry(entry, entryCapBytes(options.storage));
+					if (fitted.refused !== undefined) {
+						return fail("internal", fitted.refused);
+					}
+					const saved = await options.storage.append(fitted.line);
+					if (!saved.ok) {
+						return saved;
+					}
+					schedule();
+					return ok(
+						data({
+							session: options.id,
+							run: header.run,
+							proposal: command.proposal,
+							decision: command.decision,
+						}),
+					);
+				}
 				case "prompt":
 				case "follow_up": {
 					const waiting = pendingOf(seed);

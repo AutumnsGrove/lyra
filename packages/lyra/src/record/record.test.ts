@@ -182,7 +182,7 @@ test("RCD04 a line that is JSON but not an object is noted, not fatal", () => {
 });
 
 test("RCD04 an unknown entry kind is preserved with its raw line and skipped by replay", () => {
-	const raw = '{"type":"proposal","id":"p1","parent":null,"ts":42,"verdict":"ship"}';
+	const raw = '{"type":"verdict","id":"p1","parent":null,"ts":42,"result":"ship"}';
 	const loaded = loadRecord([encodeHeader(header()), raw, encodeEntry(user(null))]);
 
 	expect(loaded.ok).toBe(true);

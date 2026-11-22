@@ -71,6 +71,7 @@ import {
 	type FallbackEntry,
 	type NoteEntry,
 	type RecipeStamp,
+	type ProposalEntry,
 	type RecipeUpdatedEntry,
 	type RecordHeader,
 	type RequestEntry,
@@ -768,6 +769,24 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		noteFailure(call.name, saved.content);
 	};
 
+	/** The task's result, left for a person to decide on (decision 50). */
+	const saveProposal = async (proposal: {
+		payload: JsonValue;
+		evidence: JsonValue[];
+	}): Promise<void> => {
+		const entry: ProposalEntry = {
+			type: "proposal",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			proposal: config.ids.next("prop"),
+			payload: proposal.payload,
+			evidence: proposal.evidence,
+			state: "open",
+		};
+		await append(entry);
+	};
+
 	/** Set when a tool's answer says the done-check passed (decision 25). */
 	let finishedRun = false;
 
@@ -813,6 +832,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				} else {
 					noteSuccess();
 				}
+				if (outcome.propose !== undefined && !outcome.isError) {
+					// The run's result is a decision someone else makes, so it is saved and
+					// the run ends `done` (decisions 50, 52, 53).
+					await saveProposal(outcome.propose);
+					finishedRun = true;
+				}
 				if (outcome.done === true && !outcome.isError) {
 					finishedRun = true;
 				}
@@ -857,6 +882,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				return;
 			}
 			await runOne([call]);
+			if (waitingRequest !== undefined) {
+				// The call itself asked a person, so the ones behind it have to wait for
+				// the answer rather than run while someone is deciding (decision 34).
+				return;
+			}
 		}
 	};
 
@@ -898,16 +928,22 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				// A question's answer is the call's result: the tool never produced one,
 				// so the person's words (or the option they picked) are what the model
 				// reads and what the tool's own `apply` records (decision 34).
-				if (decided.text !== undefined || decided.ids !== undefined) {
+				if (
+					seed.pendingRequest?.kind !== "approve" &&
+					(decided.text !== undefined || decided.ids !== undefined)
+				) {
 					await saveAnsweredCall(call, decided);
 					await runBatch(seed.unansweredCalls.slice(heldFrom + 1));
 					return;
 				}
 				// The person approved the call the request named: it runs, and everything
-				// the batch held behind it runs through the policy as usual.
+				// the batch held behind it runs through the policy as usual — unless the
+				// call asked something of its own, which holds the rest again.
 				if (index === heldFrom) {
 					await runOne([call]);
-					await runBatch(seed.unansweredCalls.slice(heldFrom + 1));
+					if (waitingRequest === undefined) {
+						await runBatch(seed.unansweredCalls.slice(heldFrom + 1));
+					}
 					return;
 				}
 			}

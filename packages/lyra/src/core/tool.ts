@@ -64,6 +64,11 @@ export interface ToolOutcome {
 	 * run parks with the question, and the answer becomes this call's result.
 	 */
 	ask?: PersonQuestion;
+	/**
+	 * Set by a tool that proposes rather than finishes (decisions 50, 52). The run
+	 * saves it and ends `done`, and a person decides later.
+	 */
+	propose?: { payload: JsonValue; evidence: JsonValue[] };
 }
 
 export interface Tool {
@@ -86,6 +91,8 @@ export interface Tool {
 	 * tool that merely borrowed the name (RCP04).
 	 */
 	finish?: true;
+	/** Set by `createProposeTool`, so a recipe can tell a proposal from a tool. */
+	proposes?: true;
 	/**
 	 * The exact text to show the model after a compaction (decision 40). It reads
 	 * the recipe's rebuilt state and is never stored, so what the model sees after a

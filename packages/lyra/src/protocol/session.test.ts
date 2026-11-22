@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage, type MemoryStorage } from "../adapters/memory/index.js";
 import type { Recipe } from "../core/define-recipe.js";
+import { createProposeTool } from "../core/propose.js";
 import type { JsonValue } from "../core/json.js";
 import type { Result } from "../core/result.js";
 import type { RunDefinition } from "../core/runtime.js";
@@ -12,6 +13,7 @@ import {
 	createFinishTool,
 	fakeClock,
 	scriptedModel,
+	toolAsking,
 	toolReturning,
 	toolTakingTime,
 	type FakeClock,
@@ -787,4 +789,192 @@ test("REQ06 a prompt or a follow_up behind a pending request is busy, not droppe
 	}
 	// Nothing was written, and the text is not on the record pretending it was read.
 	expect(storage.saved()).toHaveLength(written);
+});
+
+test("APR15 a choice can be denied, and an approval cannot be answered with a text", async () => {
+	// Decision 34 gives every request a deny, and the timeout denies a choice too;
+	// only approving a choice has to name one of the options it offered.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const choosing: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "choose", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const model = scriptedModel(choosing, { clock });
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model,
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						toolAsking("choose", {
+							kind: "choice",
+							title: "Which one?",
+							message: "Pick one.",
+							options: [
+								{ id: "a", label: "A" },
+								{ id: "b", label: "B" },
+							],
+						}),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(storage).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+
+	// The run has to have parked before an answer can continue it.
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+	const denied = await session.respond({
+		session: "s1",
+		request: id,
+		ok: false,
+		note: "none thanks",
+	});
+	expect(denied.ok).toBe(true);
+	await until(() => storage.saved().some((line) => line.includes('"state":"done"')));
+	expect(entriesOf(storage).find((entry) => entry.type === "request_answered")).toMatchObject({
+		decision: "deny",
+		note: "none thanks",
+	});
+});
+
+test("APR15 an approval answered with a text is refused, and the call is untouched", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	const refused = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+		text: "here you are",
+	});
+	expect(refused.ok ? "" : refused.error.code).toBe("bad_request");
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
+
+test("CMD10 PRP03 PRP04 PRP05 decide_proposal decides once, and refuses the second decision", async () => {
+	// A proposal is a finished run's result: a person accepts or rejects it, the
+	// decision is its own entry, and a second one conflicts (decisions 53, 85).
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+	expect(id).not.toBe("");
+
+	// The proposal and its decision are events a viewer can follow, from the record.
+	const events = await session.replay(0);
+	expect(events.ok ? events.value.filter((event) => event.type === "proposal") : []).toHaveLength(
+		1,
+	);
+
+	// An open proposal is listed, with enough to decide it (CMD09).
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({
+		proposals: [{ proposal: id, payload: { verdict: "deny", score: 0.9 }, state: "open" }],
+	});
+
+	const decided = valueOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "reject",
+			note: "not our call",
+		}),
+	);
+	expect(decided).toMatchObject({ session: "s1", proposal: id, decision: "reject" });
+	expect(entriesOf(storage).find((entry) => entry.type === "proposal_decided")).toMatchObject({
+		proposal: id,
+		decision: "reject",
+		note: "not our call",
+	});
+
+	const second = errorOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	expect(second.code).toBe("conflict");
+	const decided_events = await session.replay(0);
+	expect(
+		decided_events.ok
+			? decided_events.value.filter((event) => event.type === "proposal_decided")
+			: [],
+	).toMatchObject([{ proposal: id, decision: "reject" }]);
+
+	// An unknown proposal is not found, and the decided one leaves the list.
+	expect(
+		errorOf(
+			await send(session, {
+				command: "decide_proposal",
+				session: "s1",
+				proposal: "prop_nope",
+				decision: "accept",
+			}),
+		).code,
+	).toBe("not_found");
+	expect(valueOf(await send(session, { command: "list_pending", session: "s1" }))).toMatchObject({
+		proposals: [],
+	});
 });
