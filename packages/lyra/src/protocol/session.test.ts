@@ -1096,6 +1096,10 @@ function holdableStorage(inner: MemoryStorage) {
 				return inner.append(line);
 			},
 			read: () => inner.read(),
+			// The slot's optional shape, so a session sees the same storage it would
+			// otherwise be given.
+			...(inner.maxEntryBytes === undefined ? {} : { maxEntryBytes: inner.maxEntryBytes }),
+			saved: () => inner.saved(),
 		},
 		/** Hold the next append whose line contains this text. */
 		arm: (text: string): void => {
@@ -1330,5 +1334,149 @@ test("CMD20 a start or a resume is refused while a decision is being written", a
 	holding.release();
 	expect({ resumed: resumed.ok ? "" : resumed.error.code }).toEqual({ resumed: "busy" });
 	expect({ prompted: prompted.ok ? "" : prompted.error.code }).toEqual({ prompted: "busy" });
+	expect((await deciding).ok).toBe(true);
+});
+
+/** A session whose one tool asks and whose recipe can propose, for the answer paths. */
+function claiming(clock: FakeClock, inner: MemoryStorage) {
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{ toolCalls: [{ id: "c2", name: "write", args: {} }] },
+		{ toolCalls: [{ id: "c3", name: "finish", args: {} }] },
+	];
+	return createSession({
+		id: "s1",
+		storage: inner,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+						toolReturning("write", "wrote one line", { policy: "ask" }),
+						createFinishTool(),
+					],
+				},
+			],
+		]),
+	});
+}
+
+test("REQ03 two answers at once write one, and the other is refused", async () => {
+	// An answer is a read, a check and an append like a decision, so two of them
+	// arriving together must not both pass the check (the approvals path of the same
+	// race the decision lock covers).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const first = session.respond({ session: "s1", request: id, ok: true });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const second = await session.respond({ session: "s1", request: id, ok: false });
+	holding.release();
+	expect({ first: (await first).ok, second: second.ok ? "" : second.error.code }).toEqual({
+		first: true,
+		second: "busy",
+	});
+	expect(entriesOf(inner).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+});
+
+test("CMD10 a decision cannot chain from a parent an answer is about to move past", async () => {
+	// The approvals answer path and a decision both append; the one that lands second
+	// would fall off the active path, so the second is refused while the first writes.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const proposalId = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const answering = session.respond({ session: "s1", request: id, ok: false });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const decided = await session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: proposalId,
+			decision: "accept",
+		}),
+	);
+	holding.release();
+	expect({ decided: decided.ok ? "" : decided.error.code }).toEqual({ decided: "busy" });
+	expect((await answering).ok).toBe(true);
+});
+
+test("CMD20 a compaction waits for a decision being written", async () => {
+	// A compaction appends an entry of its own, so it claims the record like the
+	// others: two writers chaining from one parent is the same loss (found in review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	holding.arm('"type":"proposal_decided"');
+	const deciding = session.command(
+		decodeCommandOf({
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+		}),
+	);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const compacted = await session.command(decodeCommandOf({ command: "compact", session: "s1" }));
+	holding.release();
+	expect({ compacted: compacted.ok ? "" : compacted.error.code }).toEqual({ compacted: "busy" });
 	expect((await deciding).ok).toBe(true);
 });

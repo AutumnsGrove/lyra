@@ -8,6 +8,26 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Approvals, review round 4, 2026-11-21
+
+- **Every command that appends claims the record now**, not only a decision and a run
+  the session continues. The gaps were the ones that do not look like "start a run":
+  `respond` (the `ui_response` path, which is the primary write of this slice),
+  `wake`, and `compact`. Two of any of them caught mid-write chain from the same
+  parent, and the branch that lands second falls off `activePath` — silently, because
+  every command is told `ok`. The tests hold an `append` open to make the window real
+  rather than hoping a scheduler agrees.
+- **`runtime.active()` is not a lock.** It only knows a run after `track`, so a resume
+  that is still reading the record is invisible; the session's own claim is what
+  closes that. Worth remembering for anything else that writes the record.
+- **`reserveIds` has to reserve every prefix, not just `e`.** A record's request ids
+  and proposal ids come from the same source, and a resume that only skipped the entry
+  counter handed out `prop1` twice — the second proposal could never be decided,
+  because everything that finds a proposal finds the first.
+- **A sentinel made `resume.ts` binary.** `"\0never"` in a Python patch became a real
+  NUL, git called the file binary, and the diff was unreviewable while every check
+  passed. Seeding the map directly is what the code needed anyway.
+
 ## Approvals, wrap-up, 2026-11-21
 
 - **The slice has a letter, not a step number**, because `first-slice.md` puts
