@@ -174,6 +174,8 @@ export function createSession(options: SessionOptions): Session {
 	 * still reading the record, which is why the session tracks it here too.
 	 */
 	let writing: "decision" | "run" | "compact" | undefined;
+	/** Command-less callers waiting their turn, which is how a wake is not lost. */
+	const waiting = new Set<() => void>();
 
 	/** Claim the record for one command, or say why it is busy. */
 	const claim = (kind: "decision" | "run" | "compact"): Result<void> => {
@@ -189,6 +191,30 @@ export function createSession(options: SessionOptions): Session {
 		}
 		writing = kind;
 		return ok(undefined);
+	};
+
+	/**
+	 * The same claim, waited for rather than refused. The host's alarm uses it: a wake
+	 * has nobody to report `busy` to, and it may be the only thing that will ever
+	 * deny a timed request, so losing it would strand the run (found in review).
+	 */
+	const claimWhenFree = async (kind: "decision" | "run" | "compact"): Promise<void> => {
+		while (writing !== undefined) {
+			await new Promise<void>((resolve) => {
+				waiting.add(resolve);
+			});
+		}
+		writing = kind;
+	};
+
+	/** Hand the record on, and let one waiter look again. */
+	const release = (): void => {
+		writing = undefined;
+		const next = waiting.values().next();
+		if (next.done !== true) {
+			waiting.delete(next.value);
+			next.value();
+		}
 	};
 
 	const subscribers = new Set<Subscriber>();
@@ -299,7 +325,7 @@ export function createSession(options: SessionOptions): Session {
 		try {
 			return await continueRun(seed, text);
 		} finally {
-			writing = undefined;
+			release();
 		}
 	};
 
@@ -740,7 +766,7 @@ export function createSession(options: SessionOptions): Session {
 			try {
 				return await answerRequest(answer);
 			} finally {
-				writing = undefined;
+				release();
 			}
 		},
 
@@ -767,14 +793,11 @@ export function createSession(options: SessionOptions): Session {
 		},
 
 		wake: async (runId) => {
-			const claimed = claim("run");
-			if (!claimed.ok) {
-				return claimed;
-			}
+			await claimWhenFree("run");
 			try {
 				return await wakeRun(runId);
 			} finally {
-				writing = undefined;
+				release();
 			}
 		},
 
@@ -903,7 +926,7 @@ export function createSession(options: SessionOptions): Session {
 					try {
 						return await compactNow(command, seed);
 					} finally {
-						writing = undefined;
+						release();
 					}
 				}
 				case "list_pending":
@@ -921,7 +944,7 @@ export function createSession(options: SessionOptions): Session {
 					try {
 						return await decideProposal(command, seed);
 					} finally {
-						writing = undefined;
+						release();
 					}
 				}
 				case "prompt":

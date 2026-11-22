@@ -188,7 +188,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | EVT05 | A client reconnects with `Last-Event-ID` | Receives every missed record-derived event in order, and no live deltas |
 | REQ01 | A request is created | Saved in the record before it is sent |
 | REQ02 | A request with no connected client | Listed by `list_pending`, answerable later |
-| REQ03 | An answer to the same id twice | Second is `conflict` |
+| REQ03 | An answer to the same id twice | The second is `conflict`; one that arrives while the first is still being written is `busy`, and a retry then gets `conflict`, because the record is written by one command at a time |
 | REQ04 | An answer to an unknown id | `not_found` |
 | REQ05 | A request with `timeout_ms` that passes | Resolves to deny, and emits `ui_expired` |
 | REQ06 | Another wake-up arrives while a request is pending | Queued, not delivered, until it is answered |

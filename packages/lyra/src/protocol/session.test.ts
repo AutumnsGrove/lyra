@@ -1480,3 +1480,46 @@ test("CMD20 a compaction waits for a decision being written", async () => {
 	expect({ compacted: compacted.ok ? "" : compacted.error.code }).toEqual({ compacted: "busy" });
 	expect((await deciding).ok).toBe(true);
 });
+
+test("REQ05 a wake that lands during another command waits for it instead of being lost", async () => {
+	// The alarm has nobody to report `busy` to: the wake it carries is the only thing
+	// that will ever deny a timed request, so it queues behind the claim (found in
+	// review).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const session = claiming(clock, holding.slot);
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	valueOf(await send(session, { command: "prompt", session: "s1", text: "go on", queue: true }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"request"')));
+	const request = entriesOf(inner).find((entry) => entry.type === "request");
+	const id = String((request as { request?: string } | undefined)?.request ?? "");
+	await until(() => !inner.saved().some((line) => line.slice(-30).includes('"running"')));
+
+	holding.arm('"type":"request_answered"');
+	const answering = session.respond({ session: "s1", request: id, ok: false });
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	// The alarm arrives while the answer is still being written.
+	let settled = false;
+	const waking = session.wake(started.run);
+	void waking.then(() => {
+		settled = true;
+	});
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	expect(settled).toBe(false);
+
+	holding.release();
+	const woken = await waking;
+	expect({ woken: woken.ok, answered: (await answering).ok }).toEqual({
+		woken: true,
+		answered: true,
+	});
+});
