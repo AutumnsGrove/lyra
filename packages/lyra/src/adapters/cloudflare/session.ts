@@ -412,12 +412,15 @@ export function createCloudflareSession(
 				socket.close(1011, "this socket has no session");
 				return;
 			}
-			// The socket that just spoke is certainly live, and in this runtime it is the
-			// only one a fresh object can learn about after an eviction:
-			// `getWebSockets()` comes back empty even though frames still arrive
-			// (WSK12). So the follow is rebuilt from the frame itself, not only from
-			// the platform's list.
-			await watch(socket);
+			// A socket that has already exchanged hellos is followed from the frame it
+			// just sent: in this runtime that is the only way a fresh object learns about
+			// a socket after an eviction, because `getWebSockets()` comes back empty
+			// (WSK12). Before the exchange there is nothing to follow: the events start
+			// with the client's hello, not with whatever arrives first (WSK02).
+
+			if (attachment.greeted) {
+				await watch(socket);
+			}
 			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			// A frame over the line cap closes the socket rather than being read, which is
 			// FRM01's rule and step 8's close code 1002. Messages are already delimited,
@@ -464,9 +467,10 @@ export function createCloudflareSession(
 					);
 					return;
 				}
+				// The exchange is completed before the events start, and with the attachment
+				// as it stands now: `watch` moves `seq` as it replays, so writing the
+				// greeting after it would put the cursor back where the replay began.
 				socket.serializeAttachment({ ...attachment, greeted: true });
-				// The exchange is done, so the events start: replay from the attachment's
-				// `seq`, then live (WSK07, WSK08).
 				await watch(socket);
 				return;
 			}

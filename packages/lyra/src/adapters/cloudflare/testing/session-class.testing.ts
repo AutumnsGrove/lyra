@@ -13,7 +13,7 @@ import type { JsonValue } from "../../../core/json.js";
 import type { ModelSlot, ModelRequest } from "../../../core/model.js";
 import { ok } from "../../../core/result.js";
 import type { RunDefinition } from "../../../core/runtime.js";
-import { counterIds } from "../../memory/index.js";
+import { systemIds } from "../../../core/system-clock.js";
 import {
 	createFinishTool,
 	fakeClock,
@@ -180,7 +180,9 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 				},
 			},
 			clock,
-			ids: counterIds(),
+			// Random ids, as a host uses: this object can be evicted and rebuilt, and a
+			// counter that restarts at one would hand out an id the record already holds.
+			ids: systemIds(),
 			tokens: TOKENS,
 			host: "workers-test",
 		});

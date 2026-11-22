@@ -215,7 +215,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | WSK06 | A frame that is not one | A refusal frame, non-fatal, as HTTP answers the same cases; the socket stays open |
 | WSK07 | Events over a socket | Each event is one `{type: "event", event}` frame, in order, with the `seq` of the entry it came from |
 | WSK08 | A reconnect with `since` | Every record-derived event after that `seq` is replayed from the record, and no live-only event is invented |
-| WSK09 | A socket connected mid-run | The handover from replay to live never runs backwards and never delivers an event twice; several events may share one entry's `seq` |
+| WSK09 | A socket connected mid-run | The handover from replay to live never runs backwards and never delivers an event twice; several events may share one entry's `seq`, and the cursor the greeting saves is where the replay reached, so a wake replays nothing twice |
 | WSK10 | Two sockets on one session | Both receive the session's events |
 | WSK11 | A client that disconnects mid-run | The run goes on to its end; the socket is only a watcher |
 | WSK12 | An evicted object with a socket open | The socket outlives the eviction; the first frame after it wakes a fresh object, which follows that socket again, and the run it releases reaches it |

@@ -706,3 +706,55 @@ test("WSK14 the attachment carries the session, the tenant and the last seq, and
 	expect(bytes).toBeLessThan(16_384);
 	socket.close();
 });
+
+test("WSK02 no events flow before the hello exchange", async () => {
+	const session = await startOn(env.SESSION.newUniqueId().toString());
+	const socket = await upgraded(session);
+	// No client hello yet: a command is refused, and nothing else arrives.
+	const refused = next(socket);
+	socket.send(JSON.stringify({ type: "command", id: "c1", command: "get_state", session }));
+	expect(await refused).toMatchObject({ type: "response", ok: false });
+
+	const early: string[] = [];
+	socket.addEventListener("message", (event) => {
+		const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+		if (frame["type"] === "event") {
+			early.push(String((frame["event"] as { type?: string }).type));
+		}
+	});
+	for (let tick = 0; tick < 40; tick += 1) {
+		await Promise.resolve();
+	}
+	expect(early).toEqual([]);
+
+	// The exchange is what starts them.
+	const started = collect(socket, 1);
+	sayHello(socket);
+	expect((await started).length).toBe(1);
+	socket.close();
+});
+
+test("WSK09 the cursor the hello saves is where the replay reached, not where it began", async () => {
+	// The greeting is written after the replay, so a wake must not replay the record
+	// the client already has: a stale `seq` would deliver those events twice.
+	const session = await startOn(env.SESSION.newUniqueId().toString());
+	const socket = await upgraded(session, 0);
+	const replay = drainUntil(socket, "run_end");
+	sayHello(socket);
+	const seen = await replay;
+	expect(seen.length).toBeGreaterThan(0);
+
+	// Evict, then wake the object with a frame that appends nothing.
+	await evictDurableObject(stub(session));
+	const after: Record<string, unknown>[] = [];
+	socket.addEventListener("message", (event) => {
+		const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+		after.push(frame);
+	});
+	const answered = next(socket);
+	socket.send(JSON.stringify({ type: "command", id: "c1", command: "get_state", session }));
+	expect(await answered).toMatchObject({ type: "response", ok: true });
+	socket.close();
+	const replayed = after.filter((frame) => frame["type"] === "event");
+	expect(replayed).toEqual([]);
+});

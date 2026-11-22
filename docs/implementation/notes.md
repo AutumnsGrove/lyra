@@ -63,6 +63,22 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   WSK15 (a backed-up reader) are unwritten because both hang in this harness;
   `pnpm lyra --transport ws` is a dev tool and is not in the gate.
 
+## Step 8, review round 3, 2026-11-21
+
+- **Events started before the hello exchange.** The frame handler followed the
+  socket on every frame, so a refused command or a bad hello still began the stream.
+  It follows only a socket that has greeted, which the hello itself sets.
+- **The greeting wrote back a stale cursor.** The attachment is read at the top of the
+  handler, before the replay the watch starts; writing `greeted: true` from that copy
+  put `seq` back to where the replay began, so a wake would replay the record the
+  client already had. The greeting is saved before the watch now, and a test evicts
+  after a replay and asserts the next frame brings no events.
+- **Two ids collided across an eviction in the test class.** It used `counterIds`, and
+  a rebuilt object restarted the counter, so an appended entry took an id the record
+  already held and the active path broke — which looked exactly like "the events
+  never arrive" and cost an hour. The test class uses `systemIds` now, as a host does.
+  Worth remembering: anything that can be evicted cannot count.
+
 ## Approvals, review round 4, 2026-11-21
 
 - **Every command that appends claims the record now**, not only a decision and a run
