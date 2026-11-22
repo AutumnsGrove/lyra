@@ -73,6 +73,8 @@ export interface CloudflareSessionOptions {
 	host: string;
 	/** How many events may queue for one watching client before it is dropped. */
 	maxQueuedEvents?: number;
+	/** How many bytes may queue for one socket before it is closed with 1008. */
+	maxQueuedBytes?: number;
 }
 
 export interface CloudflareSession {
@@ -119,6 +121,8 @@ export function createCloudflareSession(
 	options: CloudflareSessionOptions,
 ): CloudflareSession {
 	const id = state.id.toString();
+	/** A socket that backs up is closed rather than buffered without limit (WSK15). */
+	const maxQueuedBytes = options.maxQueuedBytes ?? 1024 * 1024;
 	const storage: StorageSlot = durableObjectStorage(state.storage);
 	/** Whose the session is, once it is known; the record's header is the truth after a restart. */
 	let owner: string | undefined;
@@ -237,6 +241,14 @@ export function createCloudflareSession(
 
 	/** One frame out, and the attachment's `seq` moves only when an event carried one. */
 	const send = (socket: WebSocket, frame: string, seq?: number): void => {
+		if (socket.bufferedAmount > maxQueuedBytes) {
+			// A client that is not reading would otherwise hold the whole run's events in
+			// the runtime's buffer. It is closed, and the record is how it catches up.
+			socket.close(1008, "this client is not reading");
+			watching.get(socket)?.();
+			watching.delete(socket);
+			return;
+		}
 		socket.send(frame);
 		if (seq === undefined) {
 			return;
@@ -529,6 +541,11 @@ export function createCloudflareSession(
 
 		alarm: async () => {
 			try {
+				// A wake is the first moment this object runs after an eviction, so the
+				// sockets that outlived it are followed again. It is not awaited: the
+				// wake must not wait on a watcher's replay, and a listener that cannot
+				// be reached is the platform's business, not the run's.
+				void resumeWatching();
 				const wake = await scheduledWake(state.storage);
 				if (wake === undefined) {
 					return;

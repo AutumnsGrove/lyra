@@ -159,6 +159,8 @@ declare class URLSearchParams {
  */
 interface WebSocket {
 	send(data: string): void;
+	/** Bytes queued for a client that is not reading, which is how a slow one is spotted. */
+	readonly bufferedAmount: number;
 	close(code?: number, reason?: string): void;
 	/** Per-connection state that survives hibernation, under the platform's cap. */
 	serializeAttachment(value: unknown): void;

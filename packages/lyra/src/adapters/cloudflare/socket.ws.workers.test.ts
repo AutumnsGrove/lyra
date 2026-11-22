@@ -1,4 +1,9 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import {
+	env,
+	evictDurableObject,
+	runDurableObjectAlarm,
+	runInDurableObject,
+} from "cloudflare:test";
 import { expect, test } from "vitest";
 
 /**
@@ -532,3 +537,96 @@ test("WSK09 a reconnect mid-run hands over from replay to live with no gap or re
 	expect(new Set(frames.map((event) => JSON.stringify(event))).size).toBe(frames.length);
 	expect(frames.map((event) => event["type"])).toContain("run_end");
 });
+
+/** A session whose run is parked for a person, so an eviction has something to keep. */
+async function parked(): Promise<string> {
+	const session = env.SESSION.newUniqueId().toString();
+	const response = await stub(session).fetch(
+		new Request("https://lyra.test/v1/commands", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify({
+				type: "command",
+				id: "start-parked",
+				command: "start",
+				task: "test-task",
+				input: {
+					turns: [
+						{ calls: [{ name: "approve", args: {} }] },
+						{ calls: [{ name: "finish" }] },
+					],
+				},
+			}),
+		}),
+	);
+	const answer = (await response.json()) as { ok: boolean; data?: { session?: string } };
+	if (!answer.ok || answer.data?.session === undefined) {
+		throw new Error(`the start was refused: ${JSON.stringify(answer)}`);
+	}
+	return answer.data.session;
+}
+
+test("WSK12 an evicted object keeps its socket, and a command after the wake works", async () => {
+	const session = await parked();
+	const socket = await upgraded(session);
+	const replay = drainUntil(socket, "run_end");
+	sayHello(socket);
+	await replay;
+
+	// The object goes away with the socket open and the run parked for a person.
+	await evictDurableObject(stub(session));
+
+	// A frame wakes a fresh object, which rebuilds its watch from the attachment.
+	socket.send(JSON.stringify({ type: "command", id: "c1", command: "get_state", session }));
+	const answer = await next(socket);
+	expect(answer).toMatchObject({ type: "response", id: "c1", ok: true });
+	const state = (answer["data"] as { state?: string } | undefined)?.state;
+	expect(state).toBe("parked");
+	socket.close();
+});
+
+test("WSK14 the attachment carries the session, the tenant and the last seq, and stays small", async () => {
+	const session = await parked();
+	const response = await stub(session).fetch(
+		new Request(socketUrl(session), {
+			headers: { upgrade: "websocket", authorization: `Bearer ${TOKENS.acme}` },
+		}),
+	);
+	const socket = response.webSocket;
+	if (socket === null) {
+		throw new Error("the upgrade did not carry a socket");
+	}
+	socket.accept();
+	await nextAny(socket);
+	sayHello(socket);
+	await drainUntil(socket, "run_end");
+
+	const attachment = await runInDurableObject(stub(session), (instance: TestSession) =>
+		instance.attachments(),
+	);
+	expect(attachment).toHaveLength(1);
+	// The tenant is the token's own name, which is what the record's header holds too.
+	expect(attachment[0]).toMatchObject({ session, tenant: "acme", greeted: true });
+	// The platform caps an attachment at 16,384 bytes; this one is a session id, a
+	// tenant and a number.
+	const bytes = new TextEncoder().encode(JSON.stringify(attachment[0])).byteLength;
+	expect(bytes).toBeLessThan(16_384);
+	socket.close();
+});
+
+/** Wait for an event of this type to arrive in a collecting array. */
+async function untilEvent(
+	events: Record<string, unknown>[],
+	type: string,
+	limit = 200,
+): Promise<void> {
+	for (let attempt = 0; attempt < limit; attempt += 1) {
+		if (events.some((event) => event["type"] === type)) {
+			return;
+		}
+		await new Promise<void>((resolve) => {
+			void resolve;
+		});
+	}
+	throw new Error(`no ${type} event arrived`);
+}

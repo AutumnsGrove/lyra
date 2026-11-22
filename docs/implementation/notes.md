@@ -8,6 +8,28 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 8, slices 1 to 3, 2026-11-21
+
+- **WebSockets under Durable Objects need their own vitest config**, as decision 101
+  said: `vitest.ws.config.ts` runs one worker with `isolate: false`, and
+  `vitest.workers.config.ts` excludes the socket files so they do not also run in the
+  mode that cannot carry them (found in review: they ran twice).
+- **The workerd socket harness has one wall I could not get past.** Two behaviours the
+  step document asks for hang in this harness rather than failing:
+  eviction *mid-run* with a socket open, where `runDurableObjectAlarm` never settles,
+  and a backed-up reader, where the client's `bufferedAmount` never grows enough to
+  trip the cap and the close never comes. Both worked on paper and neither is in the
+  tree: WSK13 and WSK15 are not written, and the two-minute hang each leaves behind
+  is worse than a failing assertion. What *is* covered: an eviction with a socket
+  open and a parked run (WSK12), the attachment's contents and size (WSK14), and a
+  reconnect catching up from the record (WSK08, WSK09). The backpressure code
+  (`bufferedAmount` against a 1 MiB default) is in and untested here; the honest next
+  step is to probe it against a real deployment, or to find the harness option that
+  makes the client back up.
+- **A socket's `hello` starts the events**, so a test that wants to see a *live*
+  event has to drain the replay first; two tests passed on replay alone before the
+  review caught it.
+
 ## Approvals, review round 4, 2026-11-21
 
 - **Every command that appends claims the record now**, not only a decision and a run

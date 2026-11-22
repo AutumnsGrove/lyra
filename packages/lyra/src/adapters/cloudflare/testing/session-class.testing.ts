@@ -183,6 +183,8 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 			ids: counterIds(),
 			tokens: TOKENS,
 			host: "workers-test",
+			// Small enough that a test can back a socket up without megabytes of events.
+			maxQueuedBytes: 4_096,
 		});
 		return this.#session;
 	}
@@ -205,6 +207,11 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 
 	requests(): number {
 		return this.#requests;
+	}
+
+	/** What each socket carries between frames, which is what hibernation must keep. */
+	attachments(): unknown[] {
+		return this.ctx.getWebSockets().map((socket) => socket.deserializeAttachment());
 	}
 
 	/** The record, read through the same storage adapter the session writes. */
