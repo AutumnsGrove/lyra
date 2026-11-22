@@ -37,10 +37,11 @@ import { createRuntime, type RunDefinition, type Runtime } from "../core/runtime
 import type { RunHandle } from "../core/run-handle.js";
 import type { StorageSlot, WakingSlot } from "../core/slots.js";
 import { createUsageTotal } from "../core/usage.js";
-import type { RecordEntry } from "../record/entries.js";
+import type { RecordEntry, RequestAnsweredEntry, RequestEntry } from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
 import { fitEntry, utf8Length } from "../record/truncate.js";
+import type { RequestAnswer } from "./answers.js";
 import type { Command } from "./commands.js";
 import { eventsAfter, projectEvents, type RecordEvent } from "./events.js";
 
@@ -94,6 +95,8 @@ export interface Session {
 	follow(after: number, listener: (event: SessionEvent) => void): Promise<Result<() => void>>;
 	/** The host's alarm: continue the run it names, and watch it like any other. */
 	wake(runId: string): Promise<Result<JsonValue>>;
+	/** Answer a request this session asked, and continue the run from it (decision 34). */
+	respond(answer: RequestAnswer): Promise<Result<JsonValue>>;
 }
 
 /** A value this module built out of the record or its own answers, as response data. */
@@ -144,6 +147,8 @@ export function createSession(options: SessionOptions): Session {
 			model: options.model,
 			host: options.host,
 			...(options.tenant === undefined ? {} : { tenant: options.tenant }),
+			// A session is where a person is reachable, so its runs may ask (decision 35).
+			canAsk: true,
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(options.waking === undefined ? {} : { waking: options.waking }),
 		});
@@ -310,8 +315,7 @@ export function createSession(options: SessionOptions): Session {
 			turns: seed?.turns ?? 0,
 			usage: usage.total(),
 			queue,
-			// Approvals arrive in a later slice, so nothing is waiting for a person yet.
-			pending: 0,
+			pending: pendingOf(seed) === undefined ? 0 : 1,
 		});
 	};
 
@@ -373,6 +377,40 @@ export function createSession(options: SessionOptions): Session {
 		return ok(data({ session: options.id, run: header.run, compacted: true }));
 	};
 
+	/** The request the run is waiting on, when nothing has answered it yet. */
+	const pendingOf = (seed: ResumeSeed | undefined): RequestEntry | undefined => {
+		const request = seed?.pendingRequest;
+		return request !== undefined && seed?.answer === undefined ? request : undefined;
+	};
+
+	/** What a client needs to answer a request, without the record's own ids (REQ02). */
+	const pendingRequest = (request: RequestEntry): JsonValue =>
+		data({
+			request: request.request,
+			kind: request.kind,
+			title: request.title,
+			message: request.message,
+			...(request.preview === undefined ? {} : { preview: request.preview }),
+			...(request.callId === undefined ? {} : { callId: request.callId }),
+			...(request.tool === undefined ? {} : { tool: request.tool }),
+			...(request.args === undefined ? {} : { args: request.args }),
+			...(request.risk === undefined ? {} : { risk: request.risk }),
+			...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+		});
+
+	const listPending = (seed: ResumeSeed): Result<JsonValue> => {
+		const waiting = pendingOf(seed);
+		return ok(
+			data({
+				session: options.id,
+				run: seed.record.header.run,
+				requests: waiting === undefined ? [] : [pendingRequest(waiting)],
+				// Proposals arrive with their own slice; a list without them is honest.
+				proposals: [],
+			}),
+		);
+	};
+
 	const getMessages = (
 		command: Extract<Command, { command: "get_messages" }>,
 		seed: ResumeSeed,
@@ -417,6 +455,90 @@ export function createSession(options: SessionOptions): Session {
 
 	return {
 		id: options.id,
+
+		respond: async (answer: RequestAnswer): Promise<Result<JsonValue>> => {
+			const existing = await seedOf();
+			if (!existing.ok) {
+				return existing;
+			}
+			const seed = existing.value;
+			if (seed === undefined) {
+				return fail("not_found", "this session has no record yet");
+			}
+			const path = activePath(seed.record.entries);
+			const request = path.find(
+				(entry): entry is RequestEntry =>
+					entry.type === "request" && entry.request === answer.request,
+			);
+			if (request === undefined) {
+				return fail("not_found", `this session has no request ${answer.request}`);
+			}
+			if (
+				path.some(
+					(entry) =>
+						entry.type === "request_answered" && entry.request === answer.request,
+				)
+			) {
+				// One answer each, and the first one stands (decisions 34, 85).
+				return fail("conflict", "that request has already been answered");
+			}
+			if (
+				request.timeoutMs !== undefined &&
+				options.clock.now() >= request.ts + request.timeoutMs
+			) {
+				// An id past its timeout is expired, and an expired id is not found.
+				return fail("not_found", `the request ${answer.request} has expired`);
+			}
+			const header = seed.record.header;
+			if (runtime.active(header.run) !== undefined) {
+				return fail("busy", "a run is already active in this session");
+			}
+			const definition = options.recipes.get(header.task);
+			if (definition === undefined) {
+				return fail(
+					"not_found",
+					`this session's task "${header.task}" is not one this host runs`,
+				);
+			}
+
+			const entry: RequestAnsweredEntry = {
+				type: "request_answered",
+				id: options.ids.next("e"),
+				parent: seed.parent,
+				ts: options.clock.now(),
+				request: answer.request,
+				decision: answer.ok ? "approve" : "deny",
+			};
+			if (answer.note !== undefined) {
+				entry.note = answer.note;
+			}
+			if (answer.text !== undefined) {
+				entry.text = answer.text;
+			}
+			if (answer.ids !== undefined) {
+				entry.ids = answer.ids;
+			}
+			const fitted = fitEntry(entry, entryCapBytes(options.storage));
+			if (fitted.refused !== undefined) {
+				return fail("internal", fitted.refused);
+			}
+			const saved = await options.storage.append(fitted.line);
+			if (!saved.ok) {
+				return saved;
+			}
+
+			const resumed = await runtime.resume({
+				runId: header.run,
+				task: header.task,
+				definition,
+				by: "person",
+			});
+			if (!resumed.ok) {
+				return resumed;
+			}
+			listen(resumed.value);
+			return ok(data({ session: options.id, run: header.run }));
+		},
 
 		replay: async (after) => {
 			const read = await options.storage.read();
@@ -587,6 +709,8 @@ export function createSession(options: SessionOptions): Session {
 					return getMessages(command, seed);
 				case "compact":
 					return compactNow(command, seed);
+				case "list_pending":
+					return listPending(seed);
 				case "prompt":
 				case "follow_up": {
 					if (active !== undefined) {
@@ -621,6 +745,13 @@ export function createSession(options: SessionOptions): Session {
 				case "resume": {
 					if (active !== undefined) {
 						return fail("busy", "a run is already active in this session");
+					}
+					const waiting = pendingOf(seed);
+					if (waiting !== undefined) {
+						return fail(
+							"busy",
+							`this run is waiting for a person to answer ${waiting.request}`,
+						);
 					}
 					const definition = options.recipes.get(header.task);
 					if (definition === undefined) {

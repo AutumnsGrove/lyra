@@ -92,7 +92,7 @@ test("APR01 an allowed call runs untouched", async () => {
 	expect((await entriesOf(run.storage)).some((entry) => entry.type === "request")).toBe(false);
 });
 
-test("APR02 a call that asks parks the run with a request saved first", async () => {
+test("APR02 REQ01 a call that asks parks the run with a request saved first", async () => {
 	const executions = executionCounter();
 	const asking = toolReturning("write", "wrote one line", { policy: "ask", executions });
 	const run = harness([asking, createFinishTool()]);
@@ -426,7 +426,7 @@ test("APR05 the calls after an answered one still meet their own policy", async 
 	expect(requests).toHaveLength(2);
 });
 
-test("APR11 a request past its timeout is denied, and the record says it expired", async () => {
+test("APR11 REQ05 a request past its timeout is denied, and the record says it expired", async () => {
 	const executions = executionCounter();
 	const tools = [
 		toolReturning("write", "wrote", { policy: "ask", executions }),

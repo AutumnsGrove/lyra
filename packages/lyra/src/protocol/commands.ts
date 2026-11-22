@@ -30,6 +30,7 @@ export type Command =
 	| { command: "resume"; id: string; session: string }
 	| { command: "get_state"; id: string; session?: string }
 	| { command: "compact"; id: string; session: string; instructions?: string }
+	| { command: "list_pending"; id: string; session?: string }
 	| {
 			command: "get_messages";
 			id: string;
@@ -42,7 +43,6 @@ export type Command =
 /** Commands the protocol names and this build answers `unsupported`, by slice. */
 const LATER: Readonly<Record<string, string>> = {
 	list_sessions: "listing every session needs an index of its own, which is not built yet",
-	list_pending: "approvals arrive in a later slice",
 	decide_proposal: "proposals arrive in a later slice",
 };
 
@@ -205,6 +205,12 @@ export function decodeCommand(
 			}
 			return ok({ command: name.value, id: id.value, session: needed });
 		}
+		case "list_pending":
+			return ok({
+				command: "list_pending",
+				id: id.value,
+				...(session.value === undefined ? {} : { session: session.value }),
+			});
 		case "get_state": {
 			const command: Command = { command: "get_state", id: id.value };
 			if (session.value !== undefined) {

@@ -144,7 +144,7 @@ test("CMD13 text over the entry cap is refused and saves nothing", () => {
 });
 
 test("CMD16 a command for a later slice is unsupported, and says which", () => {
-	for (const command of ["list_sessions", "list_pending", "decide_proposal"]) {
+	for (const command of ["list_sessions", "decide_proposal"]) {
 		const refusal = refusalOf({ command, session: "s1" });
 		expect({ command, code: refusal.code }).toEqual({ command, code: "unsupported" });
 	}

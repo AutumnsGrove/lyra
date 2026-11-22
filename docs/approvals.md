@@ -48,6 +48,7 @@ stops the batch rather than being guessed at.
 | APR07 | Happy: an approved call | The call runs on the resume, once, and its result is what the model reads next |
 | APR08 | Sad: a denied call with a note | The call never runs, and the person's own words are in the error result the model corrects from |
 | APR11 | Sad: a timeout | A request past its `timeout_ms` is denied by the clock, the record says it expired rather than that a person decided, the host had a wake scheduled for it, and a wake does not overrule the park before then |
+| APR12 | Bad: an answer that is not one | A `ui_response` that is a different frame type, names no request or session, or carries a field this build cannot read is `bad_request` naming the field; anything but a clear `ok: true` is a deny; an unknown field is ignored; and no hostile frame makes the decoder throw |
 
 ## Not discussed yet
 

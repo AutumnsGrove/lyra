@@ -243,3 +243,67 @@ test("EVT07 a compaction entry projects to a compaction event with its seq", () 
 	const end = projected.at(-1);
 	expect(end?.type === "run_end" ? end.turn : 0).toBe(1);
 });
+
+test("EVT04 an answered request resolves for every client, from the record", () => {
+	const request: Entry = {
+		type: "request",
+		request: "auth-1",
+		kind: "approve",
+		title: "May the run use write?",
+		message: "The model asked to run the write tool.",
+		callId: "c1",
+		tool: "write",
+		args: "{}",
+		risk: "changes",
+		timeoutMs: 1_000,
+	};
+	const answered: Entry = {
+		type: "request_answered",
+		request: "auth-1",
+		decision: "deny",
+		note: "not this time",
+	};
+
+	const projected = events(record(running, request, answered, done));
+	const asked = projected.find((event) => event.type === "ui_request");
+	expect(asked).toMatchObject({
+		type: "ui_request",
+		seq: 1,
+		request: "auth-1",
+		kind: "approve",
+		callId: "c1",
+		tool: "write",
+		risk: "changes",
+		timeoutMs: 1_000,
+	});
+	// The answer is the second entry, so a client that saw the request gets it next.
+	expect(projected.find((event) => event.type === "ui_resolved")).toMatchObject({
+		type: "ui_resolved",
+		seq: 2,
+		request: "auth-1",
+		decision: "deny",
+		note: "not this time",
+	});
+});
+
+test("EVT04 a request the clock decided also expires for the clients", () => {
+	const projected = events(
+		record(
+			running,
+			{
+				type: "request",
+				request: "auth-2",
+				kind: "approve",
+				title: "May the run use write?",
+				message: "The model asked to run the write tool.",
+				timeoutMs: 1_000,
+			},
+			{ type: "request_answered", request: "auth-2", decision: "deny", timedOut: true },
+			done,
+		),
+	);
+	expect(projected.filter((event) => event.type === "ui_expired")).toMatchObject([
+		{ type: "ui_expired", seq: 2, request: "auth-2" },
+	]);
+	expect(projected.some((event) => event.type === "ui_resolved")).toBe(true);
+});

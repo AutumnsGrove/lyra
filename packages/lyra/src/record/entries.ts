@@ -194,6 +194,10 @@ export interface RequestAnsweredEntry extends EntryBase {
 	decision: "approve" | "deny";
 	/** What the person said, which the model reads on a deny (decision 34). */
 	note?: string;
+	/** A question's answer, when the request asked for text rather than approval. */
+	text?: string;
+	/** A choice's answer: the ids of the options the person picked. */
+	ids?: string[];
 	/** Set when nobody answered and the request's timeout decided (decision 37). */
 	timedOut?: boolean;
 }
@@ -445,6 +449,12 @@ export function encodeEntry(entry: RecordEntry): string {
 			};
 			if (entry.note !== undefined) {
 				line["note"] = entry.note;
+			}
+			if (entry.text !== undefined) {
+				line["text"] = entry.text;
+			}
+			if (entry.ids !== undefined) {
+				line["ids"] = entry.ids;
 			}
 			if (entry.timedOut === true) {
 				line["timedOut"] = true;
@@ -946,9 +956,22 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			const request = value["request"];
 			const decision = value["decision"];
 			const note = value["note"];
+			const text = value["text"];
+			const ids = value["ids"];
 			const timedOut = value["timedOut"];
 			if (!isName(request)) {
 				return bad("a request_answered entry names no request");
+			}
+			if (text !== undefined && typeof text !== "string") {
+				return bad("a request_answered entry has an answer that is not text");
+			}
+			if (
+				ids !== undefined &&
+				(!Array.isArray(ids) || !ids.every((id): id is string => typeof id === "string"))
+			) {
+				return bad(
+					"a request_answered entry has chosen ids that are not a list of strings",
+				);
 			}
 			if (decision !== "approve" && decision !== "deny") {
 				return bad("a request_answered entry has a decision this build does not know");
@@ -962,6 +985,12 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			const entry: RequestAnsweredEntry = { type, ...base, request, decision };
 			if (note !== undefined) {
 				entry.note = note;
+			}
+			if (text !== undefined) {
+				entry.text = text;
+			}
+			if (ids !== undefined) {
+				entry.ids = ids;
 			}
 			if (timedOut === true) {
 				entry.timedOut = true;

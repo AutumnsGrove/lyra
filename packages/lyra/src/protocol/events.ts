@@ -18,7 +18,8 @@
 import { parkedReasonOf, type ParkedReason, type RunEndReason } from "../core/events.js";
 import type { FinishReason, ToolCall, Usage } from "../core/model.js";
 import { createUsageTotal } from "../core/usage.js";
-import type { RecordEntry } from "../record/entries.js";
+import type { RecordEntry, RequestKind } from "../record/entries.js";
+import type { JsonValue } from "../core/json.js";
 import { activePath } from "../record/replay.js";
 
 /** What every projected event carries, whatever its type. */
@@ -60,6 +61,32 @@ export type RecordEvent =
 			parkedReason?: ParkedReason;
 			detail?: string;
 	  })
+	/** The run needs a person, and this is what it is asking (decision 34). */
+	| (EventBase & {
+			type: "ui_request";
+			request: string;
+			kind: RequestKind;
+			title: string;
+			message: string;
+			preview?: JsonValue;
+			callId?: string;
+			tool?: string;
+			args?: string;
+			risk?: string;
+			timeoutMs?: number;
+	  })
+	/**
+	 * A request was answered, so every other client can close the dialog it may be
+	 * showing (EVT04, decision 34).
+	 */
+	| (EventBase & {
+			type: "ui_resolved";
+			request: string;
+			decision: "approve" | "deny";
+			note?: string;
+	  })
+	/** Nobody answered in time, and the request resolved to deny (REQ05, decision 37). */
+	| (EventBase & { type: "ui_expired"; request: string })
 	/**
 	 * The run summarized its older steps and moved the model's view forward
 	 * (docs/context-size.md, decision 39). It comes from the `compaction` entry, so
@@ -181,6 +208,36 @@ export function projectEvents(
 					reason: entry.reason,
 				});
 				break;
+			case "request": {
+				events.push({
+					...base,
+					type: "ui_request",
+					request: entry.request,
+					kind: entry.kind,
+					title: entry.title,
+					message: entry.message,
+					...(entry.preview === undefined ? {} : { preview: entry.preview }),
+					...(entry.callId === undefined ? {} : { callId: entry.callId }),
+					...(entry.tool === undefined ? {} : { tool: entry.tool }),
+					...(entry.args === undefined ? {} : { args: entry.args }),
+					...(entry.risk === undefined ? {} : { risk: entry.risk }),
+					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }),
+				});
+				break;
+			}
+			case "request_answered": {
+				events.push({
+					...base,
+					type: "ui_resolved",
+					request: entry.request,
+					decision: entry.decision,
+					...(entry.note === undefined ? {} : { note: entry.note }),
+				});
+				if (entry.timedOut === true) {
+					events.push({ ...base, type: "ui_expired", request: entry.request });
+				}
+				break;
+			}
 			case "compaction":
 				events.push({
 					...base,

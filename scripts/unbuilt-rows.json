@@ -1,18 +1,7 @@
 {
-	"_note": "Spec rows whose area is written down but not built yet, so the matrix rule can pass on an empty core. Remove an ID from this list in the same change that gives it a test; matrixcheck fails if an ID here has no row in its doc, or if a row here is also tested. Each entry names the step in docs/first-slice.md that builds it. What is left is everything that waits for a person (approvals, questions and proposals: CMD08 to CMD10, EVT04 and REQ01 to REQ06), which is the slice after step 6.",
+	"_note": "Spec rows whose area is written down but not built yet, so the matrix rule can pass on an empty core. Remove an ID from this list in the same change that gives it a test; matrixcheck fails if an ID here has no row in its doc, or if a row here is also tested. Each entry names the step in docs/first-slice.md that builds it. What is left is proposals: CMD10 and the rows the proposal half of the approvals slice adds.",
 	"docs/protocol.md": {
 		"step": "after step 6 (approvals and proposals)",
-		"rows": [
-			"CMD08",
-			"CMD09",
-			"CMD10",
-			"EVT04",
-			"REQ01",
-			"REQ02",
-			"REQ03",
-			"REQ04",
-			"REQ05",
-			"REQ06"
-		]
+		"rows": ["CMD10"]
 	}
 }

@@ -571,3 +571,168 @@ test("CMD20 compact summarizes the record now, and is busy while a run is active
 		"not_found",
 	);
 });
+
+/** A recipe whose one tool asks, which is what every test here needs. */
+function asking(turns: readonly ScriptedTurn[]): Harness {
+	return harness(
+		turns,
+		() => [toolReturning("write", "wrote one line", { policy: "ask" }), createFinishTool()],
+		{ summaries: [] },
+	);
+}
+
+const ASK_TURNS: ScriptedTurn[] = [
+	{ toolCalls: [{ id: "c1", name: "write", args: {} }] },
+	{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+];
+
+/** The request the session is waiting on, once the run has parked. */
+async function waitingRequest(storage: MemoryStorage): Promise<Record<string, unknown>> {
+	await until(() => entriesOf(storage).some((entry) => entry.type === "request"));
+	const request = entriesOf(storage).find((entry) => entry.type === "request");
+	if (request === undefined) {
+		throw new Error("the run never asked");
+	}
+	return request as Record<string, unknown>;
+}
+
+function finished(storage: MemoryStorage): boolean {
+	return storage.saved().some((line) => line.includes('"state":"done"'));
+}
+
+test("REQ02 a request with no client connected is listed and answerable later", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	// Nothing was ever watching, which is the whole point of a durable request.
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({
+		session: "s1",
+		requests: [
+			{
+				request: request["request"],
+				kind: "approve",
+				callId: "c1",
+				tool: "write",
+			},
+		],
+		proposals: [],
+	});
+
+	const answered = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(answered.ok).toBe(true);
+	await until(() => finished(storage));
+	// One answer, one result, and the run went on to its done-check.
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+});
+
+test("REQ03 a second answer to the same request is conflict, and the first stands", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	const first = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: false,
+	});
+	expect(first.ok).toBe(true);
+	const second = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(second.ok ? "" : second.error.code).toBe("conflict");
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(1);
+	expect(entriesOf(storage).find((entry) => entry.type === "request_answered")).toMatchObject({
+		decision: "deny",
+	});
+});
+
+test("REQ04 an answer to a request this session never asked is not_found", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+
+	const unknown = await session.respond({ session: "s1", request: "auth-nope", ok: true });
+	expect(unknown.ok ? "" : unknown.error.code).toBe("not_found");
+
+	// A session with no record at all has nothing to answer either.
+	const empty = asking(ASK_TURNS);
+	const nothing = await empty.session.respond({ session: "s1", request: "auth-nope", ok: true });
+	expect(nothing.ok ? "" : nothing.error.code).toBe("not_found");
+});
+
+test("CMD08 resume is busy while a person is deciding, and the ids are named", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const refused = errorOf(await send(session, { command: "resume", session: "s1" }));
+	expect(refused.code).toBe("busy");
+	expect(refused.message).toContain(String(request["request"]));
+});
+
+test("CMD09 list_pending is empty once the answer is in, and get_state counts what waits", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+
+	// `get_state` counts what is waiting, so a viewer knows to glow (decision 36).
+	expect(valueOf(await send(session, { command: "get_state", session: "s1" }))).toMatchObject({
+		pending: 1,
+	});
+
+	await session.respond({ session: "s1", request: String(request["request"]), ok: false });
+	await until(() => finished(storage));
+
+	const listed = valueOf(await send(session, { command: "list_pending", session: "s1" }));
+	expect(listed).toMatchObject({ requests: [] });
+	expect(valueOf(await send(session, { command: "get_state", session: "s1" }))).toMatchObject({
+		pending: 0,
+	});
+});
+
+test("REQ06 a wake behind a pending request does not deliver the run", async () => {
+	// A finished job's wake must not carry the model past a question a person has
+	// not answered (decision 34's queueing rule).
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const runsBefore = entriesOf(storage).filter(
+		(entry) => entry.type === "assistant_message",
+	).length;
+	const woken = await send(session, { command: "resume", session: "s1" });
+	expect(errorOf(woken).code).toBe("busy");
+	expect(entriesOf(storage).filter((entry) => entry.type === "assistant_message")).toHaveLength(
+		runsBefore,
+	);
+	// The request is still the thing being waited on.
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
+
+test("REQ06 the host's alarm behind a pending request leaves it parked", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await waitingRequest(storage);
+	await until(() => !storage.saved().some((line) => line.includes('"state":"running"')));
+
+	const before = entriesOf(storage).filter((entry) => entry.type === "assistant_message").length;
+	const woken = await session.wake(started.run);
+	expect(woken.ok).toBe(true);
+	await until(() => entriesOf(storage).at(-1)?.type === "status");
+	expect(entriesOf(storage).filter((entry) => entry.type === "assistant_message")).toHaveLength(
+		before,
+	);
+	expect(entriesOf(storage).filter((entry) => entry.type === "request_answered")).toHaveLength(0);
+});
