@@ -3,11 +3,19 @@ import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
-import { expect, test } from "vitest";
+import { expect, test as base } from "vitest";
 
 import { run, type Env, type RunResult } from "./notes.ts";
 
 const exec = promisify(execFile);
+
+/**
+ * Every test here builds a git fixture and spawns the release script, so a loaded
+ * machine can push one past the five-second default. The timeout is the test's
+ * budget, not its subject: nothing here waits on purpose except RN07, which
+ * asserts on a deadline of its own.
+ */
+const test = (name: string, run: () => Promise<void>): void => base(name, run, 30_000);
 
 /**
  * Every case here runs against a small fixture repository with two tags, a merge

@@ -8,6 +8,33 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Approvals, review round 1, 2026-11-21
+
+- **An answer stopped being live too late.** `readResumeSeed` kept the last request
+  and its answer for the whole record, so any record that once had one always had a
+  decision, and `recordedOutcome` was never consulted again: a wake could continue a
+  run parked for a limit, a `failed` record spent a turn before saying it had failed,
+  and an old approval could settle a later call that reused the same call id. The
+  seed now clears both once the request's call has a result, which is the moment the
+  answer has done its work (APR05, APR07).
+- **The timeout's wake was lost on the second park.** `run_end` cancelled the alarm,
+  and a resume that parked again is a new handle that never saw the `request` event,
+  so nothing re-armed it and the request could never expire. A park for
+  `waiting_for_person` now keeps its alarm: that wake is the only thing that ends the
+  wait (APR11).
+- **My first test of the stale answer proved nothing**, because it wrote the answer
+  into the array of lines it resumed from rather than into the storage a later resume
+  reads. `answerWith` now writes it where the session would, and the test fails on
+  the reviewed head. Worth remembering: a resume reads storage, not the caller's copy.
+- **`request_answered` was missing from the record generators**, so RCD06's round
+  trip, RCD07's loader fuzz and the projection property never saw it. The generator
+  carries only `timedOut: true` or absent, because a present `false` is normalised
+  away and would break the round trip.
+- **Two release-notes tests timed out under the bigger suite.** They build a git
+  fixture and spawn the script, so five seconds was measuring the machine; the file
+  now gives each test 30 seconds. Nothing was skipped, and RN07 still asserts on its
+  own deadline.
+
 ## Step 7, review round 1, 2026-11-21
 
 - **Round 3: the live path never dropped the pre-cut count.** After a live

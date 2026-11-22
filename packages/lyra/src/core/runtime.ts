@@ -174,7 +174,12 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 					.catch(() => undefined);
 			}
 			if (event.type === "run_end") {
-				if (!timeoutPending) {
+				// A run that ends waiting for a person keeps its alarm: that wake is what
+				// denies the request when its timeout passes, and a resume that parks
+				// again is a new handle that never saw the request (decision 37).
+				const waitingFor =
+					event.reason === "parked" && event.parkedReason === "waiting_for_person";
+				if (!timeoutPending && !waitingFor) {
 					void waking.cancel(runId).catch(() => undefined);
 				}
 				timeoutPending = false;

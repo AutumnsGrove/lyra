@@ -116,7 +116,8 @@ function entryArbitrary(
 		| "fallback"
 		| "recipe"
 		| "compaction"
-		| "request",
+		| "request"
+		| "answered",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -231,6 +232,23 @@ function entryArbitrary(
 					...(risk === undefined ? {} : { risk }),
 					...(timeoutMs === undefined ? {} : { timeoutMs }),
 				}));
+		case "answered":
+			return fc
+				.record({
+					request: word,
+					decision: fc.constantFrom("approve" as const, "deny" as const),
+					note: fc.option(text, { nil: undefined }),
+					timedOut: fc.constantFrom(undefined, true),
+				})
+				.map(({ note, timedOut, ...rest }) => ({
+					type: "request_answered" as const,
+					...base,
+					...rest,
+					...(note === undefined ? {} : { note }),
+					// A present `false` is normalised away on the way out, so only true or
+					// absent round-trips.
+					...(timedOut === true ? { timedOut: true as const } : {}),
+				}));
 		case "compaction":
 			return fc
 				.record({
@@ -260,6 +278,7 @@ export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 				"recipe",
 				"compaction",
 				"request",
+				"answered",
 			),
 			{ maxLength: 5 },
 		)

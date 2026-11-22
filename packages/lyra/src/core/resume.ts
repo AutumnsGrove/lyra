@@ -195,6 +195,21 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		}
 	}
 
+	// A request stops being live once the call it named has a result: the answer has
+	// done its work, and every later resume is about what came after it.
+	if (pendingRequest !== undefined && pendingRequest.callId !== undefined) {
+		const callId = pendingRequest.callId;
+		const requestAt = path.findIndex((entry) => entry.id === pendingRequest?.id);
+		const settled = path.some(
+			(entry, index) =>
+				index > requestAt && entry.type === "tool_message" && entry.toolCallId === callId,
+		);
+		if (settled) {
+			pendingRequest = undefined;
+			answer = undefined;
+		}
+	}
+
 	const answeredAfter = new Set<string>();
 	if (assistant !== undefined) {
 		for (const [index, entry] of path.entries()) {

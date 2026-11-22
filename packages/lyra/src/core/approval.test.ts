@@ -19,6 +19,7 @@ import {
 	policyFromRisk,
 	policyOf,
 } from "./approval.js";
+import type { Recipe } from "./define-recipe.js";
 import { runTask } from "./run.js";
 import { NO_PARAMETERS, defineTool } from "./tool.js";
 import { counterIds, memoryStorage, memoryWaking } from "../adapters/memory/index.js";
@@ -287,21 +288,26 @@ test("APR05 the policy's own rule, read on its own", () => {
 	expect(deniedWithoutAPerson(made({}))).toContain("approval");
 });
 
-/** The record with a person's answer appended, as the session would write it. */
-function withAnswer(
-	lines: readonly string[],
+/**
+ * A person's answer, written into the storage the way the session writes it. It
+ * goes to the storage rather than to a copy of the lines, because a later resume
+ * reads the storage: an answer that only existed in a test's array would have
+ * settled nothing.
+ */
+async function answerWith(
+	storage: Harness["storage"],
 	request: string,
 	decision: "approve" | "deny",
 	note?: string,
-): string[] {
-	const last = lines.at(-1);
+): Promise<string[]> {
+	const last = storage.saved().at(-1);
 	if (last === undefined) {
 		throw new Error("there is no record to answer");
 	}
 	const parent = JSON.parse(last) as { id?: string };
 	const entry: Record<string, unknown> = {
 		type: "request_answered",
-		id: "e_answer",
+		id: `e_answer_${request}`,
 		parent: parent.id ?? null,
 		ts: 100,
 		request,
@@ -310,7 +316,9 @@ function withAnswer(
 	if (note !== undefined) {
 		entry["note"] = note;
 	}
-	return [...lines, JSON.stringify(entry)];
+	const saved = await storage.append(JSON.stringify(entry));
+	expect(saved.ok).toBe(true);
+	return storage.saved();
 }
 
 const askingTurns: ScriptedTurn[] = [
@@ -337,7 +345,7 @@ test("APR07 an approved call runs on the resume, and its result is the model's",
 	const resumed = await run.run({
 		canAsk: true,
 		model: restarted,
-		resume: { lines: withAnswer(lines, request.request, "approve"), by: "person" },
+		resume: { lines: await answerWith(run.storage, request.request, "approve"), by: "person" },
 	});
 
 	expect(resumed.reason).toBe("done");
@@ -366,12 +374,7 @@ test("APR08 a deny's note is what the model reads", async () => {
 		canAsk: true,
 		model: scriptedModel(askingTurns, { clock: run.clock }),
 		resume: {
-			lines: withAnswer(
-				run.storage.saved(),
-				request.request,
-				"deny",
-				"use the staging branch",
-			),
+			lines: await answerWith(run.storage, request.request, "deny", "use the staging branch"),
 			by: "person",
 		},
 	});
@@ -415,7 +418,7 @@ test("APR05 the calls after an answered one still meet their own policy", async 
 	const second = await run.run({
 		canAsk: true,
 		model: scriptedModel(turns, { clock: run.clock }),
-		resume: { lines: withAnswer(run.storage.saved(), first.request, "approve"), by: "person" },
+		resume: { lines: await answerWith(run.storage, first.request, "approve"), by: "person" },
 	});
 	// The first call ran; the second parked rather than running unasked.
 	expect(executions.count("c1")).toBe(1);
@@ -492,4 +495,127 @@ test("APR11 a request's timeout becomes a wake, through the runtime", async () =
 
 	const scheduled = waking.scheduled();
 	expect(scheduled.some((wake) => wake.runId === "run-1")).toBe(true);
+});
+
+test("APR07 an answered request stops being a decision once its call has a result", async () => {
+	// A record that once had an answered request must not go on answering with it:
+	// the run that follows a refusal or an approval is its own business, and
+	// decision 23's rule for a wake has to still hold.
+	const tools = [toolReturning("write", "wrote one line", { policy: "ask" }), createFinishTool()];
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "write", args: {} }] },
+		{ failures: [{ code: "internal", retryable: false }] },
+	];
+	const run = harness(tools, turns);
+	await run.run({ canAsk: true });
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+
+	// The approval runs the call, and the turn it leads to fails for good.
+	const failed = await run.run({
+		canAsk: true,
+		model: scriptedModel(turns, { clock: run.clock }),
+		resume: { lines: await answerWith(run.storage, request.request, "approve"), by: "person" },
+	});
+	expect(failed.reason).toBe("failed");
+	const written = run.storage.saved().length;
+
+	// A plain person resume now has nothing to do, and spends no turn finding out.
+	const restarted = scriptedModel(turns, { clock: run.clock });
+	const again = await run.run({
+		canAsk: true,
+		model: restarted,
+		resume: { lines: run.storage.saved(), by: "person" },
+	});
+	expect(again.reason).toBe("failed");
+	expect(restarted.requests).toHaveLength(0);
+	expect(run.storage.saved()).toHaveLength(written);
+});
+
+test("APR05 an approval covers the call it named, not a later one that reuses the id", async () => {
+	// A model can send the same call id twice in a run. The first answer settles the
+	// first call and nothing else, so the second has to be asked about on its own.
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "write", args: { line: "one" } }] },
+		{ toolCalls: [{ id: "c1", name: "write", args: { line: "two" } }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const run = harness(tools, turns);
+	await run.run({ canAsk: true });
+	const first = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (first?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+
+	const approved = await run.run({
+		canAsk: true,
+		model: scriptedModel(turns, { clock: run.clock }),
+		resume: { lines: await answerWith(run.storage, first.request, "approve"), by: "person" },
+	});
+	expect(approved.reason).toBe("parked");
+	expect(executions.count("c1")).toBe(1);
+
+	// The second call asked under the same id. A resume with no new answer parks
+	// again rather than running it on the first answer.
+	const again = await run.run({
+		canAsk: true,
+		model: scriptedModel(turns, { clock: run.clock }),
+		resume: { lines: run.storage.saved(), by: "person" },
+	});
+	expect(again.reason).toBe("parked");
+	expect(executions.count("c1")).toBe(1);
+	const requests = (await entriesOf(run.storage)).filter((entry) => entry.type === "request");
+	expect(requests).toHaveLength(2);
+});
+
+test("APR11 a resume that parks again keeps the timeout's wake", async () => {
+	// The wake that denies an unanswered request is the only thing that ends the
+	// wait, so a park must not cancel it, whichever segment parked the run.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const waking = memoryWaking();
+	const definition: Recipe = {
+		name: "test-task",
+		version: 1,
+		instructions: "you are a test",
+		tools: [toolReturning("write", "wrote", { policy: "ask" }), createFinishTool()],
+		approvals: { timeoutMs: 60_000 },
+	};
+	const runtime = createRuntime({
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(askingTurns, { clock }),
+		host: "test-host",
+		waking: waking.slot,
+		canAsk: true,
+	});
+	const started = runtime.start({ runId: "run-1", task: "test-task", input: "go", definition });
+	expect(started.ok).toBe(true);
+	if (!started.ok) {
+		return;
+	}
+	expect((await drive(clock, started.value.outcome, 1_000)).reason).toBe("parked");
+	expect(waking.scheduled().map((wake) => wake.runId)).toEqual(["run-1"]);
+
+	// A person's resume with no answer parks again, and the alarm is still set.
+	const resumed = await runtime.resume({
+		runId: "run-1",
+		task: "test-task",
+		definition,
+		by: "person",
+	});
+	expect(resumed.ok).toBe(true);
+	if (!resumed.ok) {
+		return;
+	}
+	expect((await drive(clock, resumed.value.outcome, 1_000)).reason).toBe("parked");
+	expect(waking.scheduled().map((wake) => wake.runId)).toEqual(["run-1"]);
 });
