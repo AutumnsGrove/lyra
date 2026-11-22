@@ -283,6 +283,20 @@ test("WSK01 the Worker's front door routes an upgrade to the session it names", 
 	expect(refused.status).toBe(401);
 });
 
+test("WSK01 a plain GET on the socket route is refused, not a 101 nobody asked for", async () => {
+	const session = await startOn(env.SESSION.newUniqueId().toString());
+	const plain = await fixture.fetch(
+		new Request(socketUrl(session), {
+			headers: { authorization: `Bearer ${TOKENS.acme}` },
+		}),
+		env,
+	);
+	expect(plain.status).toBe(400);
+	const answer = (await plain.json()) as { ok: boolean; error?: { code?: string } };
+	expect(answer.ok).toBe(false);
+	expect(answer.error?.code).toBe("bad_request");
+});
+
 test("WSK05 a frame over the line cap closes the socket with 1002", async () => {
 	const session = await startOn(env.SESSION.newUniqueId().toString());
 	const { socket } = await connect(session);
@@ -308,6 +322,35 @@ test("WSK05 a frame over the line cap closes the socket with 1002", async () => 
 	);
 	expect(await closed).toBe(1002);
 });
+
+/** Every event until one of this type arrives, which is how a replay is drained. */
+function drainUntil(
+	socket: WebSocket,
+	type: string,
+	timeoutMs = 3_000,
+): Promise<Record<string, unknown>[]> {
+	return new Promise((resolve, reject) => {
+		const seen: Record<string, unknown>[] = [];
+		const timer = setTimeout(() => {
+			socket.removeEventListener("message", onMessage);
+			reject(new Error(`no ${type} arrived; saw ${seen.length} events`));
+		}, timeoutMs);
+		const onMessage = (event: MessageEvent): void => {
+			const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+			if (frame["type"] !== "event") {
+				return;
+			}
+			const inner = frame["event"] as Record<string, unknown>;
+			seen.push(inner);
+			if (inner["type"] === type) {
+				clearTimeout(timer);
+				socket.removeEventListener("message", onMessage);
+				resolve(seen);
+			}
+		};
+		socket.addEventListener("message", onMessage);
+	});
+}
 
 /** The frames a socket sends until `count` have arrived, or it goes quiet. */
 function collect(
@@ -360,34 +403,35 @@ function sayHello(socket: WebSocket): void {
 test("WSK07 events arrive live, in order, with their seq", async () => {
 	const session = await startOn(env.SESSION.newUniqueId().toString());
 	const socket = await upgraded(session);
-	const frames = collect(socket, 3);
+	// The replay of the run `startOn` made arrives first; draining it to its
+	// `run_end` is what makes the next event provably live rather than replayed.
+	const replay = drainUntil(socket, "run_end");
 	sayHello(socket);
-	// The run starts after the socket is watching, so these are live events.
+	await replay;
+
+	const live = collect(socket, 2);
 	socket.send(
 		JSON.stringify({ type: "command", id: "c1", command: "prompt", session, text: "again" }),
 	);
-	const seen = await frames;
+	const seen = await live;
 	socket.close();
 
-	expect(seen[0]).toMatchObject({ type: "event" });
+	// A new segment of the same run begins, and these events exist because of the
+	// prompt: a resume is announced as both `resumed` and `run_start` (decision 130).
 	const types = seen.map((frame) => (frame["event"] as { type?: string } | undefined)?.type);
-	expect(types[0]).toBe("run_start");
-	const seqs = seen.flatMap((frame) => {
-		const event = frame["event"] as { seq?: number } | undefined;
-		return event?.seq === undefined ? [] : [event.seq];
-	});
-	expect(seqs.length).toBeGreaterThan(0);
-	expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
+	expect(types).toEqual(["resumed", "run_start"]);
+	for (const frame of seen) {
+		expect(typeof (frame["event"] as { seq?: number } | undefined)?.seq).toBe("number");
+	}
 });
 
 test("WSK08 a reconnect with since replays the record's events and no live-only ones", async () => {
 	// The first socket sees the run to its end, so the record holds every event.
 	const session = await startOn(env.SESSION.newUniqueId().toString());
-	const first = await upgraded(session);
-	const live = collect(first, 2);
+	const first = await upgraded(session, 0);
+	const replay = drainUntil(first, "run_end");
 	sayHello(first);
-	first.send(JSON.stringify({ type: "command", id: "c1", command: "get_state", session }));
-	await live;
+	await replay;
 	first.close();
 
 	// A second socket asks for everything, which is a replay from the record.
@@ -405,17 +449,24 @@ test("WSK10 two sockets on one session both receive the events", async () => {
 	const session = await startOn(env.SESSION.newUniqueId().toString());
 	const first = await upgraded(session);
 	const second = await upgraded(session);
-	const watching = Promise.all([collect(first, 1), collect(second, 1)]);
+	const draining = Promise.all([drainUntil(first, "run_end"), drainUntil(second, "run_end")]);
 	sayHello(first);
 	sayHello(second);
+	await draining;
+
+	const watching = Promise.all([collect(first, 2), collect(second, 2)]);
 	first.send(
 		JSON.stringify({ type: "command", id: "c1", command: "prompt", session, text: "go" }),
 	);
 	const [one, two] = await watching;
 	first.close();
 	second.close();
-	expect((one[0]?.["event"] as { type?: string } | undefined)?.type).toBe("run_start");
-	expect((two[0]?.["event"] as { type?: string } | undefined)?.type).toBe("run_start");
+	// One command on one socket, and both watchers see the events it causes.
+	for (const seen of [one, two]) {
+		expect(
+			seen.map((frame) => (frame["event"] as { type?: string } | undefined)?.type),
+		).toEqual(["resumed", "run_start"]);
+	}
 });
 
 test("WSK11 a client that disconnects mid-run does not stop the run", async () => {

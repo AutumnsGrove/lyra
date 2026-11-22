@@ -293,6 +293,13 @@ export function createCloudflareSession(
 	};
 
 	const upgrade = async (request: Request, url: URL): Promise<Response> => {
+		// workerd refuses a 101 to a request that did not ask to upgrade, so a plain
+		// GET on the socket route is a refusal here rather than an exception there
+		// (found in review).
+		const asked = request.headers.get("upgrade");
+		if (asked === null || asked.toLowerCase() !== "websocket") {
+			return refusalResponse("bad_request", "this route is for a WebSocket upgrade");
+		}
 		const tenant = await createTokenDoor(options.tokens)(request);
 		if (!tenant.ok) {
 			// Refused before the upgrade, so no socket ever exists for a caller with no
@@ -604,18 +611,6 @@ export function createSessionWorker(
 				headers: request.headers,
 				body,
 			});
-		} else if (request.method === "GET" && url.pathname === "/v1/ws") {
-			// An upgrade is forwarded as it arrived, because the object has to answer it
-			// itself: `response.webSocket` and the 101 belong to the object's own
-			// `acceptWebSocket`, and the token door is the object's too, which is what
-			// keeps one answer for a missing token (401, WSK04) rather than this
-			// router's 403.
-			const named = url.searchParams.get("session");
-			if (named === null || named === "") {
-				return refusalResponse("bad_request", "a socket needs a session");
-			}
-			target = sessionIdFor(options.namespace, { tenant: tenant.value, session: named });
-			forward = request;
 		} else if (
 			request.method === "GET" &&
 			(url.pathname === "/v1/events" || url.pathname === "/v1/state")
