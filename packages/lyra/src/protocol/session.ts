@@ -166,6 +166,13 @@ export function createSession(options: SessionOptions): Session {
 	 */
 	let started: { task: string; input: JsonValue; runId: string } | undefined;
 
+	/**
+	 * A decision is a read, a check and an append, and a second one arriving in that
+	 * window would chain from a parent the first has moved on from (found in review).
+	 * One at a time, and the other answers `busy`.
+	 */
+	let deciding = false;
+
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
 	let pendingLive: SessionEvent[] = [];
@@ -403,6 +410,57 @@ export function createSession(options: SessionOptions): Session {
 			...(request.options === undefined ? {} : { options: request.options }),
 			...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
 		});
+
+	/** Write one decision, once the caller has the session to itself. */
+	const decideProposal = async (
+		command: Extract<Command, { command: "decide_proposal" }>,
+		seed: ResumeSeed,
+	): Promise<Result<JsonValue>> => {
+		const header = seed.record.header;
+		const path = activePath(seed.record.entries);
+		const proposal = path.find(
+			(entry) => entry.type === "proposal" && entry.proposal === command.proposal,
+		);
+		if (proposal === undefined) {
+			return fail("not_found", `this session has no proposal ${command.proposal}`);
+		}
+		if (
+			path.some(
+				(entry) => entry.type === "proposal_decided" && entry.proposal === command.proposal,
+			)
+		) {
+			// One decision each, and the first one stands (decision 53).
+			return fail("conflict", "that proposal has already been decided");
+		}
+		const entry: ProposalDecidedEntry = {
+			type: "proposal_decided",
+			id: options.ids.next("e"),
+			parent: seed.parent,
+			ts: options.clock.now(),
+			proposal: command.proposal,
+			decision: command.decision,
+		};
+		if (command.note !== undefined) {
+			entry.note = command.note;
+		}
+		const fitted = fitEntry(entry, entryCapBytes(options.storage));
+		if (fitted.refused !== undefined) {
+			return fail("internal", fitted.refused);
+		}
+		const saved = await options.storage.append(fitted.line);
+		if (!saved.ok) {
+			return saved;
+		}
+		schedule();
+		return ok(
+			data({
+				session: options.id,
+				run: header.run,
+				proposal: command.proposal,
+				decision: command.decision,
+			}),
+		);
+	};
 
 	const listPending = (seed: ResumeSeed): Result<JsonValue> => {
 		const waiting = pendingOf(seed);
@@ -758,54 +816,20 @@ export function createSession(options: SessionOptions): Session {
 				case "list_pending":
 					return listPending(seed);
 				case "decide_proposal": {
-					const path = activePath(seed.record.entries);
-					const proposal = path.find(
-						(entry) => entry.type === "proposal" && entry.proposal === command.proposal,
-					);
-					if (proposal === undefined) {
-						return fail(
-							"not_found",
-							`this session has no proposal ${command.proposal}`,
-						);
+					if (runtime.active(header.run) !== undefined) {
+						// A run is writing to this record; a decision now would chain from a
+						// parent it is about to move past (decision 53's one decision).
+						return fail("busy", "a run is active in this session");
 					}
-					if (
-						path.some(
-							(entry) =>
-								entry.type === "proposal_decided" &&
-								entry.proposal === command.proposal,
-						)
-					) {
-						// One decision each, and the first one stands (decision 53).
-						return fail("conflict", "that proposal has already been decided");
+					if (deciding) {
+						return fail("busy", "another decision is being written");
 					}
-					const entry: ProposalDecidedEntry = {
-						type: "proposal_decided",
-						id: options.ids.next("e"),
-						parent: seed.parent,
-						ts: options.clock.now(),
-						proposal: command.proposal,
-						decision: command.decision,
-					};
-					if (command.note !== undefined) {
-						entry.note = command.note;
+					deciding = true;
+					try {
+						return await decideProposal(command, seed);
+					} finally {
+						deciding = false;
 					}
-					const fitted = fitEntry(entry, entryCapBytes(options.storage));
-					if (fitted.refused !== undefined) {
-						return fail("internal", fitted.refused);
-					}
-					const saved = await options.storage.append(fitted.line);
-					if (!saved.ok) {
-						return saved;
-					}
-					schedule();
-					return ok(
-						data({
-							session: options.id,
-							run: header.run,
-							proposal: command.proposal,
-							decision: command.decision,
-						}),
-					);
 				}
 				case "prompt":
 				case "follow_up": {

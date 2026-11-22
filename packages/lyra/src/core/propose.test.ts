@@ -152,3 +152,60 @@ test("PRP06 a proposal a person has not decided is still listed, and a decision 
 	const entries = await entriesOf(run.storage);
 	expect(entries.filter((entry) => entry.type === "proposal")).toHaveLength(1);
 });
+
+test("PRP01 a proposal made after a resume gets an id of its own", async () => {
+	// A resume starts the id source again, so the ids a record already holds have to
+	// be reserved: two proposals sharing `prop1` would make the second undecidable.
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+		{
+			toolCalls: [
+				{
+					id: "c2",
+					name: "propose",
+					args: { payload: { verdict: "allow", score: 0.1 }, evidence: ["post:2"] },
+				},
+			],
+		},
+	];
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const tools = [createProposeTool({ payload: VERDICT })];
+	const config = {
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "judge the post",
+		system: "you are a test",
+		tools,
+		storage,
+		clock,
+	};
+	await runTask({ ...config, model: scriptedModel(turns, { clock }), ids: counterIds() });
+	const read = await storage.read();
+	const lines = read.ok ? read.value : [];
+
+	const resumed = await runTask({
+		...config,
+		model: scriptedModel(turns, { clock }),
+		// A restarted host counts its ids again, so the record is what stops a reuse.
+		ids: counterIds(),
+		resume: { lines, by: "person", followUp: "one more look" },
+	});
+	expect(resumed.reason).toBe("done");
+	const entries = await entriesOf(storage);
+	const proposals = entries.filter((entry) => entry.type === "proposal");
+	expect(proposals).toHaveLength(2);
+	const ids = proposals.map((entry) => (entry.type === "proposal" ? entry.proposal : ""));
+	// Distinct is the property that matters; the counter may leave a gap.
+	expect(ids).toHaveLength(2);
+	expect(new Set(ids).size).toBe(2);
+});

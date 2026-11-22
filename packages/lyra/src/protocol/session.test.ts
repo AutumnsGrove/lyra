@@ -9,6 +9,7 @@ import type { RunDefinition } from "../core/runtime.js";
 import type { Tool } from "../core/tool.js";
 import { until } from "../core/run-harness.testing.js";
 import { loadRecord } from "../record/load.js";
+import { activePath } from "../record/replay.js";
 import {
 	createFinishTool,
 	fakeClock,
@@ -977,4 +978,92 @@ test("CMD10 PRP03 PRP04 PRP05 decide_proposal decides once, and refuses the seco
 	expect(valueOf(await send(session, { command: "list_pending", session: "s1" }))).toMatchObject({
 		proposals: [],
 	});
+});
+
+test("CMD10 two decisions at once write one, and a decision waits for no run", async () => {
+	// A decision is a write into a record a run may also be writing to, so it is
+	// refused while a run is active and serialized against another decision; the
+	// second command must not chain from a parent the first one has moved on from.
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{
+					id: "c1",
+					name: "propose",
+					args: { payload: { verdict: "deny", score: 0.9 }, evidence: ["post:1"] },
+				},
+			],
+		},
+	];
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"type":"proposal"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	const frame = (decision: "accept" | "reject") => {
+		const decoded = decodeFrame(
+			JSON.stringify({
+				type: "command",
+				id: `c-${decision}`,
+				command: "decide_proposal",
+				session: "s1",
+				proposal: id,
+				decision,
+			}),
+		);
+		if (!decoded.ok) {
+			throw new Error(decoded.error.message);
+		}
+		const command = decodeCommand(decoded.value);
+		if (!command.ok) {
+			throw new Error(command.error.message);
+		}
+		return command.value;
+	};
+
+	const [first, second] = await Promise.all([
+		session.command(frame("accept")),
+		session.command(frame("reject")),
+	]);
+	expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+	expect(entriesOf(storage).filter((entry) => entry.type === "proposal_decided")).toHaveLength(1);
+	// The one decision is on the active path, which is what `list_pending` reads.
+	const loaded = loadRecord(storage.saved());
+	expect(loaded.ok).toBe(true);
+	const path = loaded.ok
+		? (activePath(loaded.value.entries) as { type: string }[]).map((entry) => entry.type)
+		: [];
+	expect(path).toContain("proposal_decided");
 });

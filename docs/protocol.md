@@ -204,7 +204,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 
-The framing, command, event, HTTP and access rows above are built as far as the approvals slice (WebSocket rows arrive with step 8). What is **not** built is proposals: `CMD10` stays in `scripts/unbuilt-rows.json` until that slice. `CMD08`, `CMD09`, `EVT04` and `REQ01` to `REQ06` are built with the approvals slice: `list_pending` answers, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, and the record projects `ui_request`, `ui_resolved` and `ui_expired`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as the approvals and proposals slice (WebSocket rows arrive with step 8), and `scripts/unbuilt-rows.json` is empty. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 
