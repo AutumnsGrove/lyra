@@ -58,3 +58,19 @@ Two honest caveats. Nova's OpenCode Go catalog assumes a conservative 200,000-to
 ## Not discussed yet
 
 - **The summarizer's default instructions.** Written when it is built.
+
+## The rows compaction is built against (step 7)
+
+The cut is a pure function over the entries the model would see, and it is where
+the rule that matters lives: it never separates a tool call from its result, and
+it never cuts a history that already fits. The estimate is four characters to a
+token, a smoke alarm rather than billing (decision 41), so the rows here ask about
+boundaries and pointers rather than about exact counts.
+
+| ID | Case | Expected |
+|---|---|---|
+| CMP01 | Happy: a normal cut | A history of several steps and a budget for the last of them cuts at a step boundary that keeps the most recent work inside the budget, and `replaces` counts the entries before it; a budget that lands between a call and its result moves back to the call |
+| CMP02 | Property: any history, any budget | A history that already fits gives no cut; otherwise the cut starts a whole step, keeps every result with its call, fits the budget or is the last step because nothing later would fit |
+| CMP03 | Empty and one-step histories | An empty history, and a history with one step, give no cut however small the budget |
+| CMP04 | A history of huge steps | A history where every step is over the budget still cuts at a step boundary, keeping the last whole step |
+| CMP05 | `firstKept` always exists | For any generated history that cuts, `firstKept` names an entry in that history, at the position the cut reports |
