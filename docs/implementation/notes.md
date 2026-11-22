@@ -26,6 +26,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   (`bufferedAmount` against a 1 MiB default) is in and untested here; the honest next
   step is to probe it against a real deployment, or to find the harness option that
   makes the client back up.
+- **`getWebSockets()` is empty after an eviction in this harness**, even though a
+  frame still reaches the handler's `ws` and a response still reaches the client. So
+  the re-follow after a wake is driven by the frame itself (`watch(socket)` before it
+  is handled), not by the platform's list, and a socket that never sends anything
+  after an eviction will not get live events until it does. That is also why WSK14
+  reads the attachment's `seq` as a cursor rather than as the exact last frame: the
+  wrapper `getWebSockets()` returns does not show the handler's writes.
+- **`webSocketClose` has to answer the close.** Cloudflare's hibernation docs require
+  it, and the tests never awaited the close event, so nothing caught it missing.
 - **A socket's `hello` starts the events**, so a test that wants to see a *live*
   event has to drain the replay first; two tests passed on replay alone before the
   review caught it.

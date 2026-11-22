@@ -238,13 +238,16 @@ export function createCloudflareSession(
 	 * of trusting it: that is the one thing a hibernating object cannot keep.
 	 */
 	const watching = new Map<WebSocket, () => void>();
+	/** Sockets this object closed, so a replay that finishes late does not revive them. */
+	const closed = new Set<WebSocket>();
 
 	/** One frame out, and the attachment's `seq` moves only when an event carried one. */
 	const send = (socket: WebSocket, frame: string, seq?: number): void => {
 		if (socket.bufferedAmount > maxQueuedBytes) {
-			// A client that is not reading would otherwise hold the whole run's events in
+			// A client that is not reading would otherwise hold the whole run's frames in
 			// the runtime's buffer. It is closed, and the record is how it catches up.
 			socket.close(1008, "this client is not reading");
+			closed.add(socket);
 			watching.get(socket)?.();
 			watching.delete(socket);
 			return;
@@ -274,6 +277,10 @@ export function createCloudflareSession(
 			return;
 		}
 		const session = await build(attachment.tenant);
+		// A placeholder first: the replay this starts can trip the cap before `follow`
+		// resolves, and a socket closed then must not keep being fed (found in review).
+		let stop: (() => void) | undefined;
+		watching.set(socket, () => stop?.());
 		const followed = await session.follow(attachment.seq, (event) => {
 			// One frame per event, nested so the event's own `type` is not the frame's.
 			send(
@@ -283,10 +290,18 @@ export function createCloudflareSession(
 			);
 		});
 		if (!followed.ok) {
+			watching.delete(socket);
 			socket.close(1011, "this session cannot be followed");
 			return;
 		}
-		watching.set(socket, followed.value);
+		stop = followed.value;
+		if (closed.has(socket)) {
+			// The replay pushed this socket over the cap, so the follow it just started
+			// is stopped rather than left running into a closed socket.
+			followed.value();
+			watching.delete(socket);
+			return;
+		}
 	};
 
 	/**
@@ -397,7 +412,12 @@ export function createCloudflareSession(
 				socket.close(1011, "this socket has no session");
 				return;
 			}
-			await resumeWatching();
+			// The socket that just spoke is certainly live, and in this runtime it is the
+			// only one a fresh object can learn about after an eviction:
+			// `getWebSockets()` comes back empty even though frames still arrive
+			// (WSK12). So the follow is rebuilt from the frame itself, not only from
+			// the platform's list.
+			await watch(socket);
 			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			// A frame over the line cap closes the socket rather than being read, which is
 			// FRM01's rule and step 8's close code 1002. Messages are already delimited,
@@ -415,7 +435,8 @@ export function createCloudflareSession(
 				// A frame that is not one still names what it claimed, so a client on a
 				// multiplexed socket can pair the refusal with the request it sent.
 				const claimed = claimedBy(text);
-				socket.send(
+				send(
+					socket,
 					JSON.stringify(
 						responseFrame(claimed.id, claimed.command, {
 							ok: false,
@@ -429,7 +450,8 @@ export function createCloudflareSession(
 			if (frame.type === "hello") {
 				const version = frame.fields["version"];
 				if (version !== undefined && String(version) !== PROTOCOL_VERSION) {
-					socket.send(
+					send(
+						socket,
 						JSON.stringify(
 							responseFrame("", "", {
 								ok: false,
@@ -450,7 +472,8 @@ export function createCloudflareSession(
 			}
 			if (!attachment.greeted) {
 				// No command before the exchange, and the socket stays open (WSK02).
-				socket.send(
+				send(
+					socket,
 					JSON.stringify(
 						responseFrame("", "", {
 							ok: false,
@@ -467,7 +490,8 @@ export function createCloudflareSession(
 				const command = decodeCommand(frame);
 				if (!command.ok) {
 					const claimed = frame.fields;
-					socket.send(
+					send(
+						socket,
 						JSON.stringify(
 							responseFrame(
 								typeof claimed["id"] === "string" ? claimed["id"] : "",
@@ -480,7 +504,8 @@ export function createCloudflareSession(
 				}
 				const session = await build(attachment.tenant);
 				const answer = await session.command(command.value);
-				socket.send(
+				send(
+					socket,
 					JSON.stringify(responseFrame(command.value.id, command.value.command, answer)),
 				);
 				return;
@@ -488,7 +513,7 @@ export function createCloudflareSession(
 			if (frame.type === "ui_response") {
 				const answer = decodeAnswer(frame);
 				if (!answer.ok) {
-					socket.send(JSON.stringify(responseFrame("", "ui_response", answer)));
+					send(socket, JSON.stringify(responseFrame("", "ui_response", answer)));
 					return;
 				}
 				const session = await build(attachment.tenant);
@@ -496,10 +521,11 @@ export function createCloudflareSession(
 					...answer.value,
 					session: attachment.session,
 				});
-				socket.send(JSON.stringify(responseFrame("", "ui_response", done)));
+				send(socket, JSON.stringify(responseFrame("", "ui_response", done)));
 				return;
 			}
-			socket.send(
+			send(
+				socket,
 				JSON.stringify(
 					responseFrame("", "", {
 						ok: false,
@@ -512,17 +538,32 @@ export function createCloudflareSession(
 			);
 		},
 
-		/** A socket that goes away stops being watched; the run does not notice. */
+		/**
+		 * A socket that goes away stops being watched; the run does not notice. The
+		 * close is answered, because a hibernating WebSocket's handshake is not
+		 * finished until the server replies, and the codes that cannot carry a reason
+		 * are answered bare (Cloudflare's hibernation docs, step 8's close codes).
+		 */
 		webSocketClose: (socket: WebSocket, code: number, reason: string) => {
-			void code;
-			void reason;
 			watching.get(socket)?.();
 			watching.delete(socket);
+			if (closed.has(socket)) {
+				// This side already closed it, so there is nothing to acknowledge.
+				closed.delete(socket);
+				return;
+			}
+			const bare = code === 1004 || code === 1005 || code === 1006 || code === 1015;
+			if (bare) {
+				socket.close();
+			} else {
+				socket.close(code, reason);
+			}
 		},
 
 		webSocketError: (socket: WebSocket) => {
 			watching.get(socket)?.();
 			watching.delete(socket);
+			closed.delete(socket);
 		},
 
 		send: async ({ tenant, frame }) => {

@@ -1,9 +1,4 @@
-import {
-	env,
-	evictDurableObject,
-	runDurableObjectAlarm,
-	runInDurableObject,
-} from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { expect, test } from "vitest";
 
 /**
@@ -430,24 +425,39 @@ test("WSK07 events arrive live, in order, with their seq", async () => {
 	}
 });
 
-test("WSK08 a reconnect with since replays the record's events and no live-only ones", async () => {
+test("WSK08 a reconnect with since replays from the record after that seq", async () => {
 	// The first socket sees the run to its end, so the record holds every event.
 	const session = await startOn(env.SESSION.newUniqueId().toString());
 	const first = await upgraded(session, 0);
 	const replay = drainUntil(first, "run_end");
 	sayHello(first);
-	await replay;
+	const seen = await replay;
 	first.close();
+	const lastSeq = seen
+		.flatMap((event) => (typeof event["seq"] === "number" ? [event.seq] : []))
+		.at(-1);
+	expect(typeof lastSeq).toBe("number");
 
-	// A second socket asks for everything, which is a replay from the record.
-	const replayed = await upgraded(session, 0);
-	const frames = collect(replayed, 1);
+	// A second socket asks for what came after that cursor: nothing, because the run
+	// is over, and then whatever happens next. An implementation that ignored `since`
+	// or treated it as inclusive would send history here.
+	const replayed = await upgraded(session, lastSeq);
+	const after = collect(replayed, 1);
 	sayHello(replayed);
-	const seen = await frames;
+	// Give the follow a moment to replay anything it wrongly would.
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	replayed.send(
+		JSON.stringify({ type: "command", id: "c1", command: "prompt", session, text: "again" }),
+	);
+	const live = await after;
 	replayed.close();
-	const event = seen[0]?.["event"] as { type?: string; seq?: number } | undefined;
-	expect(event?.type).toBe("run_start");
+
+	const event = live[0]?.["event"] as { seq?: number } | undefined;
+	// The first thing this socket sees is newer than the cursor it asked from.
 	expect(typeof event?.seq).toBe("number");
+	expect(event?.seq ?? 0).toBeGreaterThan(lastSeq ?? Number.MAX_SAFE_INTEGER);
 });
 
 test("WSK10 two sockets on one session both receive the events", async () => {
@@ -566,23 +576,95 @@ async function parked(): Promise<string> {
 	return answer.data.session;
 }
 
-test("WSK12 an evicted object keeps its socket, and a command after the wake works", async () => {
+test("WSK12 an evicted object keeps its socket, and the run it wakes still reaches it", async () => {
 	const session = await parked();
 	const socket = await upgraded(session);
 	const replay = drainUntil(socket, "run_end");
 	sayHello(socket);
 	await replay;
 
+	// The request the run is waiting on, so the frame after the eviction can answer
+	// it: an answer continues the run, and its events are what prove the socket was
+	// followed again.
+	const listed = await stub(session).fetch(
+		new Request("https://lyra.test/v1/commands", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify({ type: "command", id: "lp", command: "list_pending", session }),
+		}),
+	);
+	const pending = (await listed.json()) as {
+		data?: { requests?: { request?: string }[] };
+	};
+	const request = pending.data?.requests?.[0]?.request;
+	expect(request).toBeDefined();
+
 	// The object goes away with the socket open and the run parked for a person.
 	await evictDurableObject(stub(session));
 
-	// A frame wakes a fresh object, which rebuilds its watch from the attachment.
-	socket.send(JSON.stringify({ type: "command", id: "c1", command: "get_state", session }));
-	const answer = await next(socket);
-	expect(answer).toMatchObject({ type: "response", id: "c1", ok: true });
-	const state = (answer["data"] as { state?: string } | undefined)?.state;
-	expect(state).toBe("parked");
+	// A frame wakes a fresh object, which follows this socket again; the answer's run
+	// events arrive only if it does.
+	const frames: Record<string, unknown>[] = [];
+	const continued = new Promise<void>((resolve) => {
+		const timer = setTimeout(resolve, 3_000);
+		socket.addEventListener("message", (event) => {
+			const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+			frames.push(frame);
+			const inner = frame["event"] as { type?: string } | undefined;
+			if (inner?.type === "run_start") {
+				clearTimeout(timer);
+				resolve();
+			}
+		});
+	});
+	socket.send(JSON.stringify({ type: "ui_response", request, session, ok: true }));
+	await continued;
 	socket.close();
+	// The run's own events reach this socket after the eviction, which is the thing
+	// the row is about: a fresh object followed the socket it learned from the frame.
+	const types = frames.flatMap((frame) => {
+		if (frame["type"] === "event") {
+			const inner = frame["event"] as { type?: string } | undefined;
+			return [inner?.type ?? "?"];
+		}
+		return [];
+	});
+	expect(types).toContain("run_start");
+});
+
+test("WSK03 an approval can be answered over the socket, and a bad answer is refused", async () => {
+	const session = await parked();
+	const socket = await upgraded(session);
+	const replay = drainUntil(socket, "run_end");
+	sayHello(socket);
+	await replay;
+
+	const listed = await stub(session).fetch(
+		new Request("https://lyra.test/v1/commands", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify({ type: "command", id: "lp", command: "list_pending", session }),
+		}),
+	);
+	const pending = (await listed.json()) as { data?: { requests?: { request?: string }[] } };
+	const request = pending.data?.requests?.[0]?.request;
+	expect(request).toBeDefined();
+
+	// A malformed answer is a refusal, and the socket stays usable.
+	const refused = next(socket);
+	socket.send(JSON.stringify({ type: "ui_response", request }));
+	expect(await refused).toMatchObject({ type: "response", ok: false, command: "ui_response" });
+
+	// A real one resumes the run, and the events follow on the same socket.
+	const answered = next(socket);
+	const continued = collect(socket, 3);
+	socket.send(JSON.stringify({ type: "ui_response", request, session, ok: true }));
+	expect(await answered).toMatchObject({ type: "response", ok: true, command: "ui_response" });
+	const events = await continued;
+	socket.close();
+	const types = events.map((frame) => (frame["event"] as { type?: string } | undefined)?.type);
+	// The answer resolves for other clients, then the run it released goes on.
+	expect(types.slice(0, 2)).toEqual(["ui_resolved", "resumed"]);
 });
 
 test("WSK14 the attachment carries the session, the tenant and the last seq, and stays small", async () => {
@@ -599,7 +681,11 @@ test("WSK14 the attachment carries the session, the tenant and the last seq, and
 	socket.accept();
 	await nextAny(socket);
 	sayHello(socket);
-	await drainUntil(socket, "run_end");
+	const replayed = await drainUntil(socket, "run_end");
+	const lastSeq = replayed
+		.flatMap((event) => (typeof event["seq"] === "number" ? [event.seq] : []))
+		.at(-1);
+	expect(typeof lastSeq).toBe("number");
 
 	const attachment = await runInDurableObject(stub(session), (instance: TestSession) =>
 		instance.attachments(),
@@ -607,26 +693,16 @@ test("WSK14 the attachment carries the session, the tenant and the last seq, and
 	expect(attachment).toHaveLength(1);
 	// The tenant is the token's own name, which is what the record's header holds too.
 	expect(attachment[0]).toMatchObject({ session, tenant: "acme", greeted: true });
+	// `seq` is the cursor a wake resumes from, and `send` is what moves it. This
+	// harness hands `getWebSockets()` a wrapper whose attachment does not show the
+	// handler's writes, so its value is read here as a cursor (a number, never ahead
+	// of what was sent) rather than as the exact last frame; notes.md says so.
+	const stored = attachment[0] as { seq?: number } | undefined;
+	expect(typeof stored?.seq).toBe("number");
+	expect(stored?.seq ?? -1).toBeLessThanOrEqual(lastSeq ?? 0);
 	// The platform caps an attachment at 16,384 bytes; this one is a session id, a
 	// tenant and a number.
 	const bytes = new TextEncoder().encode(JSON.stringify(attachment[0])).byteLength;
 	expect(bytes).toBeLessThan(16_384);
 	socket.close();
 });
-
-/** Wait for an event of this type to arrive in a collecting array. */
-async function untilEvent(
-	events: Record<string, unknown>[],
-	type: string,
-	limit = 200,
-): Promise<void> {
-	for (let attempt = 0; attempt < limit; attempt += 1) {
-		if (events.some((event) => event["type"] === type)) {
-			return;
-		}
-		await new Promise<void>((resolve) => {
-			void resolve;
-		});
-	}
-	throw new Error(`no ${type} event arrived`);
-}

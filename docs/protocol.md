@@ -214,8 +214,8 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | WSK09 | A socket connected mid-run | The handover from replay to live never runs backwards and never delivers an event twice; several events may share one entry's `seq` |
 | WSK10 | Two sockets on one session | Both receive the session's events |
 | WSK11 | A client that disconnects mid-run | The run goes on to its end; the socket is only a watcher |
-| WSK12 | An evicted object with a socket open | The socket outlives the eviction, and the first frame after it wakes a fresh object that follows the session again |
-| WSK14 | The attachment | It carries the session, the tenant, whether the exchange happened and the last `seq` sent, and stays far inside the platform's 16,384-byte cap |
+| WSK12 | An evicted object with a socket open | The socket outlives the eviction; the first frame after it wakes a fresh object, which follows that socket again, and the run it releases reaches it |
+| WSK14 | The attachment | It carries the session, the tenant, whether the exchange happened and the `seq` a wake resumes from, and stays far inside the platform's 16,384-byte cap |
 
 The framing, command, event, HTTP and access rows above are built as far as the approvals and proposals slice (WebSocket rows arrive with step 8), and `scripts/unbuilt-rows.json` is empty. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 

@@ -183,8 +183,6 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 			ids: counterIds(),
 			tokens: TOKENS,
 			host: "workers-test",
-			// Small enough that a test can back a socket up without megabytes of events.
-			maxQueuedBytes: 4_096,
 		});
 		return this.#session;
 	}
