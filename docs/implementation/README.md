@@ -24,7 +24,8 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and its ordering against steps 7 and 8 is Autumn's call |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
-| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
+| A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | in progress (`feat/step-09-approvals`), named next by Autumn on 2026-11-21 |
+| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
 ### Where the last session stopped (2026-11-21)
