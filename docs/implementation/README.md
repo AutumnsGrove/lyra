@@ -24,11 +24,24 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and its ordering against steps 7 and 8 is Autumn's call |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
-| A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | in review (`feat/step-09-approvals`, [pull request #27](https://github.com/AutumnsGrove/lyra/pull/27)), named next by Autumn on 2026-11-21 |
+| A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
 ### Where the last session stopped (2026-11-21)
+
+- **The approvals and proposals slice is merged**, pull request #27, merge commit
+  `6970a1e`, after six review rounds: a tool's policy and risk with the check before
+  each call, the `request` entry and `waiting_for_person`, the answer as its own entry
+  with a short life, `ui_response` through the handler and the Cloudflare front door,
+  `list_pending`, questions and choices through the same mechanism, proposals and
+  `decide_proposal`, and one write claim over every command that appends (with a wake
+  that queues rather than failing). **`unbuilt-rows.json` is empty**: every row
+  written during planning is built. The gate on the merged head: 521 Node tests, 50
+  workerd tests, 15 fuzz/property targets, coverage 92.09% statements and 85.62%
+  branches, the package at 129,695 B of 180,224 B, and `matrixcheck` 330 rows (330
+  tested). Decisions 139 to 142 are the slice's own. Next is step 8, WebSocket, whose
+  document is already written and depends on nothing here.
 
 - **Step 7, compaction, is merged**, pull request #25, merge commit `eb95d42`, after
   three review rounds (the first found a resume that failed `input_too_large` after a
