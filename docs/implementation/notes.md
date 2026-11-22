@@ -10,6 +10,19 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 
 ## Step 7, review round 1, 2026-11-21
 
+- **Round 2: the first guard threw away a current provider count.** Comparing the
+  view's own estimate with the window fixed the resume case and broke the honest
+  one — a model reporting more input tokens than the window over text that estimates
+  far smaller (dense JSON, base64, CJK, and `keepTokens` at or over the window) now
+  got the request sent instead of the stable `input_too_large`. And with the seed's
+  base dropped, `lastInputTokens + since-last-reply` counts only from the last
+  assistant message, so the summary and the kept steps were invisible to the
+  trigger. One change fixes both: the estimate is the whole view when there is no
+  base, and the base plus what arrived since when there is, with the guard back on
+  that number. Two tests pin it — a reported 5000 into a 600-token window with
+  nothing to cut fails plainly, and a resume whose summary alone is over the window
+  reports the view's own thousand tokens rather than the kept step's hundred.
+
 - **A resume after a compaction could fail `input_too_large` although the view fit.**
   `lastInputTokens` came from the last reply's reported input tokens, but after a
   `compaction` entry that number describes the conversation *before* the cut. Two

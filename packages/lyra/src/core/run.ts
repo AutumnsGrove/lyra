@@ -790,25 +790,30 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (contextWindow === undefined) {
 			return undefined;
 		}
-		const estimate = (lastInputTokens ?? 0) + estimateSinceLastReply(messages);
+		// The provider's reported count is the authority while it still describes the
+		// request it was counted for, so it is the base plus what arrived since. With
+		// no base — a fresh run, or a resume whose record was cut after the last reply
+		// — the estimate is the whole view, because the summary and the kept steps are
+		// part of what the next request has to carry.
+		const estimate =
+			lastInputTokens === undefined
+				? estimateConversation(messages)
+				: lastInputTokens + estimateSinceLastReply(messages);
 		if (!shouldCompact(estimate, contextWindow, reserveTokens)) {
 			return undefined;
 		}
 
 		const cut = chooseCut(viewEntries, keepTokens);
 		if (cut === undefined) {
-			// There is nothing older to summarize. What decides a failure here is the
-			// view itself, not the reported base: a compaction may have shortened the
-			// conversation since that number was counted (CMP24).
-			const viewTokens = estimateConversation(messages);
-			if (viewTokens <= contextWindow) {
+			if (estimate <= contextWindow) {
+				// There is nothing older to summarize, and the request still fits.
 				return undefined;
 			}
 			// No summary can make a single step fit, so the run says so plainly rather
 			// than spending a call on it and failing differently (decision 6's limit).
 			const error: LyraError = {
 				code: "bad_request",
-				message: `input_too_large: the conversation is about ${viewTokens} tokens and this model's context window is ${contextWindow}, so compacting cannot make it fit`,
+				message: `input_too_large: the conversation is about ${estimate} tokens and this model's context window is ${contextWindow}, so compacting cannot make it fit`,
 			};
 			emit({ type: "error", run: runId, ts: clock.now(), error });
 			failureDetail = "input_too_large";

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
+import { encodeEntry, encodeHeader } from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import type { RecordEntry } from "../record/entries.js";
 import { replayConversation } from "../record/replay.js";
@@ -510,4 +511,85 @@ test("CMP24 a resume whose record ends at a compaction goes on instead of failin
 	const after = await inner.read();
 	const entries = entriesOf(after.ok ? after.value : []);
 	expect(entries.filter((entry) => entry.type === "compaction")).toHaveLength(1);
+});
+
+test("CMP24 a resume whose whole view is over the window fails instead of sending it", async () => {
+	// The summary is the view's own cost, and after a cut there is no reported count
+	// to lean on: counting only from the last assistant message would leave the
+	// summary and every kept step invisible to the trigger.
+	const summary = "s".repeat(4_000);
+	const lines = [
+		encodeHeader({
+			type: "header",
+			v: 1,
+			run: "run-1",
+			task: "test-task",
+			startedAt: 1,
+			host: "test-host",
+		}),
+		...[
+			{
+				type: "user_message" as const,
+				id: "e1",
+				parent: null,
+				ts: 2,
+				label: "task" as const,
+				text: "do the thing",
+			},
+			{
+				type: "assistant_message" as const,
+				id: "e2",
+				parent: "e1",
+				ts: 3,
+				text: "",
+				toolCalls: [{ id: "c1", name: "read", arguments: "{}" }],
+				model: "generated/model",
+				usage: { inputTokens: 10, outputTokens: 2 },
+				finishReason: "tool_calls" as const,
+			},
+			{
+				type: "tool_message" as const,
+				id: "e3",
+				parent: "e2",
+				ts: 4,
+				toolCallId: "c1",
+				isError: false,
+				content: "x".repeat(400),
+			},
+			{
+				type: "compaction" as const,
+				id: "e4",
+				parent: "e3",
+				ts: 5,
+				summary,
+				firstKept: "e2",
+				replaces: 2,
+				usage: { inputTokens: 20, outputTokens: 30 },
+				model: "generated/model",
+				trigger: "auto" as const,
+				instructionsHash: "abc123",
+			},
+			{ type: "status" as const, id: "e5", parent: "e4", ts: 6, state: "running" as const },
+		].map((entry) => encodeEntry(entry)),
+	];
+	expect(loadRecord(lines).ok).toBe(true);
+
+	const clock = fakeClock();
+	const scripted = model(clock, 1);
+	const resumed = await runTask({
+		...base(clock, memoryStorage()),
+		model: scripted,
+		resume: { lines, by: "person" },
+	});
+	expect(resumed.reason).toBe("failed");
+	expect(resumed.reason === "failed" ? resumed.error?.code : "").toBe("bad_request");
+	const message = resumed.reason === "failed" ? (resumed.error?.message ?? "") : "";
+	expect(message).toContain("input_too_large");
+	// The number it reports is the view's own: the summary alone is a thousand
+	// tokens, where counting from the last reply would have said about a hundred.
+	const reported = Number(/about (\d+) tokens/.exec(message)?.[1] ?? "0");
+	expect(reported).toBeGreaterThanOrEqual(1_000);
+	expect(reported).toBeLessThan(2_000);
+	// It said so rather than sending a request that cannot fit.
+	expect(scripted.requests).toHaveLength(0);
 });

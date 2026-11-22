@@ -444,3 +444,28 @@ test("CMP14 the summary's usage survives a resume, so a limit means the same eit
 	// The same run, the same spend, whichever side of the interruption it is asked on.
 	expect(resumed.usage).toEqual(uninterrupted.usage);
 });
+
+test("CMP15 a reported count over the window fails plainly, even when the view is small", () => {
+	// The provider's own count is the authority while it describes the request it
+	// read: a model that reports 5000 tokens into a 600-token window has been sent
+	// something it could not fit, however short the text looks at four characters
+	// to a token (dense JSON, base64, CJK).
+	return (async () => {
+		const run = harness(
+			[
+				{ toolCalls: [{ id: "c1", name: "read", args: {} }], usage: usage(5_000) },
+				{ toolCalls: [{ id: "c2", name: "finish", args: {} }], usage: usage(5_000) },
+			],
+			// The whole history fits the keep budget, so there is nothing to cut.
+			{ window: 600, compaction: { reserveTokens: 100, keepTokens: 400 } },
+		);
+		const result = await run.run();
+		expect(result.reason).toBe("failed");
+		expect(result.reason === "failed" ? result.error?.code : "").toBe("bad_request");
+		const message = result.reason === "failed" ? (result.error?.message ?? "") : "";
+		expect(message).toContain("input_too_large");
+		expect(message).toContain("600");
+		// It said so instead of spending a request the model cannot read.
+		expect(runRequests(run.model)).toHaveLength(1);
+	})();
+});
