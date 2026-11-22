@@ -21,14 +21,42 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and its ordering against steps 7 and 8 is Autumn's call |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and step 9 needs it |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
-| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | in review (`feat/step-08-websocket`, [pull request #29](https://github.com/AutumnsGrove/lyra/pull/29)) |
+| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
 ### Where the last session stopped (2026-11-22)
+
+- **Step 8, WebSocket, is merged**, pull request #29, merge commit `243246f`. Its review rounds
+  found these, all fixed before the merge: the Worker's front door not routing `/v1/ws` at all
+  (the tests had hidden it by calling the object directly), a plain `GET` making workerd throw,
+  the events starting before the hello exchange, the greeting writing back a stale cursor, a
+  socket test class that counted ids across an eviction, and two tests that passed on replay
+  alone. What is in the tree: the upgrade with the `hello` exchange and the 2 MiB cap (WSK01 to
+  WSK06), a socket
+  following its session through the same `follow` the HTTP stream uses, with `since` as
+  the replay cursor and no gap or duplicate at the handover (WSK07 to WSK11), an eviction
+  with a socket open and the attachment as the only per-connection state (WSK12, WSK14),
+  the front door's `/v1/ws` route and its answer to a close, every scenario file run a
+  fourth time over a socket, and `pnpm lyra --transport ws`. Sockets cannot run under
+  decision 101's per-file isolation, so they get their own `vitest.ws.config.ts` (one
+  worker, `isolate: false`) as the second half of `pnpm test:workers`. The gate on the
+  merged head: 521 Node tests, 50 workerd tests and 33 socket tests, 15 fuzz/property
+  targets, coverage 92.09% statements and 85.62% branches, the package at 133,584 B of
+  180,224 B measured locally (a Linux runner compresses it a few hundred bytes tighter,
+  as these notes say), the example at 45,148 B of 49,152 B, and `matrixcheck` 343 rows
+  (343 tested, 0 unbuilt). Decision 143, the example's ceiling at 48 KiB, is step 8's
+  own. **WSK13 (an eviction mid-run with a socket open) and WSK15 (a backed-up reader)
+  are not written**: both hang in this harness rather than failing, and `notes.md`
+  records what was tried; the backpressure code is in and untested there. Next is step
+  9, the timeline task, which is Lattice work and waits on two things before it can
+  start: the open half of step 5 (the Lumen adapter) and a release that carries steps 6
+  to 8 and the approvals slice, all still `[Unreleased]` as `0.3.0` in `CHANGELOG.md`,
+  since step 9 needs Lyra steps 1 to 8 merged and published. Nothing else in
+  `first-slice.md` is left.
 
 - **The approvals and proposals slice is merged**, pull request #27, merge commit
   `6970a1e`, after six review rounds: a tool's policy and risk with the check before
@@ -41,8 +69,8 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
   workerd tests, 15 fuzz/property targets, coverage 92.09% statements and 85.62%
   branches, the package at 129,695 B of 180,224 B measured locally (a Linux runner
   compresses it a few hundred bytes tighter, as these notes say), and `matrixcheck`
-  330 rows (330 tested). Decisions 139 to 142 are the slice's own. Next is step 8, WebSocket, whose
-  document is already written and depends on nothing here.
+  330 rows (330 tested). Decisions 139 to 142 are the slice's own. Step 8, WebSocket,
+  followed it, and its document was already written and depended on nothing there.
 
 - **Step 7, compaction, is merged**, pull request #25, merge commit `eb95d42`, after
   three review rounds (the first found a resume that failed `input_too_large` after a
