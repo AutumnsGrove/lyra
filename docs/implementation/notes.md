@@ -100,11 +100,15 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   before it goes to the summarizer. The record keeps it whole, and a tool's
   `currentState` restores exactness where a recipe can supply it, so the detail that
   goes is the detail nobody asked to keep (decision 136).
-- **The gate**: 458 Node tests, 48 workerd, 14 fuzz/property, coverage 91.76%
+- **The gate at the wrap-up** (before the three review rounds, whose fixes added
+  rows and tests): 458 Node tests, 48 workerd, 14 fuzz/property, coverage 91.76%
   statements and 85.33% branches, package 116,878 B of 180,224 B, the example
   36,328 B of 45,056 B, and `matrixcheck` 309 rows (299 tested, 10 unbuilt, all
-  approvals and proposals). No ceiling moved: step 7 added about 12 KiB gzipped to the
-  package and 5 KiB to the example, both well inside decisions 129 and 134.
+  approvals and proposals). The merged head is 465 Node tests, `matrixcheck` 312
+  rows (302 tested), coverage 91.74% and 85.34%, and the package at 117,873 B; the
+  README's resumable-state section carries those. No ceiling moved: step 7 added
+  about 12 KiB gzipped to the package and 5 KiB to the example, both well inside
+  decisions 129 and 134.
 - **The long run's tool results are the timeline's small ones.** "Big results" is
   covered where it bites — CMP16 for the summary's own cap, CMP18 and CMP19 for a
   result cut on arrival and a state that needs the part that was cut — rather than by

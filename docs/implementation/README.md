@@ -23,24 +23,29 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
 | 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and its ordering against steps 7 and 8 is Autumn's call |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
-| 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | in review (`feat/step-07-compaction`) |
+| 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
 ### Where the last session stopped (2026-11-21)
 
-- **Step 7, compaction, is in review** on `feat/step-07-compaction`. What is in the
-  tree: the cut and its property test plus a fuzz target (CMP01 to CMP05), the
+- **Step 7, compaction, is merged**, pull request #25, merge commit `eb95d42`, after
+  three review rounds (the first found a resume that failed `input_too_large` after a
+  cut, a summary's cost lost on resume, a view built off the active path and a cut
+  over its own cap; the second found the guard ignoring a current provider count and
+  an undercount after a cut; the third found the live path keeping the pre-cut
+  count through a fallback — all fixed test-first, rows CMP14, CMP15, CMP18, CMP23,
+  CMP24 and CMP25). What is in the tree: the cut and its property test plus a fuzz target (CMP01 to CMP05), the
   `compaction` entry with the view built from its pointer and replay still walking
   every result (CMP06 to CMP09), the trigger and the summarizer with its failure
   paths (CMP10 to CMP16), `Tool.currentState` and the cap on a result as it arrives
   (CMP17 to CMP19), the kill matrix over compacting scripts, the long run and a
   scenario that runs at all three levels (CMP20 to CMP22, plus EVT07 in
   `protocol.md`), and `compact` over the protocol (CMD20). Decisions 135 to 138 are
-  step 7's own. The gate on the branch: 458 Node tests, 48 workerd tests, 14
-  fuzz/property targets, coverage 91.76% statements and 85.33% branches, the package
-  at 116,878 B of 180,224 B, the example at 36,328 B of 45,056 B, and `matrixcheck`
-  309 rows (299 tested, 10 unbuilt, all approvals and proposals). No ceiling moved.
+  step 7's own. The gate on the merged head: 465 Node tests, 48 workerd tests, 14
+  fuzz/property targets, coverage 91.74% statements and 85.34% branches, the package
+  at 117,873 B of 180,224 B, the example at 36,546 B of 45,056 B, and `matrixcheck`
+  312 rows (302 tested, 10 unbuilt, all approvals and proposals). No ceiling moved.
   What is unfinished is in the PR body: the long run's results are the timeline's
   small ones, so "big results" is covered at the loop level instead; and
   `list_sessions` still answers `unsupported`, which is a design of its own.
