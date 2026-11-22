@@ -63,21 +63,11 @@ function positional(args) {
  * (`start`) is not this path's business, because the session is what it creates.
  */
 async function socketCommand(body) {
-	if (body.session === undefined) {
-		process.stderr.write("over a socket, a command needs a session; start one over HTTP\n");
-		process.exitCode = 2;
-		return undefined;
-	}
 	counter += 1;
 	const id = `cli-${counter}`;
 	const url = `${base.replace(/^http/, "ws")}/v1/ws?session=${encodeURIComponent(body.session)}`;
 	const socket = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-	await new Promise((resolve, reject) => {
-		socket.addEventListener("open", () => resolve(undefined), { once: true });
-		socket.addEventListener("error", () => reject(new Error("the socket was refused")), {
-			once: true,
-		});
-	});
+	await opened(socket);
 	const first = await nextFrame(socket);
 	if (first?.type !== "hello") {
 		throw new Error("the server did not greet the socket");
@@ -88,7 +78,14 @@ async function socketCommand(body) {
 	socket.send(JSON.stringify({ type: "command", id, ...body }));
 	for (;;) {
 		const frame = await nextFrame(socket);
-		if (frame?.type === "response" && frame.id === id) {
+		if (frame === undefined) {
+			// The server closed without answering, which is a refusal a client has to
+			// survive: waiting again on a closed socket would hang forever.
+			process.stderr.write("the socket closed before the command was answered\n");
+			process.exitCode = 1;
+			return undefined;
+		}
+		if (frame.type === "response" && frame.id === id) {
 			socket.close();
 			if (frame.ok === false) {
 				process.stderr.write(`${frame.error.code}: ${frame.error.message}\n`);
@@ -116,7 +113,7 @@ function nextFrame(socket) {
 }
 
 async function command(body) {
-	if (transport === "ws") {
+	if (transport === "ws" && body.session !== undefined) {
 		return socketCommand(body);
 	}
 	counter += 1;
@@ -179,6 +176,21 @@ async function tail(session, after) {
 	}
 }
 
+/** Wait for a socket to open, or say why it will not. */
+function opened(socket) {
+	return new Promise((resolve, reject) => {
+		socket.addEventListener("open", () => resolve(undefined), { once: true });
+		socket.addEventListener("error", () => reject(new Error("the socket was refused")), {
+			once: true,
+		});
+		socket.addEventListener(
+			"close",
+			() => reject(new Error("the socket closed before it opened")),
+			{ once: true },
+		);
+	});
+}
+
 /** The same events, over a socket: replay from `after`, then live, until it ends. */
 async function tailSocket(session, after) {
 	const query = new URLSearchParams({ session });
@@ -187,9 +199,7 @@ async function tailSocket(session, after) {
 	}
 	const url = `${base.replace(/^http/, "ws")}/v1/ws?${query.toString()}`;
 	const socket = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
-	await new Promise((resolve) => {
-		socket.addEventListener("open", () => resolve(undefined), { once: true });
-	});
+	await opened(socket);
 	const greeting = await nextFrame(socket);
 	if (greeting?.type !== "hello") {
 		throw new Error("the server did not greet the socket");
