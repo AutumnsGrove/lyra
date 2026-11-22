@@ -7,6 +7,7 @@ import {
 	executionCounter,
 	fakeClock,
 	scriptedModel,
+	toolAsking,
 	toolReturning,
 	type ScriptedTurn,
 } from "../testkit/index.js";
@@ -19,6 +20,10 @@ import {
 	policyFromRisk,
 	policyOf,
 } from "./approval.js";
+import { decodeCommand } from "../protocol/commands.js";
+import { decodeFrame } from "../protocol/frames.js";
+import { createSession } from "../protocol/session.js";
+import { until } from "./run-harness.testing.js";
 import type { Recipe } from "./define-recipe.js";
 import { runTask } from "./run.js";
 import { NO_PARAMETERS, defineTool } from "./tool.js";
@@ -618,4 +623,135 @@ test("APR11 a resume that parks again keeps the timeout's wake", async () => {
 	}
 	expect((await drive(clock, resumed.value.outcome, 1_000)).reason).toBe("parked");
 	expect(waking.scheduled().map((wake) => wake.runId)).toEqual(["run-1"]);
+});
+
+test("APR14 a question parks the run, and its answer is the tool's result", async () => {
+	// An approval asks whether a call may run; a question asks for something the run
+	// cannot work out. Decision 34's point is that it is the same mechanism.
+	const tools = [
+		toolAsking("ask", {
+			kind: "question",
+			title: "Which branch?",
+			message: "The run needs to know which branch to publish from.",
+		}),
+		createFinishTool(),
+	];
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "ask", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const run = harness(tools, turns);
+	const parked = await run.run({ canAsk: true });
+	expect(parked.reason).toBe("parked");
+
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	expect(request).toMatchObject({
+		type: "request",
+		kind: "question",
+		title: "Which branch?",
+		callId: "c1",
+	});
+
+	// The answer is the call's result: the tool never produced one of its own.
+	const saved = await run.storage.append(
+		JSON.stringify({
+			type: "request_answered",
+			id: "e_answer",
+			parent: (JSON.parse(run.storage.saved().at(-1) ?? "{}") as { id?: string }).id ?? null,
+			ts: 100,
+			request: request?.type === "request" ? request.request : "",
+			decision: "approve",
+			text: "release/0.3.0",
+		}),
+	);
+	expect(saved.ok).toBe(true);
+	const restarted = scriptedModel(turns, { clock: run.clock });
+	const resumed = await run.run({
+		canAsk: true,
+		model: restarted,
+		resume: { lines: run.storage.saved(), by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+	const answer = restarted.requests
+		.at(-1)
+		?.messages.find((message) => message.role === "tool" && message.toolCallId === "c1");
+	expect(answer?.role === "tool" ? answer.content : "").toBe("release/0.3.0");
+});
+
+test("APR15 a choice is answered with one of the options it offered", async () => {
+	const tools = [
+		toolAsking("choose", {
+			kind: "choice",
+			title: "Which one?",
+			message: "The run can publish to one of these.",
+			options: [
+				{ id: "staging", label: "Staging" },
+				{ id: "prod", label: "Production" },
+			],
+		}),
+		createFinishTool(),
+	];
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "choose", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const model = scriptedModel(turns, { clock });
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model,
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools,
+				},
+			],
+		]),
+	});
+	const frame = decodeFrame(
+		JSON.stringify({
+			type: "command",
+			id: "c1",
+			command: "start",
+			task: "test-task",
+			input: "go",
+		}),
+	);
+	if (!frame.ok) {
+		throw new Error(frame.error.message);
+	}
+	const command = decodeCommand(frame.value);
+	if (!command.ok) {
+		throw new Error(command.error.message);
+	}
+	expect((await session.command(command.value)).ok).toBe(true);
+	await until(() => storage.saved().some((line) => line.includes('"type":"request"')));
+	const entries = await entriesOf(storage);
+	const request = entries.find((entry) => entry.type === "request");
+	const id = request !== undefined ? String((request as { request?: string }).request) : "";
+
+	// Something the request never offered is refused, and nothing is written.
+	const wrong = await session.respond({ session: "s1", request: id, ok: true, ids: ["dev"] });
+	expect(wrong.ok ? "" : wrong.error.code).toBe("bad_request");
+	expect(
+		(await entriesOf(storage)).filter((entry) => entry.type === "request_answered"),
+	).toHaveLength(0);
+
+	// An offered one is the answer, and the run reads it.
+	const right = await session.respond({ session: "s1", request: id, ok: true, ids: ["staging"] });
+	expect(right.ok).toBe(true);
+	await until(() => storage.saved().some((line) => line.includes('"state":"done"')));
+	const result = (await entriesOf(storage)).find((entry) => entry.type === "tool_message");
+	expect(result !== undefined ? String((result as { content?: string }).content) : "").toContain(
+		"staging",
+	);
 });

@@ -395,6 +395,7 @@ export function createSession(options: SessionOptions): Session {
 			...(request.tool === undefined ? {} : { tool: request.tool }),
 			...(request.args === undefined ? {} : { args: request.args }),
 			...(request.risk === undefined ? {} : { risk: request.risk }),
+			...(request.options === undefined ? {} : { options: request.options }),
 			...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
 		});
 
@@ -481,6 +482,18 @@ export function createSession(options: SessionOptions): Session {
 			) {
 				// One answer each, and the first one stands (decisions 34, 85).
 				return fail("conflict", "that request has already been answered");
+			}
+			if (request.kind === "choice") {
+				// A choice is answered with the options it offered, so a client cannot
+				// answer with something the run never asked about (decision 34).
+				const offered = new Set((request.options ?? []).map((option) => option.id));
+				const unknown = (answer.ids ?? []).filter((id) => !offered.has(id));
+				if ((answer.ids ?? []).length === 0 || unknown.length > 0) {
+					return fail(
+						"bad_request",
+						`that request offers ${[...offered].join(", ")}, so the answer has to be one of them`,
+					);
+				}
 			}
 			if (
 				request.timeoutMs !== undefined &&

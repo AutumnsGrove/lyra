@@ -73,6 +73,7 @@ export type RecordEvent =
 			tool?: string;
 			args?: string;
 			risk?: string;
+			options?: readonly { id: string; label: string }[];
 			timeoutMs?: number;
 	  })
 	/**
@@ -221,6 +222,7 @@ export function projectEvents(
 					...(entry.tool === undefined ? {} : { tool: entry.tool }),
 					...(entry.args === undefined ? {} : { args: entry.args }),
 					...(entry.risk === undefined ? {} : { risk: entry.risk }),
+					...(entry.options === undefined ? {} : { options: entry.options }),
 					...(entry.timeoutMs === undefined ? {} : { timeoutMs: entry.timeoutMs }),
 				});
 				break;

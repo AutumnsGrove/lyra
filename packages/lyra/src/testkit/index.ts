@@ -69,6 +69,7 @@ export {
 export {
 	createFinishTool,
 	executionCounter,
+	toolAsking,
 	toolReturning,
 	toolReturningError,
 	toolTakingTime,

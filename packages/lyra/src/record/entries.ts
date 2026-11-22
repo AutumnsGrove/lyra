@@ -158,6 +158,12 @@ export interface NoteEntry extends EntryBase {
 /** What a request asks a person for (docs/approvals.md, decision 34). */
 export type RequestKind = "approve" | "question" | "choice";
 
+/** One thing a person may choose between, for a `choice` (decision 34). */
+export interface RequestOption {
+	id: string;
+	label: string;
+}
+
 /**
  * A run needs a person (docs/approvals.md, decisions 34 and 85).
  *
@@ -180,6 +186,8 @@ export interface RequestEntry extends EntryBase {
 	tool?: string;
 	args?: string;
 	risk?: string;
+	/** What a choice offers, so an answer can only be one of them (decision 34). */
+	options?: RequestOption[];
 	/** After this many milliseconds, an unanswered request is denied (decision 37). */
 	timeoutMs?: number;
 	/** Set when this entry was cut to fit the cap; the preview went whole. */
@@ -431,6 +439,12 @@ export function encodeEntry(entry: RecordEntry): string {
 			}
 			if (entry.risk !== undefined) {
 				line["risk"] = entry.risk;
+			}
+			if (entry.options !== undefined) {
+				line["options"] = entry.options.map((option) => ({
+					id: option.id,
+					label: option.label,
+				}));
 			}
 			if (entry.timeoutMs !== undefined) {
 				line["timeoutMs"] = entry.timeoutMs;
@@ -906,6 +920,25 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			const args = value["args"];
 			const risk = value["risk"];
 			const timeoutMs = value["timeoutMs"];
+			const rawOptions = value["options"];
+			let options: RequestOption[] | undefined;
+			if (rawOptions !== undefined) {
+				if (!Array.isArray(rawOptions)) {
+					return bad("a request entry has options that are not a list");
+				}
+				options = [];
+				for (const raw of rawOptions) {
+					if (!isPlainObject(raw)) {
+						return bad("a request entry has an option that is not an object");
+					}
+					const optionId = raw["id"];
+					const label = raw["label"];
+					if (!isName(optionId) || typeof label !== "string") {
+						return bad("a request entry has an option without an id and a label");
+					}
+					options.push({ id: optionId, label });
+				}
+			}
 			if (preview !== undefined && !isJsonValue(preview)) {
 				return bad("a request entry has a preview that is not JSON");
 			}
@@ -943,6 +976,9 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			}
 			if (risk !== undefined) {
 				entry.risk = risk;
+			}
+			if (options !== undefined) {
+				entry.options = options;
 			}
 			if (timeoutMs !== undefined) {
 				entry.timeoutMs = timeoutMs;

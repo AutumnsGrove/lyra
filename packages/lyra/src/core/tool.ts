@@ -37,6 +37,17 @@ export interface ToolContext<S = unknown> {
 	state: S;
 }
 
+/** What a tool asks a person, when its work needs an answer rather than a yes. */
+export interface PersonQuestion {
+	kind: "question" | "choice";
+	title: string;
+	message: string;
+	/** The thing to look at before answering. */
+	preview?: JsonValue;
+	/** What a choice offers, so an answer can only be one of them. */
+	options?: { id: string; label: string }[];
+}
+
 export interface ToolOutcome {
 	isError: boolean;
 	/** What the model reads. */
@@ -48,6 +59,11 @@ export interface ToolOutcome {
 	 * gives `finish` the coverage check that makes this claim true.
 	 */
 	done?: true;
+	/**
+	 * Set by a tool that needs a person before it can answer (decision 34). The
+	 * run parks with the question, and the answer becomes this call's result.
+	 */
+	ask?: PersonQuestion;
 }
 
 export interface Tool {

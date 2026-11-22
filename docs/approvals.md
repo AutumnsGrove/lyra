@@ -47,6 +47,8 @@ stops the batch rather than being guessed at.
 | APR06 | A tool that says nothing | It is allowed, because silence meaning "ask" would stop every recipe built before this slice |
 | APR07 | Happy: an approved call | The call runs on the resume, once, and its result is what the model reads next |
 | APR08 | Sad: a denied call with a note | The call never runs, and the person's own words are in the error result the model corrects from |
+| APR15 | Sad: a choice answered with something else | A choice is answered with one of the options it offered: anything else is `bad_request` and nothing is written, and an offered one becomes the call's result |
+| APR14 | Happy: a question | A tool that needs an answer parks the run as a question, and the person's words become that call's result, which the model reads and the tool's `apply` records the same way a replay would |
 | APR11 | Sad: a timeout | A request past its `timeout_ms` is denied by the clock, the record says it expired rather than that a person decided, the host had a wake scheduled for it, and a wake does not overrule the park before then |
 | APR12 | Bad: an answer that is not one | A `ui_response` that is a different frame type, names no request or session, or carries a field this build cannot read is `bad_request` naming the field; anything but a clear `ok: true` is a deny; an unknown field is ignored; and no hostile frame makes the decoder throw |
 

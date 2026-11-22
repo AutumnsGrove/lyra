@@ -9,7 +9,7 @@
 import type { Clock } from "../core/clock.js";
 import type { JsonObject, JsonValue } from "../core/json.js";
 import type { ToolPolicy, ToolRisk } from "../core/approval.js";
-import { NO_PARAMETERS, type Tool, type ToolOutcome } from "../core/tool.js";
+import { NO_PARAMETERS, type PersonQuestion, type Tool, type ToolOutcome } from "../core/tool.js";
 
 /**
  * How many times a tool really ran, keyed by call id (KIT08). A resume must not
@@ -84,6 +84,22 @@ function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptio
 		made.risk = options.risk;
 	}
 	return made;
+}
+
+/**
+ * A tool that needs a person before it can answer (decision 34): its result is the
+ * person's own words, or the option they picked, rather than anything it computed.
+ */
+export function toolAsking(
+	name: string,
+	question: PersonQuestion,
+	options: ScriptedToolOptions = {},
+): Tool {
+	return tool(
+		name,
+		async () => ({ isError: false, content: "waiting for a person", ask: question }),
+		options,
+	);
 }
 
 /** A tool that answers with fixed content. */

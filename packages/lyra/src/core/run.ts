@@ -38,7 +38,7 @@ import {
 	validateCompactionSettings,
 	type CompactionSettings,
 } from "./compaction.js";
-import { executeTools } from "./execute-tools.js";
+import { executeTools, usableArguments } from "./execute-tools.js";
 import {
 	parkedReasonOf,
 	type ParkedReason,
@@ -59,7 +59,7 @@ import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage }
 import type { LyraError } from "./result.js";
 import { activePath, entryMessage } from "../record/replay.js";
 import type { StorageSlot } from "./slots.js";
-import type { Tool, ToolOutcome } from "./tool.js";
+import type { PersonQuestion, Tool, ToolOutcome } from "./tool.js";
 import { cutText, fitEntry, utf8Length } from "../record/truncate.js";
 import {
 	RECORD_VERSION,
@@ -555,6 +555,41 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	 * Save a result, and hand back what was saved. The content is what the model
 	 * saw, which is what the record and the event both carry.
 	 */
+	/**
+	 * A question's answer as the call's result. The same outcome a live tool would
+	 * have returned, so `apply` and a replay see one shape (decision 112).
+	 */
+	const saveAnsweredCall = async (
+		call: ToolCall,
+		decided: RequestAnsweredEntry,
+	): Promise<void> => {
+		const chosen = (decided.ids ?? []).join(", ");
+		const answer: ToolOutcome = {
+			isError: false,
+			content: decided.text ?? `the person chose ${chosen === "" ? "nothing" : chosen}`,
+			details: {
+				...(decided.text === undefined ? {} : { answer: decided.text }),
+				...(decided.ids === undefined ? {} : { ids: decided.ids }),
+			},
+		};
+		const saved = await saveToolResult(call, answer);
+		emit({
+			type: "tool_end",
+			run: runId,
+			ts: clock.now(),
+			seq: saved.seq,
+			callId: call.id,
+			name: call.name,
+			isError: false,
+			content: saved.content,
+		});
+		const tool = tools.get(call.name);
+		const args = tool === undefined ? undefined : usableArguments(tool, call.arguments);
+		if (tool?.apply !== undefined && args?.ok === true) {
+			state = tool.apply(state, args.value, answer);
+		}
+	};
+
 	const saveToolResult = async (
 		call: ToolCall,
 		outcome: ToolOutcome,
@@ -661,20 +696,41 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	 * and 85). The request is saved before anything is sent, so an answer can always
 	 * be paired with it, and the record says what the run is waiting for.
 	 */
-	const saveRequest = async (call: ToolCall, tool: Tool | undefined): Promise<string> => {
-		const request: RequestEntry = {
-			type: "request",
-			id: config.ids.next("e"),
-			parent,
-			ts: clock.now(),
-			request: config.ids.next("auth"),
-			kind: "approve",
-			title: `May the run use ${call.name}?`,
-			message: `The model asked to run the ${call.name} tool.`,
-			callId: call.id,
-			tool: call.name,
-			args: call.arguments,
-		};
+	const saveRequest = async (
+		call: ToolCall,
+		tool: Tool | undefined,
+		ask?: PersonQuestion,
+	): Promise<string> => {
+		const request: RequestEntry =
+			ask === undefined
+				? {
+						type: "request",
+						id: config.ids.next("e"),
+						parent,
+						ts: clock.now(),
+						request: config.ids.next("auth"),
+						kind: "approve",
+						title: `May the run use ${call.name}?`,
+						message: `The model asked to run the ${call.name} tool.`,
+						callId: call.id,
+						tool: call.name,
+						args: call.arguments,
+					}
+				: {
+						type: "request",
+						id: config.ids.next("e"),
+						parent,
+						ts: clock.now(),
+						request: config.ids.next("auth"),
+						kind: ask.kind,
+						title: ask.title,
+						message: ask.message,
+						callId: call.id,
+						tool: call.name,
+						args: call.arguments,
+						...(ask.preview === undefined ? {} : { preview: ask.preview }),
+						...(ask.options === undefined ? {} : { options: ask.options }),
+					};
 		if (tool?.risk !== undefined) {
 			request.risk = tool.risk;
 		}
@@ -734,6 +790,11 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					callId: call.id,
 					name: call.name,
 				});
+			},
+			onAsk: async (call, ask) => {
+				// A tool that needs an answer parks the run exactly as a policy does:
+				// one mechanism, one record entry (decision 34).
+				waitingRequest = await saveRequest(call, tools.get(call.name), ask);
 			},
 			onFinish: async (call, outcome, args) => {
 				const saved = await saveToolResult(call, outcome);
@@ -833,6 +894,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						`a person denied this call${note === "" ? "" : note}`,
 					);
 					continue;
+				}
+				// A question's answer is the call's result: the tool never produced one,
+				// so the person's words (or the option they picked) are what the model
+				// reads and what the tool's own `apply` records (decision 34).
+				if (decided.text !== undefined || decided.ids !== undefined) {
+					await saveAnsweredCall(call, decided);
+					await runBatch(seed.unansweredCalls.slice(heldFrom + 1));
+					return;
 				}
 				// The person approved the call the request named: it runs, and everything
 				// the batch held behind it runs through the policy as usual.
