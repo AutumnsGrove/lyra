@@ -139,6 +139,44 @@ function sliceAtCodePoint(text: string, length: number): string {
 	return text.slice(0, length);
 }
 
+/**
+ * Cut a piece of text to a byte budget, with a marker saying how much went and,
+ * when the tool offers one, how to ask for the rest (decision 40).
+ *
+ * The marker's own size is counted, so the result is never over the budget the
+ * caller asked for, and a cut that lands inside a character's bytes moves back
+ * one so the text stays the text it was.
+ */
+export function cutText(
+	text: string,
+	maxBytes: number,
+	hint?: string,
+): { text: string; droppedBytes: number } | undefined {
+	const total = utf8Length(text);
+	if (total <= maxBytes) {
+		return undefined;
+	}
+	const suffix = hint === undefined || hint === "" ? "" : ` ${hint}`;
+	// Measured with the widest number the marker could carry, so the real one fits.
+	const marker = (dropped: number): string => `${markerFor(dropped)}${suffix}`;
+	const fits = (length: number): boolean =>
+		utf8Length(sliceAtCodePoint(text, length) + marker(Number.MAX_SAFE_INTEGER)) <= maxBytes;
+
+	let low = 0;
+	let high = text.length;
+	while (low < high) {
+		const middle = Math.ceil((low + high) / 2);
+		if (fits(middle)) {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	const kept = sliceAtCodePoint(text, low);
+	const droppedBytes = total - utf8Length(kept);
+	return { text: kept + marker(droppedBytes), droppedBytes };
+}
+
 export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 	const line = encodeEntry(entry);
 	if (utf8Length(line) <= maxBytes) {

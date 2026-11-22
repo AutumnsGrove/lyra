@@ -18,7 +18,9 @@ import type { ConversationMessage } from "./conversation.js";
 import {
 	buildView,
 	chooseCut,
+	currentStateTexts,
 	DEFAULT_KEEP_TOKENS,
+	DEFAULT_RESULT_CAP_BYTES,
 	DEFAULT_SUMMARY_INSTRUCTIONS,
 	defaultReserveTokens,
 	estimateSinceLastReply,
@@ -49,7 +51,7 @@ import type { LyraError } from "./result.js";
 import { entryMessage } from "../record/replay.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool, ToolOutcome } from "./tool.js";
-import { fitEntry, utf8Length } from "../record/truncate.js";
+import { cutText, fitEntry, utf8Length } from "../record/truncate.js";
 import {
 	RECORD_VERSION,
 	encodeEntry,
@@ -157,6 +159,11 @@ export interface RunConfig {
 	limits?: Limits;
 	/** How the recipe shapes compaction, when it says anything (decision 41). */
 	compaction?: CompactionSettings;
+	/**
+	 * How much of one tool result the model may read before it is cut, in bytes
+	 * (decision 40). A tool's own `maxResultBytes` wins over it.
+	 */
+	toolResultBytes?: number;
 	/** What the run's owner may steer or follow up with while it runs. */
 	control?: RunControl;
 	/** The stuck safeguard: on by default, because the default has no limits (decision 25). */
@@ -501,7 +508,21 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		return queued.length > 0;
 	};
 
-	const saveToolResult = async (call: ToolCall, outcome: ToolOutcome): Promise<number> => {
+	/**
+	 * Save a result, and hand back what was saved. The content is what the model
+	 * saw, which is what the record and the event both carry.
+	 */
+	const saveToolResult = async (
+		call: ToolCall,
+		outcome: ToolOutcome,
+	): Promise<{ seq: number; content: string }> => {
+		// The model's view of a result is capped when it arrives, and the record keeps
+		// exactly what the model saw, so a resume replays the same text. Nothing older
+		// is rewritten, which is what keeps the stable prefix cacheable (decision 40).
+		const tool = tools.get(call.name);
+		const cap = tool?.maxResultBytes ?? config.toolResultBytes ?? DEFAULT_RESULT_CAP_BYTES;
+		const cut = cutText(outcome.content, cap, tool?.truncationHint);
+		const content = cut?.text ?? outcome.content;
 		const entry: ToolMessageEntry = {
 			type: "tool_message",
 			id: config.ids.next("e"),
@@ -509,15 +530,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			ts: clock.now(),
 			toolCallId: call.id,
 			isError: outcome.isError,
-			content: outcome.content,
+			content,
 		};
+		if (cut !== undefined) {
+			entry.truncated = { field: "content", droppedBytes: cut.droppedBytes };
+		}
 		if (outcome.details !== undefined) {
 			entry.details = outcome.details;
 		}
 		if (outcome.done === true) {
 			entry.done = true;
 		}
-		return append(entry);
+		return { seq: await append(entry), content };
 	};
 
 	type Attempt = { ok: true; reply: ModelReply } | { ok: false; error: ModelError };
@@ -610,19 +634,19 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				});
 			},
 			onFinish: async (call, outcome, args) => {
-				const resultSeq = await saveToolResult(call, outcome);
+				const saved = await saveToolResult(call, outcome);
 				emit({
 					type: "tool_end",
 					run: runId,
 					ts: clock.now(),
-					seq: resultSeq,
+					seq: saved.seq,
 					callId: call.id,
 					name: call.name,
 					isError: outcome.isError,
-					content: outcome.content,
+					content: saved.content,
 				});
 				if (outcome.isError) {
-					noteFailure(call.name, outcome.content);
+					noteFailure(call.name, saved.content);
 				} else {
 					noteSuccess();
 				}
@@ -658,16 +682,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				content:
 					"outcome unknown: this call may or may not have run; check before repeating",
 			};
-			const resultSeq = await saveToolResult(call, unknown);
+			const saved = await saveToolResult(call, unknown);
 			emit({
 				type: "tool_end",
 				run: runId,
 				ts: clock.now(),
-				seq: resultSeq,
+				seq: saved.seq,
 				callId: call.id,
 				name: call.name,
 				isError: true,
-				content: unknown.content,
+				content: saved.content,
 			});
 		}
 	};
@@ -728,6 +752,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const keepTokens = config.compaction?.keepTokens ?? DEFAULT_KEEP_TOKENS;
 	const summaryInstructions = config.compaction?.instructions ?? DEFAULT_SUMMARY_INSTRUCTIONS;
 	const summaryModel = config.compaction?.model;
+
+	/** What each tool says its state is, which the view shows after a compaction. */
+	const stateTexts = (): string[] => currentStateTexts(config.tools, state);
 
 	/** The view as a summary call sees it: the summary it updates, and the steps since. */
 	const viewFor = (): Parameters<typeof summaryMaterial>[0] => ({
@@ -828,7 +855,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 
 		// The view is now the record's: the summary, the tools' state, and the
 		// entries the pointer keeps. Nothing before it left the record (decision 39).
-		const view = buildView([...viewEntries, entry]);
+		const view = buildView([...viewEntries, entry], stateTexts());
 		viewEntries = view.entries;
 		messages = view.messages;
 		previousSummary = view.summary;
@@ -1002,16 +1029,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						content:
 							"this call was not run: the reply was cut off by the token limit, so its arguments may be incomplete",
 					};
-					const resultSeq = await saveToolResult(call, cutOff);
+					const saved = await saveToolResult(call, cutOff);
 					emit({
 						type: "tool_end",
 						run: runId,
 						ts: clock.now(),
-						seq: resultSeq,
+						seq: saved.seq,
 						callId: call.id,
 						name: call.name,
 						isError: true,
-						content: cutOff.content,
+						content: saved.content,
 					});
 				}
 				emit({
@@ -1271,7 +1298,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					}
 					// The conversation is the record's view, up to the latest compaction's
 					// pointer, so a resumed run sees what the compacted one saw (decision 39).
-					const seededView = buildView(seed.record.entries);
+					const seededView = buildView(seed.record.entries, stateTexts());
 					viewEntries = seededView.entries;
 					messages = seededView.messages;
 					previousSummary = seededView.summary;

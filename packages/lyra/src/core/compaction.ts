@@ -23,6 +23,7 @@ import type { ModelError, ModelReply, ModelRequest, ModelSlot, Usage } from "./m
 import { RETRY_DELAYS_MS } from "./retry.js";
 import { err, fail, ok, type Result } from "./result.js";
 import type { CompactionEntry, RecordEntry } from "../record/entries.js";
+import type { Tool } from "./tool.js";
 import { entryMessage } from "../record/replay.js";
 
 /** Four characters to a token, the estimate decision 41 settled on. */
@@ -195,6 +196,38 @@ export function buildView(
 		stateTexts,
 		messages,
 	};
+}
+
+/** The default cap on what the model reads from one tool result (decision 40). */
+export const DEFAULT_RESULT_CAP_BYTES = 51_200;
+
+/**
+ * What each tool says the recipe's state is, already labelled for the model
+ * (decision 40).
+ *
+ * A tool that throws here loses its state text and not the run: this runs while a
+ * view is being built, and a view is not worth failing a run over.
+ */
+export function currentStateTexts(tools: readonly Tool[], state: unknown): string[] {
+	if (state === undefined) {
+		return [];
+	}
+	const texts: string[] = [];
+	for (const tool of tools) {
+		if (tool.currentState === undefined) {
+			continue;
+		}
+		let text: string | undefined;
+		try {
+			text = tool.currentState(state);
+		} catch {
+			text = undefined;
+		}
+		if (typeof text === "string" && text.trim() !== "") {
+			texts.push(`Current state of ${tool.spec.name}:\n${text}`);
+		}
+	}
+	return texts;
 }
 
 /** The most one old entry may take in a summary request, in estimated tokens. */

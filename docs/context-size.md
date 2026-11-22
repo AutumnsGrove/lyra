@@ -85,3 +85,6 @@ boundaries and pointers rather than about exact counts.
 | CMP14 | The summary's usage counts | The tokens the summary spent are in the run's usage and count toward its token limit, so the limit is reached a turn earlier than without it |
 | CMP15 | Bad: the first message alone is too large | The run fails with `bad_request`, the message names `input_too_large` with the estimate and the window, the closing status keeps the detail, and no model request is made |
 | CMP16 | Oversized older results | A result over the per-entry cap is cut for the summary call with a marker saying so, and the record keeps the whole result the model saw |
+| CMP17 | Happy: the tool's current state | After a compaction the view carries exactly what the tool's `currentState` returns, in its own message after the summary, and the text is never stored: it is rebuilt from the record when it is needed |
+| CMP18 | Happy: a result over the cap | A result larger than the cap is cut when it arrives, with a marker giving the bytes dropped and the tool's hint for getting the rest; the record, the event and the next request all carry what the model saw, and the entry records the count |
+| CMP19 | A tool's state needs what the cap cut | A recipe whose state depends on a capped part keeps what it needs in `details`, so a live run and one replayed from the record build the same state |

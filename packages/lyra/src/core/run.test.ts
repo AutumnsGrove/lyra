@@ -1076,9 +1076,12 @@ test("REC04 a huge tool result is truncated and the run still finishes", async (
 	expect(
 		first?.type === "tool_message" ? (first.truncated?.droppedBytes ?? 0) : 0,
 	).toBeGreaterThan(0);
-	// The model was handed the whole thing, though: only what was saved was cut.
+	// Since step 7 the model is handed a capped version too, cut when it arrives
+	// (decision 40, CMP18), so the record holds exactly what the model saw.
 	const asked = huge.model.requests.at(-1)?.messages.find((message) => message.role === "tool");
-	expect(asked?.role === "tool" ? asked.content.length : 0).toBe(200_000);
+	const seen = asked?.role === "tool" ? asked.content : "";
+	expect(seen.length).toBeGreaterThan(0);
+	expect(seen.length).toBeLessThan(200_000);
 });
 
 test("REC04 a storage limit below the record cap lowers it, so the save never fails", async () => {
