@@ -75,6 +75,17 @@ test("CMD14 each command validates into its own shape", () => {
 		session: "s1",
 		text: "and then?",
 	});
+	expect(commandOf({ command: "compact", session: "s1" })).toEqual({
+		command: "compact",
+		id: "c1",
+		session: "s1",
+	});
+	expect(commandOf({ command: "compact", session: "s1", instructions: "keep the ids" })).toEqual({
+		command: "compact",
+		id: "c1",
+		session: "s1",
+		instructions: "keep the ids",
+	});
 	expect(commandOf({ command: "abort", session: "s1" })).toEqual({
 		command: "abort",
 		id: "c1",
@@ -133,7 +144,7 @@ test("CMD13 text over the entry cap is refused and saves nothing", () => {
 });
 
 test("CMD16 a command for a later slice is unsupported, and says which", () => {
-	for (const command of ["compact", "list_sessions", "list_pending", "decide_proposal"]) {
+	for (const command of ["list_sessions", "list_pending", "decide_proposal"]) {
 		const refusal = refusalOf({ command, session: "s1" });
 		expect({ command, code: refusal.code }).toEqual({ command, code: "unsupported" });
 	}

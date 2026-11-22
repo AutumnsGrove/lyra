@@ -29,6 +29,7 @@ export type Command =
 	| { command: "abort"; id: string; session: string }
 	| { command: "resume"; id: string; session: string }
 	| { command: "get_state"; id: string; session?: string }
+	| { command: "compact"; id: string; session: string; instructions?: string }
 	| {
 			command: "get_messages";
 			id: string;
@@ -40,7 +41,6 @@ export type Command =
 
 /** Commands the protocol names and this build answers `unsupported`, by slice. */
 const LATER: Readonly<Record<string, string>> = {
-	compact: "compaction arrives with step 7",
 	list_sessions: "listing every session needs an index of its own, which is not built yet",
 	list_pending: "approvals arrive in a later slice",
 	decide_proposal: "proposals arrive in a later slice",
@@ -171,6 +171,31 @@ export function decodeCommand(
 			return name.value === "steer"
 				? ok({ command: "steer", id: id.value, session: needed, text: text.value })
 				: ok({ command: "follow_up", id: id.value, session: needed, text: text.value });
+		}
+		case "compact": {
+			const needed = session.value;
+			if (needed === undefined) {
+				return bad("a compact needs a session that is a non-empty string");
+			}
+			const instructions = optionalText(frame.fields, "instructions");
+			if (!instructions.ok) {
+				return instructions;
+			}
+			const cap = options.maxTextBytes ?? DEFAULT_ENTRY_CAP_BYTES;
+			if (instructions.value !== undefined && utf8Length(instructions.value) > cap) {
+				return bad(
+					`instructions are too long: ${utf8Length(instructions.value)} bytes is over the ${cap} a command may carry`,
+				);
+			}
+			const command: Extract<Command, { command: "compact" }> = {
+				command: "compact",
+				id: id.value,
+				session: needed,
+			};
+			if (instructions.value !== undefined) {
+				command.instructions = instructions.value;
+			}
+			return ok(command);
 		}
 		case "abort":
 		case "resume": {

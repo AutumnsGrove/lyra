@@ -15,6 +15,13 @@ tenant, and a record from before that field loads without it. `ResumeRequest` ga
 `followUp`, `RuntimeOptions` and `RunConfig` gained an optional `tenant`, and `RunHandle` gained
 `pending()`, none of which an existing caller has to use.
 
+Compaction arrives with the same release: a long run summarizes its older steps
+instead of failing at the model's window, and the record keeps everything. Three
+more optional seams are new — `ModelSlot.contextWindow`, `Tool.currentState`, and
+`RunConfig.compaction` with `RunConfig.toolResultBytes` — and `Tool` gained
+`maxResultBytes` and `truncationHint`. A caller who sets none of them behaves as
+before, except that a tool result is now capped at 50 KiB as the model reads it.
+
 ### Added
 
 - `projectEvents` and `eventsAfter` in the core entry point: a record projects to the protocol's
@@ -37,6 +44,17 @@ tenant, and a record from before that field loads without it. `ResumeRequest` ga
   Object (row SCN05 in `docs/engineering-practices.md`). `examples/workers-minimal` is a real small server
   that mounts the session object, `pnpm dev` runs it, and `pnpm lyra` is a dependency-free developer client
   for the protocol (`start`, `tail`, `steer`, `follow-up`, `abort`, `resume`, `messages`).
+- Compaction: a run whose history comes too close to the model's window summarizes its older steps
+  through the same Model slot, saves a `compaction` record entry, and carries on with a view built from
+  that entry's pointer, so the record is never rewritten and replay still rebuilds tool state from every
+  saved result (rows CMP01 to CMP22 in `docs/context-size.md`, decisions 39 to 42 and 135 to 138). A
+  `compaction` event joins the protocol's events, with the entry's `seq` so a reconnect replays it.
+- The protocol's `compact` command works: with nothing running it summarizes the session's record now,
+  with a person's own instructions added for that one summary, and answers whether there was anything to
+  cut; during a run it is `busy` (row CMD20 in `docs/protocol.md`).
+- `Tool.currentState` shows the model the recipe's exact state after a compaction, `Tool.maxResultBytes`
+  and `Tool.truncationHint` shape how a big result is cut, and `ModelSlot.contextWindow` is where a host
+  says how much its model can read.
 
 ## [0.2.0] - 2026-11-21
 
@@ -88,6 +106,12 @@ Node's timer type fits; its exported `systemClock()` and `systemIds()` are uncha
 - The package's size ceiling moves from 68 KiB to 84 KiB gzipped for the OpenAI-style adapter
   (decision 123), and then to 88 KiB for the misbehaving model, cassettes and the presets (decision
   128).
+- A tool result's model-facing content is capped at 50 KiB when it arrives, or at the tool's own
+  `maxResultBytes`, with a marker and the tool's hint for getting the rest. The record now holds what
+  the model saw rather than always the whole result, and the `tool_end` event carries the same text
+  (decision 138).
+- `ModelRequest` gained an optional `purpose: "compaction"`, which an adapter may ignore, so a summary
+  call can be told apart from a turn (decision 136).
 
 ## [0.1.0] - 2026-11-19
 

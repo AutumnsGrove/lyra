@@ -36,6 +36,7 @@ Every entry has four fields: `type`, `id`, `parent`, and `ts` (the time). The he
 | fallback | The model the run moved to, the one that failed, and why (decision 58) | When the run moves |
 | recipe_updated | The pin the run is held to from now on, and the one it was held to before (REC06, REC09) | When a resume finds a new version, reworded instructions, or a tool set a person accepted |
 | note | Something worth saying that is not a turn, with a `kind` a reader skips if it does not know it. The first is `limit_unenforceable`, for a cost limit with no reported cost (decision 15) | When it happens |
+| compaction | The summary, the id of the first entry the model still sees, how many entries it stands in for, what the summary call cost, which model wrote it, whether the run or a person asked, and the hash of the instructions it used (decision 39; `context-size.md`) | When the model's view is cut |
 
 Other entry kinds are allowed. A reader skips kinds it does not know. A half-written or damaged last line is skipped and noted, never fatal (Nova does the same).
 
@@ -80,7 +81,7 @@ Some models return their reasoning text along with the answer. It is stored when
 
 ## Not discussed yet
 
-- **How much of a long run's record is sent to the model** when the record gets too large for the model's memory (trimming or summarizing). Separate topic.
+- **How much of a long run's record is sent to the model** when the record gets too large for the model's memory (trimming or summarizing). Settled in `context-size.md` (decisions 39 to 42) and built in step 7: the record keeps everything, and the model is shown a view built from the latest `compaction` entry's pointer.
 - **How long a record is kept.** Settled in decision 51: records belong to the tenant.
 - **A proposal entry** and a decision entry (decision 50). The record already allows new entry kinds.
 - **The viewer.** Built later, on top.

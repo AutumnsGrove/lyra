@@ -16,9 +16,10 @@
  */
 
 import type { RecipeStamp, ToolStamp } from "../record/entries.js";
+import { hashText } from "./hash.js";
 import type { ToolSpec } from "./model.js";
 
-const encoder = new TextEncoder();
+export { hashText };
 
 /** JSON with object keys sorted at every level, so the same value always hashes the same. */
 export function canonicalJson(value: unknown): string {
@@ -36,12 +37,6 @@ export function canonicalJson(value: unknown): string {
 	return `{${keys
 		.map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`)
 		.join(",")}}`;
-}
-
-/** SHA-256 of a text, as hex. A pin and a summary's instructions are both hashed this way. */
-export async function hashText(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(text));
-	return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** One tool's pin: its name and the hash of its name and arguments, never its description. */

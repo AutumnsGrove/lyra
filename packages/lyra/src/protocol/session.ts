@@ -26,7 +26,12 @@ import { parkedReasonOf } from "../core/events.js";
 import { isPlainObject, type JsonValue } from "../core/json.js";
 import type { ModelSlot } from "../core/model.js";
 import { fail, ok, type Result } from "../core/result.js";
-import { DEFAULT_ENTRY_CAP_BYTES } from "../core/run.js";
+import { DEFAULT_ENTRY_CAP_BYTES, entryCapBytes } from "../core/run.js";
+import {
+	compactRecord,
+	DEFAULT_KEEP_TOKENS,
+	DEFAULT_SUMMARY_INSTRUCTIONS,
+} from "../core/compaction.js";
 import { readResumeSeed, type ResumeSeed } from "../core/resume.js";
 import { createRuntime, type RunDefinition, type Runtime } from "../core/runtime.js";
 import type { RunHandle } from "../core/run-handle.js";
@@ -35,7 +40,7 @@ import { createUsageTotal } from "../core/usage.js";
 import type { RecordEntry } from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
-import { utf8Length } from "../record/truncate.js";
+import { fitEntry, utf8Length } from "../record/truncate.js";
 import type { Command } from "./commands.js";
 import { eventsAfter, projectEvents, type RecordEvent } from "./events.js";
 
@@ -305,6 +310,64 @@ export function createSession(options: SessionOptions): Session {
 		});
 	};
 
+	/**
+	 * A person asking for a compaction now (CMD20, decision 42).
+	 *
+	 * It is `busy` while a run is mid-step: the run compacts at its own gaps, and a
+	 * second summary written under it would change the view in the middle of a step.
+	 * Otherwise it summarizes the record, writes one `compaction` entry, and answers
+	 * whether there was anything to cut.
+	 */
+	const compactNow = async (
+		command: Extract<Command, { command: "compact" }>,
+		seed: ResumeSeed,
+	): Promise<Result<JsonValue>> => {
+		const header = seed.record.header;
+		if (runtime.active(header.run) !== undefined) {
+			return fail("busy", "a run is active in this session, so compaction waits for its gap");
+		}
+		const definition = options.recipes.get(header.task);
+		if (definition === undefined) {
+			return fail(
+				"not_found",
+				`this session's task "${header.task}" is not one this host runs`,
+			);
+		}
+		const settings = definition.compaction;
+		const summarizerModel = settings?.model ?? options.modelName;
+		const compacted = await compactRecord({
+			path: activePath(seed.record.entries),
+			parent: seed.record.entries.at(-1)?.id ?? null,
+			model: options.model,
+			clock: options.clock,
+			ids: options.ids,
+			instructions: settings?.instructions ?? DEFAULT_SUMMARY_INSTRUCTIONS,
+			keepTokens: settings?.keepTokens ?? DEFAULT_KEEP_TOKENS,
+			...(summarizerModel === undefined ? {} : { modelName: summarizerModel }),
+			...(command.instructions === undefined
+				? {}
+				: { extraInstructions: command.instructions }),
+		});
+		if (!compacted.ok) {
+			return fail(compacted.error.code, compacted.error.message);
+		}
+		if (compacted.value === undefined) {
+			return ok(data({ session: options.id, run: header.run, compacted: false }));
+		}
+		const fitted = fitEntry(compacted.value.entry, entryCapBytes(options.storage));
+		if (fitted.refused !== undefined) {
+			return fail("internal", fitted.refused);
+		}
+		const saved = await options.storage.append(fitted.line);
+		if (!saved.ok) {
+			return saved;
+		}
+		// The entry is in the record now, so the subscribers get the same event a
+		// reconnect would replay.
+		schedule();
+		return ok(data({ session: options.id, run: header.run, compacted: true }));
+	};
+
 	const getMessages = (
 		command: Extract<Command, { command: "get_messages" }>,
 		seed: ResumeSeed,
@@ -487,6 +550,18 @@ export function createSession(options: SessionOptions): Session {
 				return ok(data({ session: options.id, run: runId }));
 			}
 
+			// A compaction asked for while the run it would compact is mid-step is
+			// refused before the record is read: the header may not be written yet, and
+			// "there is no record" would be a worse answer than "it is busy".
+			if (command.command === "compact" && started !== undefined) {
+				if (runtime.active(started.runId) !== undefined) {
+					return fail(
+						"busy",
+						"a run is active in this session, so compaction waits for its gap",
+					);
+				}
+			}
+
 			const existing = await seedOf();
 			if (!existing.ok) {
 				return existing;
@@ -505,6 +580,8 @@ export function createSession(options: SessionOptions): Session {
 			switch (command.command) {
 				case "get_messages":
 					return getMessages(command, seed);
+				case "compact":
+					return compactNow(command, seed);
 				case "prompt":
 				case "follow_up": {
 					if (active !== undefined) {

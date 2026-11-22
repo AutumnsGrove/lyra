@@ -6,7 +6,7 @@ category: features
 
 # Context size and compaction
 
-Last updated: 2026-11-15. Everything here is decided.
+Last updated: 2026-11-21. Everything here is decided, and step 7 built it.
 
 ## The problem
 

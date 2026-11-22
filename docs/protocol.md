@@ -103,7 +103,7 @@ Dropped from Nova: `set_model`, `set_thinking`, `set_context_limit`, `set_tools`
 
 Responses are Nova's: `{type: "response", id, command, ok, data}` or `{..., ok: false, error: {code, message}}`. The error codes are Nova's eight (`bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`) plus **`conflict`**, for a reused idempotency key with different input and for a second decision on the same proposal or request.
 
-The session that does this (`src/protocol/session.ts`, decision 131) settles what the commands do when they cannot do what was asked. A task name the host does not run is `not_found`, at `start` and at a resume. A `start` into a session that already has a record is `conflict` unless it carries the same key, task and input, so a `prompt` or a `follow_up` is the second way to say anything and a client never accidentally starts a rival run. `steer` and `abort` with nothing running are `conflict`; `prompt` without `queue` during a run is `busy`; and `resume` while a run is active is `busy`. A `prompt` carrying `queue` is queued like a follow-up, and with nothing running a `prompt` and a `follow_up` do the same thing: they continue the session's record.
+The session that does this (`src/protocol/session.ts`, decision 131) settles what the commands do when they cannot do what was asked. A task name the host does not run is `not_found`, at `start` and at a resume. A `start` into a session that already has a record is `conflict` unless it carries the same key, task and input, so a `prompt` or a `follow_up` is the second way to say anything and a client never accidentally starts a rival run. `steer` and `abort` with nothing running are `conflict`; `prompt` without `queue` during a run is `busy`; `resume` and `compact` while a run is active are `busy`, because a compaction there would change the view under a step in progress. A `prompt` carrying `queue` is queued like a follow-up, and with nothing running a `prompt` and a `follow_up` do the same thing: they continue the session's record.
 
 ### Events (decision 84)
 
@@ -171,13 +171,14 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | CMD17 | `prompt` in a session | `busy` while a run is active unless `queue` is set, in which case it is queued like a follow-up; with nothing running it continues the record like a follow-up |
 | CMD18 | `get_state` in a session | The run id, its state, any parked reason, usage so far, turns, and the queued steers and follow-ups |
 | CMD19 | `steer` in a session | Read at the run's next gap; with nothing running it is `conflict` and nothing is queued |
+| CMD20 | `compact` in a session | With a run mid-step it is `busy` and nothing is written; otherwise it summarizes the record now, saving a `compaction` entry with trigger `manual` (and the person's own instructions hashed with it), and answers `{session, run, compacted: true}`; a history with nothing to cut answers `compacted: false` and writes nothing; a session with no record is `not_found` |
 | FRM01 | A line over the 2 MiB cap | Protocol error that closes the connection, as in Nova |
 | FRM02 | Bad lines, unknown frames and unknown fields | A line that is not JSON, JSON that is not an object, and a frame with no `type` are each `bad_request`; an unknown `type` is `unsupported`; an unknown field is kept and ignored; none of them is fatal |
 | FRM03 | Bytes arriving in pieces | Several lines in one chunk, one line across many chunks, `\r\n`, empty lines, a multi-byte character split across chunks and a U+2028 inside a string all come out as the lines that were sent |
 | FRM04 | The response frame | A command's result becomes `{type, id, command, ok, data}` or `{..., ok: false, error}`, a code this build does not know becomes `internal`, and anything that is not that shape is not a response |
 | CMD14 | A well-formed command | `start`, `prompt`, `steer`, `follow_up`, `abort`, `resume`, `get_state` and `get_messages` each validate into their typed shape with their fields, and a default fills in (`queue` is false) |
 | CMD15 | A bad command | A frame that is not a command, a missing or empty `id`, a field of the wrong type and a missing required field are each `bad_request` naming the field |
-| CMD16 | A command for a later slice | `compact`, `list_sessions`, `list_pending`, `decide_proposal` and any name Lyra does not know are `unsupported` with a message, never a crash |
+| CMD16 | A command for a later slice | `list_sessions`, `list_pending`, `decide_proposal` and any name Lyra does not know are `unsupported` with a message, never a crash |
 | EVT01 | Any run | Exactly one `run_end` with reason `done`, `parked`, or `failed`, and none after it |
 | EVT02 | A limit is hit | `parked` with reason `limit`, then `run_end` `parked` |
 | EVT03 | The fallback model takes over | A `fallback` event, and a record entry |
@@ -203,7 +204,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 
-The framing, command, event, HTTP and access rows above are built as far as step 6 (WebSocket rows arrive with step 8). What is **not** built is everything that waits for a person: `CMD08` to `CMD10`, `EVT04`, and `REQ01` to `REQ06` stay in `scripts/unbuilt-rows.json`, and `compact` answers `unsupported` until step 7. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as step 7 (WebSocket rows arrive with step 8). What is **not** built is everything that waits for a person: `CMD08` to `CMD10`, `EVT04`, and `REQ01` to `REQ06` stay in `scripts/unbuilt-rows.json`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 

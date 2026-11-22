@@ -40,7 +40,8 @@ import {
 } from "./events.js";
 import { reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { createUsageTotal } from "./usage.js";
-import { compareTools, describeChange, hashText, pinRecipe } from "./recipe.js";
+import { compareTools, describeChange, pinRecipe } from "./recipe.js";
+import { hashText } from "./hash.js";
 import { RETRY_DELAYS_MS } from "./retry.js";
 import type { JsonValue } from "./json.js";
 import { formatErrors, type Validation } from "./schema.js";

@@ -8,6 +8,58 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 7, wrap-up, 2026-11-21
+
+- **A testkit rule met compaction and broke.** The scripted model chose its turn by
+  the assistant messages in the request, which is what makes a request re-asked after
+  a kill get the same answer. A compaction folds older turns into one summary, so that
+  count goes *down* and the script replays a turn it already answered. Both fakes now
+  take `position: "sequence"` (with `startTurn` for a resumed script); the conversation
+  rule stays the default. A summary request is told apart by `ModelRequest.purpose`,
+  and over the wire — where no such field travels — the fake server reads "no tools"
+  as a summary, and only when it has summaries scripted, so a server without them
+  behaves exactly as it did (decision 136).
+- **`chooseCut` counts content, while the trigger counts what the provider reported.**
+  A fake that reports 800 input tokens over a 400-character history can fire the
+  trigger and still have nothing to cut, and both halves are right: the trigger is
+  about the provider's number, the cut is about the text. The long-run test reports
+  tokens that stay under the window, which is also all a provider can do — a number
+  over the window would have made the run fail `input_too_large`.
+- **The default reserve is bigger than a small test window.** With a window under
+  16,384 and no `reserveTokens` the trigger is always on, and with a tiny `keepTokens`
+  that means compacting every turn. That is decision 135's arithmetic working as
+  written, not a bug, so a test that sets a small window sets a reserve too.
+- **The compaction entry points at an entry that already exists**, and it is written
+  at the gap *after* the entries it keeps. A kill between the summary and the entry
+  leaves no trace; a kill after it leaves a complete compaction whose pointer is
+  already on the record. The first attempt pointed at the entry the next turn would
+  write, which would have lost the kept steps if a kill landed in between.
+- **The view keeps only message-bearing entries.** Statuses and notes are in the
+  record and not in the view, so `replaces` counts messages. The first version kept
+  them, and a resumed run folded one more entry than an uninterrupted one, which is
+  exactly what CMP21 caught.
+- **A summary over the entry cap is fitted before the view is rebuilt**, so the model
+  reads the summary the record holds rather than the longer one it wrote. Without it
+  a live run and its own resume would show different summaries (CMP20).
+- **A summary that is empty parks; one that fails retryably is retried.** An empty
+  answer is not an outage, so a retry would spend another call to be told nothing
+  again. A person's `compact` answers an error instead, because there is no run to
+  park (decision 137).
+- **What a summary loses:** an old tool result over 8,000 estimated tokens is cut
+  before it goes to the summarizer. The record keeps it whole, and a tool's
+  `currentState` restores exactness where a recipe can supply it, so the detail that
+  goes is the detail nobody asked to keep (decision 136).
+- **The gate**: 458 Node tests, 48 workerd, 14 fuzz/property, coverage 91.76%
+  statements and 85.33% branches, package 116,878 B of 180,224 B, the example
+  36,328 B of 45,056 B, and `matrixcheck` 309 rows (299 tested, 10 unbuilt, all
+  approvals and proposals). No ceiling moved: step 7 added about 12 KiB gzipped to the
+  package and 5 KiB to the example, both well inside decisions 129 and 134.
+- **The long run's tool results are the timeline's small ones.** "Big results" is
+  covered where it bites — CMP16 for the summary's own cap, CMP18 and CMP19 for a
+  result cut on arrival and a state that needs the part that was cut — rather than by
+  making the timeline's page bulky, which the recipe does not do. Worth revisiting if
+  the real timeline's results turn out large.
+
 ## Step 6, fix after merge, 2026-11-21
 
 - **CI caught a bad fuzz property the same hour the step merged, and the seed is why.** The generator

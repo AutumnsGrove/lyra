@@ -17,9 +17,10 @@
  * question it cannot see, and a provider refuses that (CMP02).
  */
 
-import type { Clock } from "./clock.js";
+import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, Usage } from "./model.js";
+import { hashText } from "./hash.js";
 import { RETRY_DELAYS_MS } from "./retry.js";
 import { err, fail, ok, type Result } from "./result.js";
 import type { CompactionEntry, RecordEntry } from "../record/entries.js";
@@ -509,4 +510,75 @@ export function estimateSinceLastReply(messages: readonly ConversationMessage[])
 		}
 	}
 	return last < 0 ? estimateConversation(messages) : estimateConversation(messages.slice(last));
+}
+
+/** What a manual compaction was asked to do, over a record that is not running. */
+export interface ManualCompaction {
+	/** The record's active path, oldest first. */
+	path: readonly RecordEntry[];
+	/** The id the new entry links to, which is the record's last entry. */
+	parent: string | null;
+	model: ModelSlot;
+	/** The model a host runs, when the recipe does not name its own summarizer. */
+	modelName?: string;
+	clock: Clock;
+	ids: Ids;
+	/** The summarizer's instructions: the recipe's own, or the default. */
+	instructions: string;
+	/** How much of the most recent history to keep verbatim. */
+	keepTokens: number;
+	/** A person's own words for this one summary, added to the instructions. */
+	extraInstructions?: string;
+}
+
+/**
+ * Summarize a record now, because a person asked (decision 42).
+ *
+ * It answers `undefined` when there is nothing to cut, which is not a failure: a
+ * short history is already the view. The entry it makes is not appended here, so
+ * the caller decides what a write failure means; it is `trigger: "manual"`, and a
+ * person's extra instructions are recorded by their hash like any other.
+ */
+export async function compactRecord(
+	options: ManualCompaction,
+): Promise<Result<{ entry: CompactionEntry } | undefined, ModelError>> {
+	const view = buildView(options.path);
+	const cut = chooseCut(view.entries, options.keepTokens);
+	if (cut === undefined) {
+		return ok(undefined);
+	}
+	const instructions =
+		options.extraInstructions === undefined
+			? options.instructions
+			: `${options.instructions}\n\nAdditional instructions for this summary:\n${options.extraInstructions}`;
+
+	const summarized = await summarize({
+		summarizer: {
+			model: options.model,
+			instructions,
+			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
+		},
+		material: summaryMaterial(view, cut),
+		clock: options.clock,
+		signal: new AbortController().signal,
+	});
+	if (!summarized.ok) {
+		return summarized;
+	}
+
+	return ok({
+		entry: {
+			type: "compaction",
+			id: options.ids.next("e"),
+			parent: options.parent,
+			ts: options.clock.now(),
+			summary: summarized.value.summary,
+			firstKept: cut.firstKept,
+			replaces: cut.replaces,
+			usage: summarized.value.usage,
+			model: summarized.value.model,
+			trigger: "manual",
+			instructionsHash: await hashText(instructions),
+		},
+	});
 }
