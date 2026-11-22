@@ -1085,6 +1085,8 @@ test("CMD10 two decisions at once write one, and a decision waits for no run", a
 function holdableStorage(inner: MemoryStorage) {
 	let held: (() => void) | undefined;
 	let armWhen: string | undefined;
+	let holdReadAt: number | undefined;
+	let reads = 0;
 	return {
 		slot: {
 			append: async (line: string) => {
@@ -1095,7 +1097,15 @@ function holdableStorage(inner: MemoryStorage) {
 				}
 				return inner.append(line);
 			},
-			read: () => inner.read(),
+			read: async () => {
+				reads += 1;
+				if (holdReadAt !== undefined && reads === holdReadAt) {
+					await new Promise<void>((resolve) => {
+						held = resolve;
+					});
+				}
+				return inner.read();
+			},
 			// The slot's optional shape, so a session sees the same storage it would
 			// otherwise be given.
 			...(inner.maxEntryBytes === undefined ? {} : { maxEntryBytes: inner.maxEntryBytes }),
@@ -1105,8 +1115,14 @@ function holdableStorage(inner: MemoryStorage) {
 		arm: (text: string): void => {
 			armWhen = text;
 		},
+		/** Hold the nth read from now, which is where a resume sits while it claims. */
+		holdRead: (nth: number): void => {
+			reads = 0;
+			holdReadAt = nth;
+		},
 		release: (): void => {
 			armWhen = undefined;
+			holdReadAt = undefined;
 			held?.();
 			held = undefined;
 		},
@@ -1522,4 +1538,64 @@ test("REQ05 a wake that lands during another command waits for it instead of bei
 		woken: true,
 		answered: true,
 	});
+});
+
+test("REQ05 a wake queued behind a resume is woken when the resume finishes", async () => {
+	// Only `release` wakes a waiter, so a command that clears the claim by hand would
+	// leave a queued alarm hanging — the same lost timeout by another route.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const holding = holdableStorage(inner);
+	const turns: ScriptedTurn[] = [
+		{ toolCalls: [{ id: "c1", name: "slow", args: {} }] },
+		{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+	];
+	const session = createSession({
+		id: "s1",
+		storage: holding.slot,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(turns, { clock }),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [toolTakingTime("slow", 5_000, clock), createFinishTool()],
+				},
+			],
+		]),
+	});
+	const started = valueOf(
+		await send(session, { command: "start", task: "test-task", input: "go" }),
+	) as { run: string };
+	await until(() => inner.saved().some((line) => line.includes('"name":"slow"')));
+	valueOf(await send(session, { command: "abort", session: "s1" }));
+	await until(() => inner.saved().some((line) => line.includes('"reason":"stopped"')));
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+
+	// The resume claims the record and then waits on its first read of it; a wake
+	// arriving in that window has to queue, not be dropped.
+	holding.holdRead(2);
+	const resumed = session.command(decodeCommandOf({ command: "resume", session: "s1" }));
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const waking = session.wake(started.run);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	holding.release();
+
+	const answer = await resumed;
+	expect({ resumed: answer.ok ? "" : answer.error.code, woken: (await waking).ok }).toEqual({
+		resumed: "",
+		woken: true,
+	});
+	clock.advance(5_000);
 });

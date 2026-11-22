@@ -998,7 +998,7 @@ export function createSession(options: SessionOptions): Session {
 					try {
 						return await resumeRun(seed);
 					} finally {
-						writing = undefined;
+						release();
 					}
 				}
 			}
