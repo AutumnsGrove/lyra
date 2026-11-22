@@ -62,6 +62,18 @@ export type RunEvent =
 	| (EventBase & { type: "retry"; attempt: number; delayMs: number; error: LyraError })
 	/** The run moved to another model after the first failed its retries (decision 58). */
 	| (EventBase & { type: "fallback"; from: string; to: string; reason: string })
+	/**
+	 * The run summarized its older steps and moved the model's view forward
+	 * (docs/context-size.md, decision 39). `seq` is the `compaction` entry's
+	 * position in the record, so a reconnecting client sees it too.
+	 */
+	| (EventBase & {
+			type: "compaction";
+			seq: number;
+			summary: string;
+			replaces: number;
+			trigger: "auto" | "manual";
+	  })
 	| (EventBase & {
 			type: "run_end";
 			reason: RunEndReason;

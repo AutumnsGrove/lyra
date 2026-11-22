@@ -141,6 +141,9 @@ function startProject(): Tool {
 		description: "Start the section for a repo that is on the day's list.",
 		parameters: PROJECT_INPUT,
 		safeToRepeat: true,
+		// The page is the state every tool in this recipe shares, so one of them says
+		// what it is when the run compacts (decision 40).
+		currentState: (state: TimelineState) => renderPage(state),
 		async execute(args, ctx: ToolContext<TimelineState>) {
 			if (!ctx.state.day.repos.includes(args.repo)) {
 				const real = ctx.state.day.repos.join(", ");

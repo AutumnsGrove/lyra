@@ -70,6 +70,19 @@ export interface Tool {
 	 * tool that merely borrowed the name (RCP04).
 	 */
 	finish?: true;
+	/**
+	 * The exact text to show the model after a compaction (decision 40). It reads
+	 * the recipe's rebuilt state and is never stored, so what the model sees after a
+	 * cut is as exact as the tool can make it rather than a paraphrase in a summary.
+	 */
+	currentState?(state: unknown): string | undefined;
+	/**
+	 * How much of this tool's result the model may read at once, in bytes. The
+	 * default is the run's, and a tool whose output is naturally large narrows it.
+	 */
+	maxResultBytes?: number;
+	/** How to get the rest, said after a result was cut (decision 40). */
+	truncationHint?: string;
 }
 
 /** A tool with no parameters, which is the shape `finish` and the fakes have. */
@@ -82,6 +95,12 @@ export interface DefineToolOptions<A extends JsonObject, S> {
 	safeToRepeat?: boolean;
 	execute(args: InferSchema<A>, ctx: ToolContext<S>): Promise<ToolOutcome>;
 	apply?(state: S, args: InferSchema<A>, outcome: ToolOutcome): S;
+	/** What the model should be told this recipe's state is after a compaction. */
+	currentState?(state: S): string | undefined;
+	/** This tool's own cap on what the model reads from one result, in bytes. */
+	maxResultBytes?: number;
+	/** How to get the rest of a result that was cut. */
+	truncationHint?: string;
 }
 
 export function defineTool<const A extends JsonObject, S = unknown>(
@@ -111,6 +130,16 @@ export function defineTool<const A extends JsonObject, S = unknown>(
 	};
 	if (options.safeToRepeat !== undefined) {
 		tool.safeToRepeat = options.safeToRepeat;
+	}
+	if (options.currentState !== undefined) {
+		const currentState = options.currentState;
+		tool.currentState = (state) => currentState(state as S);
+	}
+	if (options.maxResultBytes !== undefined) {
+		tool.maxResultBytes = options.maxResultBytes;
+	}
+	if (options.truncationHint !== undefined) {
+		tool.truncationHint = options.truncationHint;
 	}
 	if (apply !== undefined) {
 		tool.apply = (state, args, outcome) => {

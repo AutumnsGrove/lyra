@@ -41,6 +41,17 @@ export interface ResumeSeed {
 	turns: number;
 	/** What each reply reported, oldest first, so the totals survive a resume. */
 	usages: Usage[];
+	/**
+	 * What each summary call reported, oldest first. A summary is a call like any
+	 * other for a limit, so its cost has to survive an interruption too (CMP14).
+	 */
+	summaryUsages: Usage[];
+	/**
+	 * The input tokens the provider counted for the last request, when nothing has
+	 * cut the view since. Absent when a compaction came after that reply, because
+	 * the number then describes a conversation the cut has already shortened.
+	 */
+	lastInputTokens: number | undefined;
 	/** Active milliseconds already spent in closed segments of the run. */
 	activeMs: number;
 	/** The last status on the path. */
@@ -106,11 +117,15 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 
 	let turns = 0;
 	const usages: Usage[] = [];
+	const summaryUsages: Usage[] = [];
 	let activeMs = 0;
 	let openSegment: number | undefined;
 	let status: StatusEntry | undefined;
 	let last: RecordEntry | undefined;
 	let assistant: { entry: AssistantMessageEntry; index: number } | undefined;
+	/** Where the last reply and the last compaction sat, which decides the base. */
+	let lastReplyAt = -1;
+	let lastCompactionAt = -1;
 	let pin = loaded.value.header.recipe;
 	let taskMessage: UserMessageEntry | undefined;
 	const usedTools = new Set<string>();
@@ -134,6 +149,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 					usedTools.add(call.name);
 				}
 				assistant = { entry, index };
+				lastReplyAt = index;
 				last = entry;
 				break;
 			case "user_message":
@@ -147,6 +163,10 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				break;
 			case "recipe_updated":
 				pin = entry.to;
+				break;
+			case "compaction":
+				summaryUsages.push(entry.usage);
+				lastCompactionAt = index;
 				break;
 			case "fallback":
 			case "note":
@@ -174,6 +194,11 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		parent: loaded.value.entries.at(-1)?.id ?? null,
 		turns,
 		usages,
+		summaryUsages,
+		lastInputTokens:
+			assistant !== undefined && lastReplyAt > lastCompactionAt
+				? assistant.entry.usage.inputTokens
+				: undefined,
 		activeMs,
 		status,
 		last,

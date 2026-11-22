@@ -12,6 +12,7 @@ import {
 	createFinishTool,
 	fakeClock,
 	scriptedModel,
+	toolReturning,
 	toolTakingTime,
 	type FakeClock,
 	type ScriptedTurn,
@@ -40,11 +41,15 @@ function harness(
 	options: {
 		recipes?: ReadonlyMap<string, RunDefinition>;
 		maxPageBytes?: number;
+		summaries?: readonly ScriptedTurn[];
 	} = {},
 ): Harness {
 	const clock = fakeClock();
 	const storage = memoryStorage();
-	const model = scriptedModel(turns, { clock });
+	const model = scriptedModel(turns, {
+		clock,
+		...(options.summaries === undefined ? {} : { summaries: options.summaries }),
+	});
 	const recipe: Recipe = {
 		name: "test-task",
 		version: 1,
@@ -507,4 +512,62 @@ test("CMD03 two overlapping starts with different jobs cannot both start", async
 		"conflict",
 	]);
 	expect(storage.saved().filter((line) => line.includes('"type":"header"'))).toHaveLength(1);
+});
+
+test("CMD20 compact summarizes the record now, and is busy while a run is active", async () => {
+	const recipe: Recipe = {
+		name: "test-task",
+		version: 1,
+		instructions: "you are a test",
+		// A tiny keep budget, so a short record has something to cut.
+		compaction: { keepTokens: 1 },
+		tools: [toolReturning("read", "x".repeat(400)), createFinishTool()],
+	};
+	const { session, storage, model } = harness(
+		[
+			{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c2", name: "read", args: {} }] },
+			{ toolCalls: [{ id: "c3", name: "finish", args: {} }] },
+		],
+		() => [toolReturning("read", "x".repeat(400)), createFinishTool()],
+		{ recipes: new Map([["test-task", recipe]]), summaries: [{ text: "the summary" }] },
+	);
+	const watched = await watch(session);
+
+	valueOf(await send(session, { command: "start", task: "test-task", input: "do it" }));
+	// While the run is mid-step, a compaction would change the view under it.
+	expect(errorOf(await send(session, { command: "compact", session: "s1" })).code).toBe("busy");
+	await until(watched.done);
+
+	const compacted = valueOf(
+		await send(session, { command: "compact", session: "s1", instructions: "keep the ids" }),
+	);
+	expect(compacted).toEqual({ session: "s1", run: "r1", compacted: true });
+
+	// The entry is in the record, marked as a person's doing, and the summary's
+	// instructions carried theirs.
+	const written = storage.saved();
+	const loaded = loadRecord(written);
+	expect(loaded.ok).toBe(true);
+	const entry = loaded.ok
+		? loaded.value.entries.find((each) => each.type === "compaction")
+		: undefined;
+	expect(entry).toMatchObject({ type: "compaction", trigger: "manual", summary: "the summary" });
+	const request = model.requests.filter((each) => each.purpose === "compaction").at(0);
+	expect(request?.system).toContain("keep the ids");
+
+	// The event reaches a client the same way a reconnect would replay it.
+	expect(watched.events.filter((event) => event.type === "compaction")).toHaveLength(1);
+
+	// A second compaction has nothing left to cut, which is not a failure.
+	expect(valueOf(await send(session, { command: "compact", session: "s1" }))).toEqual({
+		session: "s1",
+		run: "r1",
+		compacted: false,
+	});
+	// A session with no record at all has nothing to compact.
+	const empty = harness([]);
+	expect(errorOf(await send(empty.session, { command: "compact", session: "s1" })).code).toBe(
+		"not_found",
+	);
 });

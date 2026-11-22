@@ -213,3 +213,33 @@ test("EVT01 an entry that is not an event adds none", () => {
 	);
 	expect(projected.map((event) => event.type)).toEqual(["run_start", "run_end"]);
 });
+
+test("EVT07 a compaction entry projects to a compaction event with its seq", () => {
+	const compaction: Entry = {
+		type: "compaction",
+		summary: "the work so far",
+		firstKept: "e1",
+		replaces: 3,
+		usage: { inputTokens: 40, outputTokens: 10 },
+		model: "test-model",
+		trigger: "auto",
+		instructionsHash: "abc123",
+	};
+	const projected = events(record(running, assistant, toolMessage, compaction, done));
+
+	const event = projected.find((each) => each.type === "compaction");
+	// The entry is the fourth, so a client reconnecting from `seq` 3 is sent it.
+	expect(event).toEqual({
+		type: "compaction",
+		seq: 3,
+		ts: T0 + 3,
+		session: "s1",
+		run: "r1",
+		summary: "the work so far",
+		replaces: 3,
+		trigger: "auto",
+	});
+	// A summary call is not a turn, so it does not change what a turn counts.
+	const end = projected.at(-1);
+	expect(end?.type === "run_end" ? end.turn : 0).toBe(1);
+});

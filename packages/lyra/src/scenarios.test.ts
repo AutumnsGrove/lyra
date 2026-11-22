@@ -52,13 +52,18 @@ for (const [path, raw] of Object.entries(files)) {
 		// and a fake server, which is the wire a host would see.
 		let asked = 0;
 		const outcome = await runScenario(decoded.value, {
-			makeModel: (turns, clock) => {
+			makeModel: (turns, clock, options) => {
 				const model = createOpenAIChatModel({
 					baseUrl: "https://fake.test/v1",
 					model: "scripted/model",
 					secrets: { get: async () => "not-a-real-key" },
 					keyName: "MODEL_KEY",
-					fetch: fakeModelServer(turns),
+					fetch: fakeModelServer(turns, {
+						...(options.summaries === undefined
+							? {}
+							: { summaries: options.summaries }),
+						...(options.position === undefined ? {} : { position: options.position }),
+					}),
 					clock,
 				});
 				return {

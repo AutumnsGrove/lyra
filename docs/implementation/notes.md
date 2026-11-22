@@ -8,6 +8,109 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 7, review round 1, 2026-11-21
+
+- **Round 3: the live path never dropped the pre-cut count.** After a live
+  compaction `lastInputTokens` still held the reply from before the cut; the next
+  reply usually replaces it, but a request whose retries run out and a recipe with a
+  `fallbackModel` `continue` back into the trigger with nothing new, and the run
+  then failed `input_too_large` on a conversation that no longer existed. The
+  compaction path clears the base where it rebuilds the view, which is the same drop
+  the resume seed makes, so the two sides agree. CMP25 pins it: a compaction, four
+  retryable failures, a fallback, and `done`.
+
+- **Round 2: the first guard threw away a current provider count.** Comparing the
+  view's own estimate with the window fixed the resume case and broke the honest
+  one — a model reporting more input tokens than the window over text that estimates
+  far smaller (dense JSON, base64, CJK, and `keepTokens` at or over the window) now
+  got the request sent instead of the stable `input_too_large`. And with the seed's
+  base dropped, `lastInputTokens + since-last-reply` counts only from the last
+  assistant message, so the summary and the kept steps were invisible to the
+  trigger. One change fixes both: the estimate is the whole view when there is no
+  base, and the base plus what arrived since when there is, with the guard back on
+  that number. Two tests pin it — a reported 5000 into a 600-token window with
+  nothing to cut fails plainly, and a resume whose summary alone is over the window
+  reports the view's own thousand tokens rather than the kept step's hundred.
+
+- **A resume after a compaction could fail `input_too_large` although the view fit.**
+  `lastInputTokens` came from the last reply's reported input tokens, but after a
+  `compaction` entry that number describes the conversation *before* the cut. Two
+  fixes, both test-first (CMP24). The seed now hands back a base only when no
+  compaction came after the last reply, so the estimate after a cut is the view's
+  own. And the `input_too_large` branch compares the real conversation's estimate
+  against the window rather than the reported base, so it cannot claim that
+  compacting cannot help when a compaction already did. The guard is the one that
+  shows: right after a cut the view has one step, so a stale base could only spend a
+  `chooseCut` call on nothing. It still matters with a big `keepTokens`, where a cut
+  can keep several steps and a stale base would immediately compact again.
+- **A summary's cost vanished on resume**, which contradicts CMP14 and LIM06: the
+  seed collected assistant usages only. It now collects a compaction's `usage` as
+  well, kept apart from the assistant usages so it never becomes the input base, and
+  both the run's totals and `get_state` add them (CMP14's resume half).
+- **The resumed view was built from every loaded entry, not the active path.** A
+  record whose chain the loader reports as broken has entries the conversation does
+  not contain, so the model was shown the pre-break history while `get_messages` and
+  `replayConversation` showed the chain. `buildView(activePath(...))` makes the two
+  the same conversation (CMP23).
+- **`cutText` could return more than the cap it was given** when the cap was smaller
+  than the marker itself: the binary search stopped at zero and returned the marker
+  alone. The cut is now silent in that case — a result over the cap a tool set is
+  worse than one without a note — and a cap that is zero, negative or fractional is
+  not a cap at all, so the next one out applies instead of emptying the result
+  (CMP18).
+
+## Step 7, wrap-up, 2026-11-21
+
+- **A testkit rule met compaction and broke.** The scripted model chose its turn by
+  the assistant messages in the request, which is what makes a request re-asked after
+  a kill get the same answer. A compaction folds older turns into one summary, so that
+  count goes *down* and the script replays a turn it already answered. Both fakes now
+  take `position: "sequence"` (with `startTurn` for a resumed script); the conversation
+  rule stays the default. A summary request is told apart by `ModelRequest.purpose`,
+  and over the wire — where no such field travels — the fake server reads "no tools"
+  as a summary, and only when it has summaries scripted, so a server without them
+  behaves exactly as it did (decision 136).
+- **`chooseCut` counts content, while the trigger counts what the provider reported.**
+  A fake that reports 800 input tokens over a 400-character history can fire the
+  trigger and still have nothing to cut, and both halves are right: the trigger is
+  about the provider's number, the cut is about the text. The long-run test reports
+  tokens that stay under the window, which is also all a provider can do — a number
+  over the window would have made the run fail `input_too_large`.
+- **The default reserve is bigger than a small test window.** With a window under
+  16,384 and no `reserveTokens` the trigger is always on, and with a tiny `keepTokens`
+  that means compacting every turn. That is decision 135's arithmetic working as
+  written, not a bug, so a test that sets a small window sets a reserve too.
+- **The compaction entry points at an entry that already exists**, and it is written
+  at the gap *after* the entries it keeps. A kill between the summary and the entry
+  leaves no trace; a kill after it leaves a complete compaction whose pointer is
+  already on the record. The first attempt pointed at the entry the next turn would
+  write, which would have lost the kept steps if a kill landed in between.
+- **The view keeps only message-bearing entries.** Statuses and notes are in the
+  record and not in the view, so `replaces` counts messages. The first version kept
+  them, and a resumed run folded one more entry than an uninterrupted one, which is
+  exactly what CMP21 caught.
+- **A summary over the entry cap is fitted before the view is rebuilt**, so the model
+  reads the summary the record holds rather than the longer one it wrote. Without it
+  a live run and its own resume would show different summaries (CMP20).
+- **A summary that is empty parks; one that fails retryably is retried.** An empty
+  answer is not an outage, so a retry would spend another call to be told nothing
+  again. A person's `compact` answers an error instead, because there is no run to
+  park (decision 137).
+- **What a summary loses:** an old tool result over 8,000 estimated tokens is cut
+  before it goes to the summarizer. The record keeps it whole, and a tool's
+  `currentState` restores exactness where a recipe can supply it, so the detail that
+  goes is the detail nobody asked to keep (decision 136).
+- **The gate**: 458 Node tests, 48 workerd, 14 fuzz/property, coverage 91.76%
+  statements and 85.33% branches, package 116,878 B of 180,224 B, the example
+  36,328 B of 45,056 B, and `matrixcheck` 309 rows (299 tested, 10 unbuilt, all
+  approvals and proposals). No ceiling moved: step 7 added about 12 KiB gzipped to the
+  package and 5 KiB to the example, both well inside decisions 129 and 134.
+- **The long run's tool results are the timeline's small ones.** "Big results" is
+  covered where it bites — CMP16 for the summary's own cap, CMP18 and CMP19 for a
+  result cut on arrival and a state that needs the part that was cut — rather than by
+  making the timeline's page bulky, which the recipe does not do. Worth revisiting if
+  the real timeline's results turn out large.
+
 ## Step 6, fix after merge, 2026-11-21
 
 - **CI caught a bad fuzz property the same hour the step merged, and the seed is why.** The generator

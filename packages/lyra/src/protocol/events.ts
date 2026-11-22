@@ -59,6 +59,17 @@ export type RecordEvent =
 			usage: Usage;
 			parkedReason?: ParkedReason;
 			detail?: string;
+	  })
+	/**
+	 * The run summarized its older steps and moved the model's view forward
+	 * (docs/context-size.md, decision 39). It comes from the `compaction` entry, so
+	 * its `seq` is that entry's and a reconnect replays it.
+	 */
+	| (EventBase & {
+			type: "compaction";
+			summary: string;
+			replaces: number;
+			trigger: "auto" | "manual";
 	  });
 
 export interface ProjectionContext {
@@ -168,6 +179,15 @@ export function projectEvents(
 					from: entry.from,
 					to: entry.to,
 					reason: entry.reason,
+				});
+				break;
+			case "compaction":
+				events.push({
+					...base,
+					type: "compaction",
+					summary: entry.summary,
+					replaces: entry.replaces,
+					trigger: entry.trigger,
 				});
 				break;
 			case "user_message":

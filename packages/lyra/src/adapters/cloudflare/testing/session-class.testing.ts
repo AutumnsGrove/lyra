@@ -148,9 +148,24 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 								...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
 								createFinishTool(),
 							],
+							...(scenario.compaction === undefined
+								? {}
+								: { compaction: scenario.compaction.settings }),
 						};
 		const scripted =
-			scenario === undefined ? scriptedByInput() : scriptedModel(scenario.model, { clock });
+			scenario === undefined
+				? scriptedByInput()
+				: scriptedModel(scenario.model, {
+						clock,
+						// A scenario that compacts is scripted by request order: the
+						// conversation's length stops counting the turns a summary folded away.
+						...(scenario.compaction === undefined
+							? {}
+							: {
+									summaries: scenario.compaction.summaries,
+									position: "sequence" as const,
+								}),
+					});
 		this.#session = createCloudflareSession(this.ctx, {
 			recipes: new Map([[taskName, definition]]),
 			// Counted here, so a test can wait for the run to reach the model without

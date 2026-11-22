@@ -42,6 +42,10 @@ export interface ScriptedToolOptions {
 	details?: JsonValue;
 	/** Records every execution, so a test can count them across a resume. */
 	executions?: Executions;
+	/** This tool's own cap on what the model reads from one result, in bytes. */
+	maxResultBytes?: number;
+	/** How to get the rest of a result that was cut (decision 40). */
+	truncationHint?: string;
 }
 
 function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptions = {}): Tool {
@@ -61,6 +65,12 @@ function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptio
 	const made: Tool = { spec, execute: counted };
 	if (options.safeToRepeat !== undefined) {
 		made.safeToRepeat = options.safeToRepeat;
+	}
+	if (options.maxResultBytes !== undefined) {
+		made.maxResultBytes = options.maxResultBytes;
+	}
+	if (options.truncationHint !== undefined) {
+		made.truncationHint = options.truncationHint;
 	}
 	return made;
 }

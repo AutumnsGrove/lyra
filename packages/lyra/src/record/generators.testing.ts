@@ -107,7 +107,7 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe",
+	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe" | "compaction",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -190,6 +190,18 @@ function entryArbitrary(
 						? { type: "recipe_updated" as const, ...base, to }
 						: { type: "recipe_updated" as const, ...base, from, to },
 				);
+		case "compaction":
+			return fc
+				.record({
+					summary: text,
+					firstKept: word,
+					replaces: fc.integer({ min: 1, max: 50 }),
+					usage: usageArbitrary(),
+					model: word,
+					trigger: fc.constantFrom("auto", "manual"),
+					instructionsHash: fc.stringMatching(/^[0-9a-f]{1,16}$/),
+				})
+				.map((rest) => ({ type: "compaction" as const, ...base, ...rest }));
 	}
 }
 
@@ -197,7 +209,16 @@ function entryArbitrary(
 export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 	return fc
 		.array(
-			fc.constantFrom("user", "assistant", "tool", "status", "note", "fallback", "recipe"),
+			fc.constantFrom(
+				"user",
+				"assistant",
+				"tool",
+				"status",
+				"note",
+				"fallback",
+				"recipe",
+				"compaction",
+			),
 			{ maxLength: 5 },
 		)
 		.chain((kinds) =>

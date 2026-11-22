@@ -16,6 +16,7 @@
 import {
 	encodeEntry,
 	type AssistantMessageEntry,
+	type CompactionEntry,
 	type RecordEntry,
 	type ToolMessageEntry,
 	type Truncation,
@@ -45,7 +46,7 @@ export interface Fitted {
 	refused?: string;
 }
 
-type TextField = "content" | "arguments" | "reasoning" | "text";
+type TextField = "content" | "arguments" | "reasoning" | "text" | "summary";
 
 interface Candidate {
 	field: TextField;
@@ -53,8 +54,13 @@ interface Candidate {
 	write(value: string): void;
 }
 
-/** The two kinds with content worth cutting: everything else is small by construction. */
-type Truncatable = AssistantMessageEntry | ToolMessageEntry;
+/**
+ * The kinds with content worth cutting: a summary is the fourth, because a model
+ * asked to summarize can answer at any length and the entry it becomes is an
+ * entry like any other (docs/context-size.md). Everything else is small by
+ * construction.
+ */
+type Truncatable = AssistantMessageEntry | ToolMessageEntry | CompactionEntry;
 
 /** The fields of an entry that may be cut, with the entry copied so the caller's is untouched. */
 function textCandidates(entry: Truncatable): Candidate[] {
@@ -66,6 +72,16 @@ function textCandidates(entry: Truncatable): Candidate[] {
 					read: () => entry.content,
 					write: (value) => {
 						entry.content = value;
+					},
+				},
+			];
+		case "compaction":
+			return [
+				{
+					field: "summary",
+					read: () => entry.summary,
+					write: (value) => {
+						entry.summary = value;
 					},
 				},
 			];
@@ -123,12 +139,83 @@ function sliceAtCodePoint(text: string, length: number): string {
 	return text.slice(0, length);
 }
 
+/**
+ * Cut a piece of text to a byte budget, with a marker saying how much went and,
+ * when the tool offers one, how to ask for the rest (decision 40).
+ *
+ * The marker's own size is counted, so the result is never over the budget the
+ * caller asked for, and a cut that lands inside a character's bytes moves back
+ * one so the text stays the text it was.
+ */
+export function cutText(
+	text: string,
+	maxBytes: number,
+	hint?: string,
+): { text: string; droppedBytes: number } | undefined {
+	const total = utf8Length(text);
+	if (total <= maxBytes) {
+		return undefined;
+	}
+	const suffix = hint === undefined || hint === "" ? "" : ` ${hint}`;
+	// Measured with the widest number the marker could carry, so the real one fits.
+	const marker = (dropped: number): string => `${markerFor(dropped)}${suffix}`;
+	const budget = (length: number): boolean =>
+		utf8Length(sliceAtCodePoint(text, length)) <= maxBytes;
+	const fits = (length: number): boolean =>
+		utf8Length(sliceAtCodePoint(text, length) + marker(Number.MAX_SAFE_INTEGER)) <= maxBytes;
+
+	// A cap smaller than the marker itself cannot carry a note. The cut is then
+	// silent: a result over the cap the tool set is worse than one without a
+	// marker, and the tool's own cap is the thing that has to hold.
+	if (!fits(0)) {
+		const kept = sliceAtCodePoint(text, largest(budget, text.length));
+		return { text: kept, droppedBytes: total - utf8Length(kept) };
+	}
+
+	let low = 0;
+	let high = text.length;
+	while (low < high) {
+		const middle = Math.ceil((low + high) / 2);
+		if (fits(middle)) {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	const kept = sliceAtCodePoint(text, low);
+	const droppedBytes = total - utf8Length(kept);
+	return { text: kept + marker(droppedBytes), droppedBytes };
+}
+
+/**
+ * The longest prefix of `length` characters that `fits` accepts, by halving. It
+ * returns 0 when nothing does, which is a cap of zero or a character that is
+ * itself over the budget.
+ */
+function largest(fits: (length: number) => boolean, length: number): number {
+	let low = 0;
+	let high = length;
+	while (low < high) {
+		const middle = Math.ceil((low + high) / 2);
+		if (fits(middle)) {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	return low;
+}
+
 export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 	const line = encodeEntry(entry);
 	if (utf8Length(line) <= maxBytes) {
 		return { entry, line };
 	}
-	if (entry.type !== "assistant_message" && entry.type !== "tool_message") {
+	if (
+		entry.type !== "assistant_message" &&
+		entry.type !== "tool_message" &&
+		entry.type !== "compaction"
+	) {
 		// A status, a user message or an unknown kind has no content to cut, and a
 		// user message this big is refused before it is ever saved.
 		return { entry, line, refused: `a ${entry.type} entry has no content to cut` };

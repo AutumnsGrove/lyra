@@ -51,6 +51,12 @@ export interface ModelRequest {
 	tools: ToolSpec[];
 	/** Lets a recipe name a fallback model (decision 58). */
 	model?: string;
+	/**
+	 * What this request is for, so an adapter and a fake can tell a summary from a
+	 * turn: a compaction asks the model about the run rather than continuing it
+	 * (docs/context-size.md, decision 40). Absent means an ordinary turn.
+	 */
+	purpose?: "compaction";
 	signal: AbortSignal;
 }
 
@@ -71,4 +77,10 @@ export interface ModelError extends LyraError {
 
 export interface ModelSlot {
 	complete(request: ModelRequest): Promise<Result<ModelReply, ModelError>>;
+	/**
+	 * How many tokens this model can read at once, when the slot knows it (decision
+	 * 41). A slot that does not say, and a recipe that does not override it, means
+	 * compaction never fires on its own: the run has no number to compare against.
+	 */
+	contextWindow?: number;
 }

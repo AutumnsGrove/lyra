@@ -257,7 +257,7 @@ test("HTP02 every error code maps to a status, and a refusal keeps its frame", a
 	const unsupported = await post(handler, "/v1/commands", {
 		type: "command",
 		id: "c2",
-		command: "compact",
+		command: "list_sessions",
 		session: "s1",
 	});
 	expect(unsupported.status).toBe(501);

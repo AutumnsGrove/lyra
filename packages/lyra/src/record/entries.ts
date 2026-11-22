@@ -63,7 +63,7 @@ export type MessageLabel = "task" | "steer" | "follow_up" | "reminder";
 
 /** What was cut to keep an entry under the cap, and how much (decision 90). */
 export interface Truncation {
-	field: "content" | "details" | "text" | "reasoning" | "arguments";
+	field: "content" | "details" | "text" | "reasoning" | "arguments" | "summary";
 	droppedBytes: number;
 }
 
@@ -156,6 +156,32 @@ export interface NoteEntry extends EntryBase {
 }
 
 /**
+ * The record moved to a shorter view of itself (docs/context-size.md, decision 39).
+ *
+ * Everything before `firstKept` is still in the record and still replayed, so a
+ * resume rebuilds the same tool state; the model is simply shown the summary and
+ * the entries from the pointer on. A second compaction summarizes the first
+ * summary and the entries between, and moves the pointer forward.
+ */
+export interface CompactionEntry extends EntryBase {
+	type: "compaction";
+	summary: string;
+	/** The id of the first entry the model still sees, which must be in the record. */
+	firstKept: string;
+	/** How many entries before the pointer the summary stands in for. */
+	replaces: number;
+	/** What the summary call itself cost, which counts toward the run's usage. */
+	usage: Usage;
+	model: string;
+	/** Whether the run compacted itself, or a person asked for it (decision 42). */
+	trigger: "auto" | "manual";
+	/** Which summarizer instructions wrote this summary, so a change is visible. */
+	instructionsHash: string;
+	/** Set when this entry was cut to fit the cap; the summary carries the marker too. */
+	truncated?: Truncation;
+}
+
+/**
  * A kind this version does not know, kept exactly as it was saved, so a record
  * written by a newer Lyra survives a reader that is older and is not rewritten
  * into something smaller. Replay skips it.
@@ -172,6 +198,7 @@ export type RecordEntry =
 	| StatusEntry
 	| FallbackEntry
 	| RecipeUpdatedEntry
+	| CompactionEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -315,6 +342,23 @@ export function encodeEntry(entry: RecordEntry): string {
 				...(entry.from === undefined ? {} : { from: stampLine(entry.from) }),
 				to: stampLine(entry.to),
 			});
+		case "compaction": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				summary: entry.summary,
+				firstKept: entry.firstKept,
+				replaces: entry.replaces,
+				usage: entry.usage,
+				model: entry.model,
+				trigger: entry.trigger,
+				instructionsHash: entry.instructionsHash,
+			};
+			if (entry.truncated !== undefined) {
+				line["truncated"] = entry.truncated;
+			}
+			return JSON.stringify(line);
+		}
 		case "unknown":
 			return entry.raw;
 	}
@@ -367,6 +411,7 @@ const TRUNCATED_FIELDS: readonly Truncation["field"][] = [
 	"text",
 	"reasoning",
 	"arguments",
+	"summary",
 ];
 
 function isTruncatedField(value: unknown): value is Truncation["field"] {
@@ -683,6 +728,55 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				return bad("a fallback entry has no reason");
 			}
 			return ok({ type, ...base, from, to, reason });
+		}
+		case "compaction": {
+			const summary = value["summary"];
+			const firstKept = value["firstKept"];
+			const replaces = value["replaces"];
+			const model = value["model"];
+			const trigger = value["trigger"];
+			const instructionsHash = value["instructionsHash"];
+			if (typeof summary !== "string") {
+				return bad("a compaction entry has no summary");
+			}
+			if (!isName(firstKept)) {
+				return bad("a compaction entry names no first entry to keep");
+			}
+			if (typeof replaces !== "number" || !Number.isSafeInteger(replaces) || replaces < 1) {
+				return bad("a compaction entry does not say how many entries it replaces");
+			}
+			if (typeof model !== "string") {
+				return bad("a compaction entry has no model");
+			}
+			if (trigger !== "auto" && trigger !== "manual") {
+				return bad("a compaction entry has a trigger this build does not know");
+			}
+			if (!isName(instructionsHash)) {
+				return bad("a compaction entry has no hash of the instructions it used");
+			}
+			const usage = decodeUsage(value["usage"]);
+			if (!usage.ok) {
+				return usage;
+			}
+			const truncation = decodeTruncation(value["truncated"]);
+			if (!truncation.ok) {
+				return truncation;
+			}
+			const entry: CompactionEntry = {
+				type,
+				...base,
+				summary,
+				firstKept,
+				replaces,
+				usage: usage.value,
+				model,
+				trigger,
+				instructionsHash,
+			};
+			if (truncation.value !== undefined) {
+				entry.truncated = truncation.value;
+			}
+			return ok(entry);
 		}
 		default:
 			return ok({ type: "unknown", ...base, raw });

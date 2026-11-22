@@ -6,7 +6,7 @@ category: features
 
 # Context size and compaction
 
-Last updated: 2026-11-15. Everything here is decided.
+Last updated: 2026-11-21. Everything here is decided, and step 7 built it.
 
 ## The problem
 
@@ -58,3 +58,39 @@ Two honest caveats. Nova's OpenCode Go catalog assumes a conservative 200,000-to
 ## Not discussed yet
 
 - **The summarizer's default instructions.** Written when it is built.
+
+## The rows compaction is built against (step 7)
+
+The cut is a pure function over the entries the model would see, and it is where
+the rule that matters lives: it never separates a tool call from its result, and
+it never cuts a history that already fits. The estimate is four characters to a
+token, a smoke alarm rather than billing (decision 41), so the rows here ask about
+boundaries and pointers rather than about exact counts.
+
+| ID | Case | Expected |
+|---|---|---|
+| CMP01 | Happy: a normal cut | A history of several steps and a budget for the last of them cuts at a step boundary that keeps the most recent work inside the budget, and `replaces` counts the entries before it; a budget that lands between a call and its result moves back to the call |
+| CMP02 | Property: any history, any budget | A history that already fits gives no cut; otherwise the cut starts a whole step, keeps every result with its call, fits the budget or is the last step because nothing later would fit |
+| CMP03 | Empty and one-step histories | An empty history, and a history with one step, give no cut however small the budget |
+| CMP04 | A history of huge steps | A history where every step is over the budget still cuts at a step boundary, keeping the last whole step |
+| CMP05 | `firstKept` always exists | For any generated history that cuts, `firstKept` names an entry in that history, at the position the cut reports |
+| CMP06 | Happy: the view | The conversation is the latest summary, then each tool's current state, then the entries from the pointer on, in that order, with the instructions left as the system text; a record with no compaction is the whole conversation, unchanged |
+| CMP07 | Happy: replay after a compaction | Replaying the full record rebuilds the recipe's state exactly as the live run had it, because every tool message is applied, including those the summary stands in for |
+| CMP08 | A second compaction | The view shows only the newest summary and the entries after its pointer, and the material the second summary is written from begins with the first summary and covers only the steps it never saw |
+| CMP09 | Bad: a future field | A compaction entry carrying a field this build does not know loads with its known fields intact, and the field is dropped rather than carried along unread |
+| CMP10 | Happy: the trigger | A run with a known window compacts when the last reply's reported input tokens plus a four-characters-to-a-token estimate for what arrived since passes the window minus the reserve, and not when it does not; the record, the event and the next request all show it |
+| CMP11 | No known window | A model slot with no `contextWindow` and a recipe with none never compact on their own, however long the run, and a slot that reports one does |
+| CMP12 | Sad: the summary call fails | The run parks `model_unavailable` with detail `compaction_failed`, nothing is written that a summary would stand for, and a person's resume tries again |
+| CMP13 | Sad: an empty summary | A summary that is empty or only whitespace parks the run the same way, because continuing on it would have lost the history |
+| CMP14 | The summary's usage counts | The tokens the summary spent are in the run's usage and count toward its token limit, so the limit is reached a turn earlier than without it, and a resume reports the same spend the uninterrupted run did |
+| CMP15 | Bad: the input cannot fit | The run fails with `bad_request`, the message names `input_too_large` with the estimate and the window, the closing status keeps the detail, and no model request is made: whether it is the first message alone, or a last reply the provider already counted as over the window even though the text looks short |
+| CMP16 | Oversized older results | A result over the per-entry cap is cut for the summary call with a marker saying so, and the record keeps the whole result the model saw |
+| CMP17 | Happy: the tool's current state | After a compaction the view carries exactly what the tool's `currentState` returns, in its own message after the summary, and the text is never stored: it is rebuilt from the record when it is needed |
+| CMP18 | Happy: a result over the cap | A result larger than the cap is cut when it arrives, with a marker giving the bytes dropped and the tool's hint for getting the rest; the record, the event and the next request all carry what the model saw, and the entry records the count. A cap smaller than the marker itself is still honoured, with the cut silent, and a cap that is not a whole number over zero is not a cap at all |
+| CMP19 | A tool's state needs what the cap cut | A recipe whose state depends on a capped part keeps what it needs in `details`, so a live run and one replayed from the record build the same state |
+| CMP20 | A summary over the entry cap | A summary long enough to pass one entry's cap is saved truncated with the marker, the view after the cut shows the summary the record holds rather than the longer one the model wrote, and the run goes on |
+| CMP21 | Property: killed during a compaction | Killed before and after every append of a run that compacts, the resume reaches `done`, the record is the one the uninterrupted run wrote, every tool result is still there, and the conversation it replays is the same |
+| CMP22 | A long run that compacts several times | A run of eleven turns and a small window compacts more than twice, ends `done`, builds the same page as the same script with no compaction, and each summary after the first updates the one before it |
+| CMP23 | Bad: a broken chain | A resume of a record whose chain the loader reports as broken builds its view from the active path, so the model is shown the conversation `replayConversation` reports and never an entry the path does not hold |
+| CMP25 | A compaction, then a fallback | A run that compacts and then moves to its fallback model after a reply's retries run out keeps going: the count from before the cut is dropped when the view is rebuilt, live as well as on a resume, so the trigger measures the view rather than the conversation that is gone |
+| CMP24 | A resume whose record ends at a compaction | A resume right after a compaction goes on instead of failing `input_too_large`, because the last reply's reported input tokens describe the conversation before the cut; it does not compact again when the view it was given already fits; and with no reported count to lean on, a view whose summary alone is over the window fails plainly rather than sending it |
