@@ -21,7 +21,7 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 2 | [`02-limits-retries-resume.md`](02-limits-retries-resume.md) | Lyra | 1b merged | merged |
 | 3 | [`03-recipes-and-tools.md`](03-recipes-and-tools.md) | Lyra | step 2 merged | merged |
 | 4 | [`04-cloudflare-adapter.md`](04-cloudflare-adapter.md) | Lyra | step 3 merged | merged |
-| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and it blocks nothing that is left |
+| 5 | [`05-openai-adapter.md`](05-openai-adapter.md) (Lyra half, two PRs), [`lattice-briefs.md`](lattice-briefs.md) (Lumen half) | Lyra, Lattice | step 3 merged; the Lumen half needs step 0 and a published Lyra | Lyra half merged (PR A `a74cbd4`, PR B `a7b4d8c`); the Lumen half is open, and step 9 needs it |
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
@@ -52,8 +52,9 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
   own. **WSK13 (an eviction mid-run with a socket open) and WSK15 (a backed-up reader)
   are not written**: both hang in this harness rather than failing, and `notes.md`
   records what was tried; the backpressure code is in and untested there. Next is step
-  9, the timeline task, which is Lattice work against the published package, and after
-  it nothing in `first-slice.md` is left.
+  9, the timeline task, which is Lattice work against the published package and needs the
+  Lumen adapter, so it waits on the open half of step 5. Nothing else in `first-slice.md`
+  is left.
 
 - **The approvals and proposals slice is merged**, pull request #27, merge commit
   `6970a1e`, after six review rounds: a tool's policy and risk with the check before
