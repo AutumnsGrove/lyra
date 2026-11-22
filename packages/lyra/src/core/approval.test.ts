@@ -21,7 +21,9 @@ import {
 } from "./approval.js";
 import { runTask } from "./run.js";
 import { NO_PARAMETERS, defineTool } from "./tool.js";
-import { counterIds, memoryStorage } from "../adapters/memory/index.js";
+import { counterIds, memoryStorage, memoryWaking } from "../adapters/memory/index.js";
+import { createRuntime } from "./runtime.js";
+import { drive } from "./run-harness.testing.js";
 import type { Tool } from "./tool.js";
 
 /** The rows are in `docs/approvals.md`, "The rows approvals is built against". */
@@ -283,4 +285,211 @@ test("APR05 the policy's own rule, read on its own", () => {
 	expect(deniedOutcome("why").isError).toBe(true);
 	expect(deniedByRecipe(made({}))).toContain("act");
 	expect(deniedWithoutAPerson(made({}))).toContain("approval");
+});
+
+/** The record with a person's answer appended, as the session would write it. */
+function withAnswer(
+	lines: readonly string[],
+	request: string,
+	decision: "approve" | "deny",
+	note?: string,
+): string[] {
+	const last = lines.at(-1);
+	if (last === undefined) {
+		throw new Error("there is no record to answer");
+	}
+	const parent = JSON.parse(last) as { id?: string };
+	const entry: Record<string, unknown> = {
+		type: "request_answered",
+		id: "e_answer",
+		parent: parent.id ?? null,
+		ts: 100,
+		request,
+		decision,
+	};
+	if (note !== undefined) {
+		entry["note"] = note;
+	}
+	return [...lines, JSON.stringify(entry)];
+}
+
+const askingTurns: ScriptedTurn[] = [
+	{ toolCalls: [{ id: "c1", name: "write", args: {} }] },
+	{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+];
+
+test("APR07 an approved call runs on the resume, and its result is the model's", async () => {
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote one line", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const run = harness(tools, askingTurns);
+	const parked = await run.run({ canAsk: true });
+	expect(parked.reason).toBe("parked");
+
+	const lines = run.storage.saved();
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+	const restarted = scriptedModel(askingTurns, { clock: run.clock });
+	const resumed = await run.run({
+		canAsk: true,
+		model: restarted,
+		resume: { lines: withAnswer(lines, request.request, "approve"), by: "person" },
+	});
+
+	expect(resumed.reason).toBe("done");
+	expect(executions.count("c1")).toBe(1);
+	// The model read the result, which is what an approval buys.
+	const asked = restarted.requests
+		.at(-1)
+		?.messages.find((message) => message.role === "tool" && message.toolCallId === "c1");
+	expect(asked?.role === "tool" ? asked.content : "").toBe("wrote one line");
+});
+
+test("APR08 a deny's note is what the model reads", async () => {
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote one line", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const run = harness(tools, askingTurns);
+	await run.run({ canAsk: true });
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+
+	const resumed = await run.run({
+		canAsk: true,
+		model: scriptedModel(askingTurns, { clock: run.clock }),
+		resume: {
+			lines: withAnswer(
+				run.storage.saved(),
+				request.request,
+				"deny",
+				"use the staging branch",
+			),
+			by: "person",
+		},
+	});
+
+	expect(resumed.reason).toBe("done");
+	// Nothing ran, and the person's own words are the result the model corrects from.
+	expect(executions.count("c1")).toBe(0);
+	const entries = await entriesOf(run.storage);
+	const result = entries.find((entry) => entry.type === "tool_message");
+	expect(result?.type === "tool_message" ? result.isError : false).toBe(true);
+	expect(result?.type === "tool_message" ? result.content : "").toContain(
+		"use the staging branch",
+	);
+});
+
+test("APR05 the calls after an answered one still meet their own policy", async () => {
+	// An approval covers the call it named. The calls the batch held are run after
+	// it, and one of them can ask again.
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote", { policy: "ask", executions }),
+		toolReturning("send", "sent", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{ id: "c1", name: "write", args: {} },
+				{ id: "c2", name: "send", args: {} },
+				{ id: "c3", name: "finish", args: {} },
+			],
+		},
+	];
+	const run = harness(tools, turns);
+	await run.run({ canAsk: true });
+	const first = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (first?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+
+	const second = await run.run({
+		canAsk: true,
+		model: scriptedModel(turns, { clock: run.clock }),
+		resume: { lines: withAnswer(run.storage.saved(), first.request, "approve"), by: "person" },
+	});
+	// The first call ran; the second parked rather than running unasked.
+	expect(executions.count("c1")).toBe(1);
+	expect(executions.count("c2")).toBe(0);
+	expect(second.reason).toBe("parked");
+	expect(second.parkedReason).toBe("waiting_for_person");
+	const requests = (await entriesOf(run.storage)).filter((entry) => entry.type === "request");
+	expect(requests).toHaveLength(2);
+});
+
+test("APR11 a request past its timeout is denied, and the record says it expired", async () => {
+	const executions = executionCounter();
+	const tools = [
+		toolReturning("write", "wrote", { policy: "ask", executions }),
+		createFinishTool(),
+	];
+	const run = harness(tools, askingTurns);
+	await run.run({ canAsk: true, approvals: { timeoutMs: 1_000 } });
+	const request = (await entriesOf(run.storage)).find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("the run did not ask");
+	}
+	expect(request.timeoutMs).toBe(1_000);
+
+	// Time passes with no answer, and a resume finds the request expired.
+	run.clock.advance(2_000);
+	const resumed = await run.run({
+		canAsk: true,
+		model: scriptedModel(askingTurns, { clock: run.clock }),
+		resume: { lines: run.storage.saved(), by: "wake" },
+	});
+
+	expect(resumed.reason).toBe("done");
+	expect(executions.count("c1")).toBe(0);
+	const entries = await entriesOf(run.storage);
+	const answer = entries.find((entry) => entry.type === "request_answered");
+	expect(answer).toMatchObject({ type: "request_answered", decision: "deny", timedOut: true });
+});
+
+test("APR11 a request's timeout becomes a wake, through the runtime", async () => {
+	// The host's alarm is what denies an unanswered request: the run itself is
+	// parked and costs nothing while it waits (decisions 23, 37).
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const waking = memoryWaking();
+	const runtime = createRuntime({
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(askingTurns, { clock }),
+		host: "test-host",
+		waking: waking.slot,
+		canAsk: true,
+	});
+	const started = runtime.start({
+		runId: "run-1",
+		task: "test-task",
+		input: "go",
+		definition: {
+			name: "test-task",
+			version: 1,
+			instructions: "you are a test",
+			tools: [toolReturning("write", "wrote", { policy: "ask" }), createFinishTool()],
+			approvals: { timeoutMs: 30_000 },
+		},
+	});
+	expect(started.ok).toBe(true);
+	if (!started.ok) {
+		return;
+	}
+	// `canAsk` is the host's to set, and the runtime passes the definition's settings.
+	const outcome = await drive(clock, started.value.outcome, 1_000);
+	expect(outcome.reason).toBe("parked");
+
+	const scheduled = waking.scheduled();
+	expect(scheduled.some((wake) => wake.runId === "run-1")).toBe(true);
 });

@@ -186,6 +186,18 @@ export interface RequestEntry extends EntryBase {
 	truncated?: Truncation;
 }
 
+/** What a person decided about a request (docs/approvals.md, decision 34). */
+export interface RequestAnsweredEntry extends EntryBase {
+	type: "request_answered";
+	/** The `request` id from the request entry. */
+	request: string;
+	decision: "approve" | "deny";
+	/** What the person said, which the model reads on a deny (decision 34). */
+	note?: string;
+	/** Set when nobody answered and the request's timeout decided (decision 37). */
+	timedOut?: boolean;
+}
+
 /**
  * The record moved to a shorter view of itself (docs/context-size.md, decision 39).
  *
@@ -231,6 +243,7 @@ export type RecordEntry =
 	| RecipeUpdatedEntry
 	| CompactionEntry
 	| RequestEntry
+	| RequestAnsweredEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -420,6 +433,21 @@ export function encodeEntry(entry: RecordEntry): string {
 			}
 			if (entry.truncated !== undefined) {
 				line["truncated"] = entry.truncated;
+			}
+			return JSON.stringify(line);
+		}
+		case "request_answered": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				request: entry.request,
+				decision: entry.decision,
+			};
+			if (entry.note !== undefined) {
+				line["note"] = entry.note;
+			}
+			if (entry.timedOut === true) {
+				line["timedOut"] = true;
 			}
 			return JSON.stringify(line);
 		}
@@ -911,6 +939,32 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 			}
 			if (truncation.value !== undefined) {
 				entry.truncated = truncation.value;
+			}
+			return ok(entry);
+		}
+		case "request_answered": {
+			const request = value["request"];
+			const decision = value["decision"];
+			const note = value["note"];
+			const timedOut = value["timedOut"];
+			if (!isName(request)) {
+				return bad("a request_answered entry names no request");
+			}
+			if (decision !== "approve" && decision !== "deny") {
+				return bad("a request_answered entry has a decision this build does not know");
+			}
+			if (note !== undefined && typeof note !== "string") {
+				return bad("a request_answered entry has a note that is not text");
+			}
+			if (timedOut !== undefined && typeof timedOut !== "boolean") {
+				return bad("a request_answered entry has a timeout marker that is not a boolean");
+			}
+			const entry: RequestAnsweredEntry = { type, ...base, request, decision };
+			if (note !== undefined) {
+				entry.note = note;
+			}
+			if (timedOut === true) {
+				entry.timedOut = true;
 			}
 			return ok(entry);
 		}

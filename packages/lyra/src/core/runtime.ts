@@ -54,6 +54,11 @@ export interface RuntimeOptions {
 	/** Whose session this runtime serves, written on every record it starts. */
 	tenant?: string;
 	/**
+	 * Whether a person can be reached to answer a request (decision 35). A session
+	 * sets it, because a session is where a person is; a bare runtime leaves it off.
+	 */
+	canAsk?: boolean;
+	/**
 	 * How a host wakes a run whose process died. The runtime schedules one ahead as
 	 * each step begins, re-arms it, and cancels it when the run ends, so an accident
 	 * resumes on its own (decisions 12, 23).
@@ -151,14 +156,28 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		if (waking === undefined) {
 			return;
 		}
+		/** Whether the run's last act was asking a person with a timeout, whose wake must survive the park. */
+		let timeoutPending = false;
 		handle.subscribe((event) => {
 			if (event.type === "turn_start") {
 				void waking
 					.schedule(runId, options.clock.now() + wakeAfterMs)
 					.catch(() => undefined);
 			}
+			if (event.type === "request" && event.timeoutMs !== undefined) {
+				// A request nobody answers is denied when its timeout passes, so the host
+				// arranges that wake now and the run keeps costing nothing (decision 37).
+				// It is the one wake a park must not cancel, or nothing would fire.
+				timeoutPending = true;
+				void waking
+					.schedule(runId, options.clock.now() + event.timeoutMs)
+					.catch(() => undefined);
+			}
 			if (event.type === "run_end") {
-				void waking.cancel(runId).catch(() => undefined);
+				if (!timeoutPending) {
+					void waking.cancel(runId).catch(() => undefined);
+				}
+				timeoutPending = false;
 			}
 		});
 	};
@@ -203,6 +222,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				: { fallbackModel: definition.fallbackModel }),
 			...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
 			...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
+			...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
+			...(options.canAsk === true ? { canAsk: true } : {}),
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(extra.resume === undefined ? {} : { resume: extra.resume }),
 		};
@@ -301,6 +322,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				...(definition.compaction === undefined
 					? {}
 					: { compaction: definition.compaction }),
+				...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
+				...(options.canAsk === true ? { canAsk: true } : {}),
 				...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			};
 			const handle = createRun(setup);

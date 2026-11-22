@@ -45,6 +45,9 @@ stops the batch rather than being guessed at.
 | APR04 | Sad: nothing can deliver the question | A run with nobody to ask (`canAsk` false) denies the call instead of parking, which is decision 35's "it is denied" |
 | APR05 | The policy's order | A risk label of `changes` or `dangerous` asks and `reads` does not; a tool's own policy wins over its label; and a batch stops at the first call that needs an answer, leaving the calls after it unanswered |
 | APR06 | A tool that says nothing | It is allowed, because silence meaning "ask" would stop every recipe built before this slice |
+| APR07 | Happy: an approved call | The call runs on the resume, once, and its result is what the model reads next |
+| APR08 | Sad: a denied call with a note | The call never runs, and the person's own words are in the error result the model corrects from |
+| APR11 | Sad: a timeout | A request past its `timeout_ms` is denied by the clock, the record says it expired rather than that a person decided, the host had a wake scheduled for it, and a wake does not overrule the park before then |
 
 ## Not discussed yet
 

@@ -20,6 +20,7 @@ import type {
 	AssistantMessageEntry,
 	RecipeStamp,
 	RecordEntry,
+	RequestAnsweredEntry,
 	RequestEntry,
 	StatusEntry,
 	UserMessageEntry,
@@ -76,6 +77,8 @@ export interface ResumeSeed {
 	 * answer is on the record, a resume has nothing to continue with (decision 34).
 	 */
 	pendingRequest: RequestEntry | undefined;
+	/** What a person decided about that request, once the record holds it. */
+	answer: RequestAnsweredEntry | undefined;
 	/**
 	 * The task's input as JSON, from the `task` message's details, so a resume can run
 	 * the recipe's `setup` again. Absent on a record written before step 3, and on one
@@ -134,6 +137,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let lastCompactionAt = -1;
 	let pin = loaded.value.header.recipe;
 	let pendingRequest: RequestEntry | undefined;
+	let answer: RequestAnsweredEntry | undefined;
 	let taskMessage: UserMessageEntry | undefined;
 	const usedTools = new Set<string>();
 
@@ -173,6 +177,12 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				break;
 			case "request":
 				pendingRequest = entry;
+				answer = undefined;
+				break;
+			case "request_answered":
+				if (pendingRequest?.request === entry.request) {
+					answer = entry;
+				}
 				break;
 			case "compaction":
 				summaryUsages.push(entry.usage);
@@ -217,6 +227,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		finished: last?.type === "tool_message" && last.done === true,
 		pin,
 		pendingRequest,
+		answer,
 		input: inputOf(taskMessage),
 	});
 }

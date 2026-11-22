@@ -65,6 +65,7 @@ import {
 	RECORD_VERSION,
 	encodeEntry,
 	encodeHeader,
+	type RequestAnsweredEntry,
 	type AssistantMessageEntry,
 	type CompactionEntry,
 	type FallbackEntry,
@@ -680,7 +681,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		if (requestTimeoutMs !== undefined) {
 			request.timeoutMs = requestTimeoutMs;
 		}
-		await append(request);
+		const seq = await append(request);
+		emit({
+			type: "request",
+			run: runId,
+			ts: clock.now(),
+			seq,
+			request: request.request,
+			callId: call.id,
+			...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+		});
 		return request.request;
 	};
 
@@ -795,8 +805,43 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	 * an unknown outcome and never repeated, because the record cannot tell a tool
 	 * that never started from one that changed something and then died (decision 24).
 	 */
-	const answerUnanswered = async (seed: ResumeSeed): Promise<void> => {
-		for (const call of seed.unansweredCalls) {
+	const answerUnanswered = async (
+		seed: ResumeSeed,
+		decided: RequestAnsweredEntry | undefined,
+	): Promise<void> => {
+		// The call a request named, and every call after it, never ran: the batch
+		// stopped there rather than guessing. A person's decision settles them, and an
+		// approval covers only the call it named, so the rest meet their own policy.
+		const asked = seed.pendingRequest?.callId;
+		const heldFrom =
+			asked === undefined ? -1 : seed.unansweredCalls.findIndex((call) => call.id === asked);
+
+		for (const [index, call] of seed.unansweredCalls.entries()) {
+			if (heldFrom >= 0 && index >= heldFrom) {
+				if (decided === undefined) {
+					// Nothing has decided yet, which a resume should have caught before
+					// reaching here; answering nothing keeps the record honest.
+					continue;
+				}
+				if (decided.decision === "deny") {
+					const note =
+						decided.note === undefined
+							? ""
+							: `, and said: ${decided.note.slice(0, 500)}`;
+					await answerWithoutRunning(
+						call,
+						`a person denied this call${note === "" ? "" : note}`,
+					);
+					continue;
+				}
+				// The person approved the call the request named: it runs, and everything
+				// the batch held behind it runs through the policy as usual.
+				if (index === heldFrom) {
+					await runOne([call]);
+					await runBatch(seed.unansweredCalls.slice(heldFrom + 1));
+					return;
+				}
+			}
 			const tool = tools.get(call.name);
 			if (tool !== undefined && tool.safeToRepeat === true) {
 				await runBatch([call]);
@@ -1408,8 +1453,32 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					return undefined;
 				};
 
-				const recorded = recordedOutcome(seed, config.resume.by);
 				const waiting = seed.pendingRequest;
+				let decided = seed.answer;
+				if (
+					waiting !== undefined &&
+					decided === undefined &&
+					waiting.timeoutMs !== undefined &&
+					clock.now() >= waiting.ts + waiting.timeoutMs
+				) {
+					// Nobody answered before the request's timeout, so it resolves to deny
+					// and the record says the clock decided, not a person (decision 37).
+					decided = {
+						type: "request_answered",
+						id: config.ids.next("e"),
+						parent,
+						ts: clock.now(),
+						request: waiting.request,
+						decision: "deny",
+						note: "no answer arrived before the request's timeout",
+						timedOut: true,
+					};
+					await append(decided);
+				}
+				// A decision means the run goes on: a timeout's wake is not the accident
+				// rule's business (decision 23), it is the clock answering.
+				const recorded =
+					decided === undefined ? recordedOutcome(seed, config.resume.by) : undefined;
 				const current =
 					config.recipe === undefined
 						? undefined
@@ -1421,7 +1490,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							});
 				const change = recipeChangeParked(seed, current);
 
-				if (waiting !== undefined) {
+				if (waiting !== undefined && decided === undefined) {
 					// The run is waiting for a person, and there is no answer on the
 					// record yet. Nothing is written and nothing is guessed: it parks
 					// again, and stays parked until someone decides (decision 34).
@@ -1492,7 +1561,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					}
 					await saveStatus("resumed");
 					activeSince = clock.now();
-					await answerUnanswered(seed);
+					await answerUnanswered(seed, decided);
 					// The follow-up comes after any unanswered call is answered, so the
 					// conversation never puts a person's message between a call and its result.
 					if (config.resume.followUp !== undefined) {
@@ -1506,11 +1575,22 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						};
 						await append(message);
 					}
-					// A repeated safe call may itself have passed the done-check (a
-					// finish is safe to repeat for exactly this reason).
-					result = finishedRun
-						? { reason: "done", usage: usageTotal.total(), turns }
-						: await loop();
+					if (waitingRequest !== undefined) {
+						// A call the batch held needs a person of its own, so the resume stops
+						// there rather than asking the model for a turn it cannot act on.
+						result = {
+							reason: "parked",
+							parkedReason: "waiting_for_person",
+							usage: usageTotal.total(),
+							turns,
+						};
+					} else if (finishedRun) {
+						// A repeated safe call may itself have passed the done-check (a finish
+						// is safe to repeat for exactly this reason).
+						result = { reason: "done", usage: usageTotal.total(), turns };
+					} else {
+						result = await loop();
+					}
 				}
 			}
 		} else {
