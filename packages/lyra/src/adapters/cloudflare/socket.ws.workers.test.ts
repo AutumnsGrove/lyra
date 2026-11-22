@@ -735,8 +735,9 @@ test("WSK02 no events flow before the hello exchange", async () => {
 });
 
 test("WSK09 the cursor the hello saves is where the replay reached, not where it began", async () => {
-	// The greeting is written after the replay, so a wake must not replay the record
-	// the client already has: a stale `seq` would deliver those events twice.
+	// The greeting is saved before the replay, and the replay moves `seq`, so a wake
+	// resumes from where delivery reached: a cursor left where the replay began would
+	// deliver the same events twice.
 	const session = await startOn(env.SESSION.newUniqueId().toString());
 	const socket = await upgraded(session, 0);
 	const replay = drainUntil(socket, "run_end");
