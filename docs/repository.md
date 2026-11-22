@@ -84,7 +84,7 @@ Read from `.github/workflows/release.yml`, `scripts/release-notes/`, and `AGENTS
 - **It can never block a release.** Every step before publishing is allowed to fail. If the agent fails, times out, or returns something unusable, the changelog section becomes the body, and if there is no section either, the release publishes with no body. The exit status says which body you got.
 - **There is a dry run.** A manual workflow run does everything except publishing, and shows the body in the job summary and as an artifact, so the path is exercised before a tag exists.
 - **The prompt has hard rules:** never invent a number, version, file, or change; omit anything the evidence does not ground; keep every upgrade note; at most 20 bullets; no mention of the model or the process.
-- **PR review is separate.** `pi-review` is an extension in your `pi-extensions` repo. It provisions a credential and an identity, commits a workflow generated from `.github/pi-review.json`, and runs the same agent on pull requests.
+- **PR review is separate, and there are two of them.** `pi-review` is an extension in your `pi-extensions` repo. It provisions a credential and an identity, commits a workflow generated from `.github/pi-review.json`, and runs the same agent on pull requests. `.github/workflows/claude-code-review.yml` is the second reader: a prompt written for this repository rather than a general one, checked in as part of the review, posting one comment. It finishes first, by minutes, and a push cancels the slower one, so both are read before the next push (decision 144).
 
 ### How it would be adapted for Lyra
 

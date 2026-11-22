@@ -131,7 +131,11 @@ Live tests call a real model. They are opt-in, never run in CI, and every one ha
 
 ## Commits and pull requests
 
-Commits are semantic and one line (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`), one concern each, green at every commit, citing the issue. A pull request says what it does and why, and what is unfinished. `pi-review` reviews pull requests from this repository.
+Commits are semantic and one line (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`), one concern each, green at every commit, citing the issue. A pull request says what it does and why, and what is unfinished.
+
+**Two reviewers read every pull request, and the slow one still counts.** `claude-review` runs the prompt in `.github/workflows/claude-code-review.yml` and finishes in well under a minute. `pi-review` (the `review` job) reads the same diff for longer: a minute to a few, twenty allowed inside a 33-minute job, and longer on a cold run while it installs dependencies. Both leave their findings on the thread, and both are worth reading.
+
+The trap is the concurrency group every workflow here carries: a push restarts both reviews and cancels the run in flight. So a push made the moment Claude's review lands cancels `pi-review` mid-read, and the next push does it again — a pull request can go through several rounds, every check green, without the second opinion ever arriving. **Wait for both before pushing again**, collect their findings into one push rather than one push per finding, and read the thread rather than only the check: a review job's check can be green before its comment appears. If `pi-review` has not posted about half an hour after the push, it will not, and the pull request should say so rather than wait. A red `gate` is the exception, because both reviewers are then reading a tree that does not build.
 
 ## Releasing
 
