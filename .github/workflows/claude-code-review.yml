@@ -13,14 +13,19 @@ name: Claude Code Review
 # token with `contents: write`, which would quietly outrank that block. The
 # tool list in `claude_args` is strict on top of it (`--permission-mode
 # default` denies whatever it does not name), though the `gh pr comment` rule
-# itself is not scoped to one pull request.
+# itself is not scoped to one pull request. The read tools are the three the
+# prompt actually needs — Read, Grep and Glob — and no shell command that could
+# read one, so there is no `cat`, `rg` or `ls` in the list.
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
 # A push replaces the review it superseded, as `ci.yml` and `pi-review.yml`
 # do. Two reviews of the same pull request report on the same commit, and the
-# older one is answering a question nobody is asking any more.
+# older one is answering a question nobody is asking any more. A run cancelled
+# after it has already posted leaves its comment on the thread; the push that
+# cancelled it is the run that reads the new head, so the cost is a stale
+# comment rather than a commit nobody read.
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -211,4 +216,4 @@ jobs:
           claude_args: >-
             --max-turns 40
             --permission-mode default
-            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git log:*),Bash(rg:*),Bash(cat:*),Bash(ls:*)"
+            --allowedTools "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
