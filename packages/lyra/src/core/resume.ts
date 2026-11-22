@@ -20,6 +20,7 @@ import type {
 	AssistantMessageEntry,
 	RecipeStamp,
 	RecordEntry,
+	RequestEntry,
 	StatusEntry,
 	UserMessageEntry,
 } from "../record/entries.js";
@@ -70,6 +71,11 @@ export interface ResumeSeed {
 	finished: boolean;
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
+	/**
+	 * The request the run is waiting on, when it is waiting for a person. Until the
+	 * answer is on the record, a resume has nothing to continue with (decision 34).
+	 */
+	pendingRequest: RequestEntry | undefined;
 	/**
 	 * The task's input as JSON, from the `task` message's details, so a resume can run
 	 * the recipe's `setup` again. Absent on a record written before step 3, and on one
@@ -127,6 +133,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 	let lastReplyAt = -1;
 	let lastCompactionAt = -1;
 	let pin = loaded.value.header.recipe;
+	let pendingRequest: RequestEntry | undefined;
 	let taskMessage: UserMessageEntry | undefined;
 	const usedTools = new Set<string>();
 
@@ -163,6 +170,9 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 				break;
 			case "recipe_updated":
 				pin = entry.to;
+				break;
+			case "request":
+				pendingRequest = entry;
 				break;
 			case "compaction":
 				summaryUsages.push(entry.usage);
@@ -206,6 +216,7 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		unansweredCalls,
 		finished: last?.type === "tool_message" && last.done === true,
 		pin,
+		pendingRequest,
 		input: inputOf(taskMessage),
 	});
 }

@@ -107,7 +107,16 @@ export function headerArbitrary(): fc.Arbitrary<RecordHeader> {
 }
 
 function entryArbitrary(
-	kind: "user" | "assistant" | "tool" | "status" | "note" | "fallback" | "recipe" | "compaction",
+	kind:
+		| "user"
+		| "assistant"
+		| "tool"
+		| "status"
+		| "note"
+		| "fallback"
+		| "recipe"
+		| "compaction"
+		| "request",
 	index: number,
 ): fc.Arbitrary<RecordEntry> {
 	const base = {
@@ -190,6 +199,38 @@ function entryArbitrary(
 						? { type: "recipe_updated" as const, ...base, to }
 						: { type: "recipe_updated" as const, ...base, from, to },
 				);
+		case "request":
+			return fc
+				.record({
+					request: word,
+					kind: fc.constantFrom(
+						"approve" as const,
+						"question" as const,
+						"choice" as const,
+					),
+					title: text,
+					message: text,
+					preview: fc.option(jsonValueArbitrary(), { nil: undefined }),
+					callId: fc.option(word, { nil: undefined }),
+					tool: fc.option(word, { nil: undefined }),
+					args: fc.option(text, { nil: undefined }),
+					risk: fc.option(
+						fc.constantFrom("reads" as const, "changes" as const, "dangerous" as const),
+						{ nil: undefined },
+					),
+					timeoutMs: fc.option(fc.integer({ min: 1, max: 100_000 }), { nil: undefined }),
+				})
+				.map(({ preview, callId, tool, args, risk, timeoutMs, ...rest }) => ({
+					type: "request" as const,
+					...base,
+					...rest,
+					...(preview === undefined ? {} : { preview }),
+					...(callId === undefined ? {} : { callId }),
+					...(tool === undefined ? {} : { tool }),
+					...(args === undefined ? {} : { args }),
+					...(risk === undefined ? {} : { risk }),
+					...(timeoutMs === undefined ? {} : { timeoutMs }),
+				}));
 		case "compaction":
 			return fc
 				.record({
@@ -218,6 +259,7 @@ export function entriesArbitrary(): fc.Arbitrary<RecordEntry[]> {
 				"fallback",
 				"recipe",
 				"compaction",
+				"request",
 			),
 			{ maxLength: 5 },
 		)

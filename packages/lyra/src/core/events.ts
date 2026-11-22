@@ -16,8 +16,9 @@ import type { LyraError } from "./result.js";
 
 export type RunEndReason = "done" | "parked" | "failed";
 
-/** Why a run parked. Approvals join in a later slice (decision 84). */
-export type ParkedReason = "stopped" | "stuck" | "limit" | "model_unavailable";
+/** Why a run parked (decision 84). */
+export type ParkedReason =
+	"stopped" | "stuck" | "limit" | "model_unavailable" | "waiting_for_person";
 
 interface EventBase {
 	/** The run this event belongs to. Constant for every event of a run. */
@@ -85,12 +86,13 @@ export type RunEvent =
 /** A listener is never allowed to be the reason a run fails. */
 export type RunEventListener = (event: RunEvent) => void;
 
-/** The parked reasons this build knows. Approvals add `waiting_for_person` later. */
+/** The parked reasons this build knows. */
 const KNOWN_PARKED_REASONS: readonly ParkedReason[] = [
 	"stopped",
 	"stuck",
 	"limit",
 	"model_unavailable",
+	"waiting_for_person",
 ];
 
 /**

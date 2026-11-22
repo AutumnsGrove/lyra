@@ -83,6 +83,10 @@ export interface Tool {
 	maxResultBytes?: number;
 	/** How to get the rest, said after a result was cut (decision 40). */
 	truncationHint?: string;
+	/** What the recipe says about running this tool without a person (decision 35). */
+	policy?: import("./approval.js").ToolPolicy;
+	/** What this tool does to the world, which sets its default policy (decision 35). */
+	risk?: import("./approval.js").ToolRisk;
 }
 
 /** A tool with no parameters, which is the shape `finish` and the fakes have. */
@@ -101,6 +105,10 @@ export interface DefineToolOptions<A extends JsonObject, S> {
 	maxResultBytes?: number;
 	/** How to get the rest of a result that was cut. */
 	truncationHint?: string;
+	/** Allow, ask or deny this tool without a person (decision 35). */
+	policy?: import("./approval.js").ToolPolicy;
+	/** Reads, changes things, or dangerous, which sets the policy's default. */
+	risk?: import("./approval.js").ToolRisk;
 }
 
 export function defineTool<const A extends JsonObject, S = unknown>(
@@ -140,6 +148,12 @@ export function defineTool<const A extends JsonObject, S = unknown>(
 	}
 	if (options.truncationHint !== undefined) {
 		tool.truncationHint = options.truncationHint;
+	}
+	if (options.policy !== undefined) {
+		tool.policy = options.policy;
+	}
+	if (options.risk !== undefined) {
+		tool.risk = options.risk;
 	}
 	if (apply !== undefined) {
 		tool.apply = (state, args, outcome) => {

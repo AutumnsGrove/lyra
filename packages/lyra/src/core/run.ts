@@ -16,6 +16,13 @@
 import type { Clock, Ids } from "./clock.js";
 import type { ConversationMessage } from "./conversation.js";
 import {
+	deniedByRecipe,
+	deniedOutcome,
+	deniedWithoutAPerson,
+	policyOf,
+	type ToolPolicy,
+} from "./approval.js";
+import {
 	buildView,
 	chooseCut,
 	currentStateTexts,
@@ -65,6 +72,7 @@ import {
 	type RecipeStamp,
 	type RecipeUpdatedEntry,
 	type RecordHeader,
+	type RequestEntry,
 	type RecordEntry,
 	type StatusEntry,
 	type ToolMessageEntry,
@@ -140,6 +148,14 @@ export interface TaskStart {
 	state: unknown;
 }
 
+/** What a recipe says about approvals, beyond what each tool says (decisions 35, 37). */
+export interface ApprovalSettings {
+	/** The policy for a tool that says nothing itself. Allow when absent. */
+	policy?: ToolPolicy;
+	/** After this, an unanswered request is denied, and the run answers it. */
+	timeoutMs?: number;
+}
+
 export interface RunConfig {
 	runId: string;
 	task: string;
@@ -170,6 +186,13 @@ export interface RunConfig {
 	limits?: Limits;
 	/** How the recipe shapes compaction, when it says anything (decision 41). */
 	compaction?: CompactionSettings;
+	/**
+	 * Whether anyone can answer a request this run makes (decision 35). A headless
+	 * runner leaves it false, and a call that would ask is then denied.
+	 */
+	canAsk?: boolean;
+	/** How the recipe shapes approvals: its default policy and a timeout (decisions 35, 37). */
+	approvals?: ApprovalSettings;
 	/**
 	 * How much of one tool result the model may read before it is cut, in bytes
 	 * (decision 40). A tool's own `maxResultBytes` wins over it.
@@ -295,6 +318,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	let turns = 0;
 	/** The id of the entry before the next one, which is what `parent` records. */
 	let parent: string | null = null;
+	/** Whether a person can be reached to answer a request (decision 35). */
+	const canAsk = config.canAsk === true;
+	/** The recipe's own default policy, for a tool that says nothing (decision 35). */
+	const approvalDefault = config.approvals?.policy;
+	/** After this, an unanswered request is denied (decision 37). */
+	const requestTimeoutMs = config.approvals?.timeoutMs;
+	/** Set when a call is waiting for a person, which parks the run after the batch. */
+	let waitingRequest: string | undefined;
 	/** The clock time the run's latest `running` or `resumed` status was saved. */
 	let activeSince = clock.now();
 	/** Active milliseconds already spent before this segment began (LIM04, LIM06). */
@@ -624,11 +655,58 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		}
 	};
 
+	/**
+	 * Ask a person about one call, and park the run until they answer (decisions 34
+	 * and 85). The request is saved before anything is sent, so an answer can always
+	 * be paired with it, and the record says what the run is waiting for.
+	 */
+	const saveRequest = async (call: ToolCall, tool: Tool | undefined): Promise<string> => {
+		const request: RequestEntry = {
+			type: "request",
+			id: config.ids.next("e"),
+			parent,
+			ts: clock.now(),
+			request: config.ids.next("auth"),
+			kind: "approve",
+			title: `May the run use ${call.name}?`,
+			message: `The model asked to run the ${call.name} tool.`,
+			callId: call.id,
+			tool: call.name,
+			args: call.arguments,
+		};
+		if (tool?.risk !== undefined) {
+			request.risk = tool.risk;
+		}
+		if (requestTimeoutMs !== undefined) {
+			request.timeoutMs = requestTimeoutMs;
+		}
+		await append(request);
+		return request.request;
+	};
+
+	/** Answer a call that will not run, so the batch stays paired (module 21's rule). */
+	const answerWithoutRunning = async (call: ToolCall, reason: string): Promise<void> => {
+		emit({ type: "tool_call", run: runId, ts: clock.now(), call });
+		const outcome = deniedOutcome(reason);
+		const saved = await saveToolResult(call, outcome);
+		emit({
+			type: "tool_end",
+			run: runId,
+			ts: clock.now(),
+			seq: saved.seq,
+			callId: call.id,
+			name: call.name,
+			isError: true,
+			content: saved.content,
+		});
+		noteFailure(call.name, saved.content);
+	};
+
 	/** Set when a tool's answer says the done-check passed (decision 25). */
 	let finishedRun = false;
 
-	/** Run one reply's calls, which is the same work on the first try and after a resume. */
-	const runBatch = async (calls: readonly ToolCall[]): Promise<void> => {
+	/** Run one call through the executor, which is what every allowed call gets. */
+	const runOne = async (calls: readonly ToolCall[]): Promise<void> => {
 		await executeTools({
 			calls,
 			tools: config.tools,
@@ -675,6 +753,40 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				}
 			},
 		});
+	};
+
+	/**
+	 * Run one reply's calls, in order, asking a person where the recipe says so and
+	 * refusing where it says no (decisions 34, 35). A call that needs an answer stops
+	 * the batch: it has not run, so the calls after it have no result yet either, and
+	 * a resume answers them from the person's decision rather than guessing.
+	 */
+	const runBatch = async (calls: readonly ToolCall[]): Promise<void> => {
+		for (const call of calls) {
+			const tool = tools.get(call.name);
+			const policy = tool === undefined ? "allow" : policyOf(tool, approvalDefault);
+			if (policy === "deny") {
+				await answerWithoutRunning(
+					call,
+					tool === undefined ? "no tool by that name" : deniedByRecipe(tool),
+				);
+				continue;
+			}
+			if (policy === "ask") {
+				if (!canAsk) {
+					// Decision 35: nothing can deliver the question, so it is denied
+					// rather than waiting forever on something nobody allowed.
+					await answerWithoutRunning(
+						call,
+						tool === undefined ? "no tool by that name" : deniedWithoutAPerson(tool),
+					);
+					continue;
+				}
+				waitingRequest = await saveRequest(call, tool);
+				return;
+			}
+			await runOne([call]);
+		}
 	};
 
 	/**
@@ -1164,6 +1276,16 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				turn: turns,
 				finishReason: reply.finishReason,
 			});
+			if (waitingRequest !== undefined) {
+				// A call is waiting for a person, so the run stops here at no cost and
+				// the calls after it are answered when they answer (decision 34).
+				return {
+					reason: "parked",
+					parkedReason: "waiting_for_person",
+					usage: usageTotal.total(),
+					turns,
+				};
+			}
 			if (repeatedFailure !== undefined) {
 				// The same tool failed the same way often enough: park rather than
 				// spend the person's allowance on a loop that cannot progress (STK03).
@@ -1287,6 +1409,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				};
 
 				const recorded = recordedOutcome(seed, config.resume.by);
+				const waiting = seed.pendingRequest;
 				const current =
 					config.recipe === undefined
 						? undefined
@@ -1298,7 +1421,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							});
 				const change = recipeChangeParked(seed, current);
 
-				if (recorded !== undefined) {
+				if (waiting !== undefined) {
+					// The run is waiting for a person, and there is no answer on the
+					// record yet. Nothing is written and nothing is guessed: it parks
+					// again, and stays parked until someone decides (decision 34).
+					nothingWritten = true;
+					result = {
+						reason: "parked",
+						parkedReason: "waiting_for_person",
+						usage: usageTotal.total(),
+						turns,
+					};
+				} else if (recorded !== undefined) {
 					// Nothing is written: the record already says how this run ended, or
 					// that it waits for a person. The state is only for the caller's
 					// benefit, so a rebuild that cannot happen loses it and not the ending.

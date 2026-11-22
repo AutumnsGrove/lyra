@@ -8,6 +8,7 @@
 
 import type { Clock } from "../core/clock.js";
 import type { JsonObject, JsonValue } from "../core/json.js";
+import type { ToolPolicy, ToolRisk } from "../core/approval.js";
 import { NO_PARAMETERS, type Tool, type ToolOutcome } from "../core/tool.js";
 
 /**
@@ -46,6 +47,10 @@ export interface ScriptedToolOptions {
 	maxResultBytes?: number;
 	/** How to get the rest of a result that was cut (decision 40). */
 	truncationHint?: string;
+	/** Allow, ask or deny this tool without a person (docs/approvals.md). */
+	policy?: ToolPolicy;
+	/** What this tool does to the world, which sets the default policy. */
+	risk?: ToolRisk;
 }
 
 function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptions = {}): Tool {
@@ -71,6 +76,12 @@ function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptio
 	}
 	if (options.truncationHint !== undefined) {
 		made.truncationHint = options.truncationHint;
+	}
+	if (options.policy !== undefined) {
+		made.policy = options.policy;
+	}
+	if (options.risk !== undefined) {
+		made.risk = options.risk;
 	}
 	return made;
 }

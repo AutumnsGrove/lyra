@@ -30,6 +30,22 @@ This builds on what is already decided: a run can be parked with a reason (decis
 - **Answers must be genuine.** Each request carries a one-time code, so an answer to it cannot be forged. The exact scheme is decided with the transport.
 - **The shell tool needs a command policy.** Nova's approach is the reference: an allow-list of command patterns, anything else asks, and a headless run denies. Allow rules reject shell control operators, so an allowed command cannot be chained into something else, and the most restrictive matching rule wins. The exact patterns are decided when the shell tool is.
 
+## The rows approvals is built against
+
+Decision 34's one mechanism is two things that behave the same: a risky call the
+recipe wants a person to approve, and a question only a person can answer. The
+policy is decided per call before anything runs, and a call that needs an answer
+stops the batch rather than being guessed at.
+
+| ID | Case | Expected |
+|---|---|---|
+| APR01 | Happy: a call the recipe allows | It runs untouched, with no request and no park |
+| APR02 | Happy: a call that asks | The run parks as `waiting_for_person`, the request is saved before anything is sent, the tool never ran, and a resume with no answer parks again and writes nothing |
+| APR03 | Sad: a call the recipe denies | It never asks and never runs, and the model is told why in an error result it can adapt to |
+| APR04 | Sad: nothing can deliver the question | A run with nobody to ask (`canAsk` false) denies the call instead of parking, which is decision 35's "it is denied" |
+| APR05 | The policy's order | A risk label of `changes` or `dangerous` asks and `reads` does not; a tool's own policy wins over its label; and a batch stops at the first call that needs an answer, leaving the calls after it unanswered |
+| APR06 | A tool that says nothing | It is allowed, because silence meaning "ask" would stop every recipe built before this slice |
+
 ## Not discussed yet
 
 - **Who may approve** and **approve with edits.** Proposed in decision 88: the session's owner, and no edited approvals in version one.

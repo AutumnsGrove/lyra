@@ -155,6 +155,37 @@ export interface NoteEntry extends EntryBase {
 	text: string;
 }
 
+/** What a request asks a person for (docs/approvals.md, decision 34). */
+export type RequestKind = "approve" | "question" | "choice";
+
+/**
+ * A run needs a person (docs/approvals.md, decisions 34 and 85).
+ *
+ * It is saved before anything is sent, so an answer can always be paired with the
+ * question it answers, and its `request` id is unguessable on a host, so an answer
+ * cannot be forged. It names the call it is about when it is an approval.
+ */
+export interface RequestEntry extends EntryBase {
+	type: "request";
+	/** The id a client answers with, made by the host's unguessable `Ids`. */
+	request: string;
+	kind: RequestKind;
+	title: string;
+	message: string;
+	/** The thing to look at before answering, for a preview-then-confirm flow. */
+	preview?: JsonValue;
+	/** The call this request is about, for an approval. */
+	callId?: string;
+	/** The tool the call named, and the arguments it carried, for a viewer. */
+	tool?: string;
+	args?: string;
+	risk?: string;
+	/** After this many milliseconds, an unanswered request is denied (decision 37). */
+	timeoutMs?: number;
+	/** Set when this entry was cut to fit the cap; the preview went whole. */
+	truncated?: Truncation;
+}
+
 /**
  * The record moved to a shorter view of itself (docs/context-size.md, decision 39).
  *
@@ -199,6 +230,7 @@ export type RecordEntry =
 	| FallbackEntry
 	| RecipeUpdatedEntry
 	| CompactionEntry
+	| RequestEntry
 	| NoteEntry
 	| UnknownEntry;
 
@@ -359,9 +391,47 @@ export function encodeEntry(entry: RecordEntry): string {
 			}
 			return JSON.stringify(line);
 		}
+		case "request": {
+			const line: Record<string, unknown> = {
+				type: entry.type,
+				...base,
+				request: entry.request,
+				kind: entry.kind,
+				title: entry.title,
+				message: entry.message,
+			};
+			if (entry.preview !== undefined) {
+				line["preview"] = entry.preview;
+			}
+			if (entry.callId !== undefined) {
+				line["callId"] = entry.callId;
+			}
+			if (entry.tool !== undefined) {
+				line["tool"] = entry.tool;
+			}
+			if (entry.args !== undefined) {
+				line["args"] = entry.args;
+			}
+			if (entry.risk !== undefined) {
+				line["risk"] = entry.risk;
+			}
+			if (entry.timeoutMs !== undefined) {
+				line["timeoutMs"] = entry.timeoutMs;
+			}
+			if (entry.truncated !== undefined) {
+				line["truncated"] = entry.truncated;
+			}
+			return JSON.stringify(line);
+		}
 		case "unknown":
 			return entry.raw;
 	}
+}
+
+const REQUEST_KINDS: readonly RequestKind[] = ["approve", "question", "choice"];
+
+function isRequestKind(value: unknown): value is RequestKind {
+	return REQUEST_KINDS.some((known) => known === value);
 }
 
 /**
@@ -773,6 +843,72 @@ export function decodeEntry(value: unknown, raw: string): Result<RecordEntry> {
 				trigger,
 				instructionsHash,
 			};
+			if (truncation.value !== undefined) {
+				entry.truncated = truncation.value;
+			}
+			return ok(entry);
+		}
+		case "request": {
+			const request = value["request"];
+			const kind = value["kind"];
+			const title = value["title"];
+			const message = value["message"];
+			if (!isName(request)) {
+				return bad("a request entry has no request id");
+			}
+			if (!isRequestKind(kind)) {
+				return bad("a request entry has a kind this build does not know");
+			}
+			if (typeof title !== "string" || typeof message !== "string") {
+				return bad("a request entry has no title and message");
+			}
+			const preview = value["preview"];
+			const callId = value["callId"];
+			const tool = value["tool"];
+			const args = value["args"];
+			const risk = value["risk"];
+			const timeoutMs = value["timeoutMs"];
+			if (preview !== undefined && !isJsonValue(preview)) {
+				return bad("a request entry has a preview that is not JSON");
+			}
+			if (callId !== undefined && !isName(callId)) {
+				return bad("a request entry names a call that is not an id");
+			}
+			if (tool !== undefined && !isName(tool)) {
+				return bad("a request entry names a tool that is not a name");
+			}
+			if (args !== undefined && typeof args !== "string") {
+				return bad("a request entry has arguments that are not text");
+			}
+			if (risk !== undefined && !isName(risk)) {
+				return bad("a request entry has a risk that is not a name");
+			}
+			if (timeoutMs !== undefined && (!isTimestamp(timeoutMs) || timeoutMs === 0)) {
+				return bad("a request entry has a timeout that is not a length of time");
+			}
+			const truncation = decodeTruncation(value["truncated"]);
+			if (!truncation.ok) {
+				return truncation;
+			}
+			const entry: RequestEntry = { type, ...base, request, kind, title, message };
+			if (preview !== undefined) {
+				entry.preview = preview;
+			}
+			if (callId !== undefined) {
+				entry.callId = callId;
+			}
+			if (tool !== undefined) {
+				entry.tool = tool;
+			}
+			if (args !== undefined) {
+				entry.args = args;
+			}
+			if (risk !== undefined) {
+				entry.risk = risk;
+			}
+			if (timeoutMs !== undefined) {
+				entry.timeoutMs = timeoutMs;
+			}
 			if (truncation.value !== undefined) {
 				entry.truncated = truncation.value;
 			}

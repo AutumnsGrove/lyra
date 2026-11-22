@@ -141,7 +141,7 @@ test("EVT06 a resume that finds a changed tool set parks as stuck, with the chan
 test("EVT01 a parked reason this build does not know is reported as stuck, with the raw reason", () => {
 	// A record written by a newer Lyra must not have its park guessed at, and a person
 	// still has to be asked, so the unknown reason is kept where a reader can see it.
-	const projected = events(record(running, status("parked", "waiting_for_person", "ui-1")));
+	const projected = events(record(running, status("parked", "scheduled_for_tomorrow", "ui-1")));
 	expect(projected.at(-2)).toMatchObject({ type: "parked", reason: "stuck" });
 	expect(projected.at(-1)).toMatchObject({ type: "run_end", parkedReason: "stuck" });
 });
