@@ -386,6 +386,12 @@ break a scenario. `expect_record` entries are subset matches, in order, so a
 scenario says the part of the record it cares about. A mismatch reports the field
 that differed and the value that came.
 
+**The socket files run in their own project.** WebSockets under Durable Objects are
+unsupported with per-file storage isolation (decision 101), so `vitest.ws.config.ts`
+runs them in one worker with `isolate: false`, `vitest.workers.config.ts` excludes
+them so they do not also run in the mode that cannot carry them, and every socket
+test makes its own session, because storage is shared inside those files.
+
 | ID | Case | Expected |
 |---|---|---|
 | SCN01 | Happy: a scenario runs | Its events match as a subsequence in order, its record entries match in order, and there are no problems |

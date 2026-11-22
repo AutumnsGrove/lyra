@@ -5,6 +5,6 @@
 	},
 	"examples/workers-minimal": {
 		"dir": "examples/workers-minimal/.wrangler/dry-run",
-		"gzipBytes": 45056
+		"gzipBytes": 49152
 	}
 }

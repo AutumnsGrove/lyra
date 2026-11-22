@@ -10,7 +10,9 @@
  * once first.
  *
  * The base URL and token come from `LYRA_URL` and `LYRA_TOKEN`, so nothing secret
- * is ever a command-line argument.
+ * is ever a command-line argument. `--transport ws` drives the same commands over a
+ * WebSocket (step 8); `start` stays on HTTP because a socket is opened for the
+ * session it names, and the session is what a start makes.
  */
 
 import { lineReader } from "../packages/lyra/dist/protocol/reader.js";
@@ -31,11 +33,20 @@ function usage() {
 		"  resume <session>                              continue a parked run",
 		"  messages <session> [--entry <id>]             print the record a page at a time",
 		"",
+		"  --transport ws                                drive commands and `tail` over a socket",
+		"                                                (a command over a socket needs its session,",
+		"                                                so `start` stays on HTTP)",
+		"",
 		"LYRA_URL and LYRA_TOKEN say where the server is and who you are.",
 	];
 	process.stderr.write(`${lines.join("\n")}\n`);
 	process.exitCode = 2;
 }
+
+const transport = (() => {
+	const index = process.argv.indexOf("--transport");
+	return index === -1 ? "http" : (process.argv[index + 1] ?? "http");
+})();
 
 function option(args, name) {
 	const index = args.indexOf(`--${name}`);
@@ -46,7 +57,65 @@ function positional(args) {
 	return args.filter((arg, index) => !arg.startsWith("--") && !args[index - 1]?.startsWith("--"));
 }
 
+/**
+ * One command over a socket: connect for its session, exchange hellos, send the frame
+ * and wait for the response with its id, then close. A command that names no session
+ * (`start`) is not this path's business, because the session is what it creates.
+ */
+async function socketCommand(body) {
+	counter += 1;
+	const id = `cli-${counter}`;
+	const url = `${base.replace(/^http/, "ws")}/v1/ws?session=${encodeURIComponent(body.session)}`;
+	const socket = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
+	await opened(socket);
+	const first = await nextFrame(socket);
+	if (first?.type !== "hello") {
+		throw new Error("the server did not greet the socket");
+	}
+	socket.send(
+		JSON.stringify({ type: "hello", version: "1", client: "lyra-cli", capabilities: [] }),
+	);
+	socket.send(JSON.stringify({ type: "command", id, ...body }));
+	for (;;) {
+		const frame = await nextFrame(socket);
+		if (frame === undefined) {
+			// The server closed without answering, which is a refusal a client has to
+			// survive: waiting again on a closed socket would hang forever.
+			process.stderr.write("the socket closed before the command was answered\n");
+			process.exitCode = 1;
+			return undefined;
+		}
+		if (frame.type === "response" && frame.id === id) {
+			socket.close();
+			if (frame.ok === false) {
+				process.stderr.write(`${frame.error.code}: ${frame.error.message}\n`);
+				process.exitCode = 1;
+			}
+			return frame;
+		}
+	}
+}
+
+/** The next frame a socket sends, or nothing when it closes first. */
+function nextFrame(socket) {
+	return new Promise((resolve) => {
+		const onMessage = (event) => {
+			socket.removeEventListener("close", onClose);
+			resolve(JSON.parse(String(event.data)));
+		};
+		const onClose = () => {
+			socket.removeEventListener("message", onMessage);
+			resolve(undefined);
+		};
+		socket.addEventListener("message", onMessage, { once: true });
+		socket.addEventListener("close", onClose, { once: true });
+	});
+}
+
 async function command(body) {
+	if (transport === "ws" && body.session !== undefined) {
+		return socketCommand(body);
+	}
 	counter += 1;
 	const response = await fetch(`${base}/v1/commands`, {
 		method: "POST",
@@ -67,6 +136,9 @@ function printData(frame) {
 
 /** The session's events, from `after`, printed as they arrive. */
 async function tail(session, after) {
+	if (transport === "ws") {
+		return tailSocket(session, after);
+	}
 	const headers = { authorization: `Bearer ${token}` };
 	if (after !== undefined) {
 		headers["last-event-id"] = String(after);
@@ -100,6 +172,55 @@ async function tail(session, after) {
 				await reader.cancel();
 				return;
 			}
+		}
+	}
+}
+
+/** Wait for a socket to open, or say why it will not. */
+function opened(socket) {
+	return new Promise((resolve, reject) => {
+		socket.addEventListener("open", () => resolve(undefined), { once: true });
+		socket.addEventListener("error", () => reject(new Error("the socket was refused")), {
+			once: true,
+		});
+		socket.addEventListener(
+			"close",
+			() => reject(new Error("the socket closed before it opened")),
+			{ once: true },
+		);
+	});
+}
+
+/** The same events, over a socket: replay from `after`, then live, until it ends. */
+async function tailSocket(session, after) {
+	const query = new URLSearchParams({ session });
+	if (after !== undefined) {
+		query.set("since", String(after));
+	}
+	const url = `${base.replace(/^http/, "ws")}/v1/ws?${query.toString()}`;
+	const socket = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } });
+	await opened(socket);
+	const greeting = await nextFrame(socket);
+	if (greeting?.type !== "hello") {
+		throw new Error("the server did not greet the socket");
+	}
+	socket.send(
+		JSON.stringify({ type: "hello", version: "1", client: "lyra-cli", capabilities: [] }),
+	);
+	for (;;) {
+		const frame = await nextFrame(socket);
+		if (frame === undefined) {
+			return;
+		}
+		if (frame.type !== "event") {
+			continue;
+		}
+		const event = frame.event;
+		const label = event.seq === undefined ? "     " : String(event.seq).padStart(4);
+		process.stderr.write(`${label} ${event.type}\n`);
+		if (event.type === "run_end") {
+			socket.close();
+			return;
 		}
 	}
 }
@@ -160,7 +281,7 @@ async function main() {
 				return;
 			}
 			printData(frame);
-			await tail(frame.data.session, 0);
+			await tail(frame.data.session, transport === "ws" ? undefined : 0);
 			return;
 		}
 		case "tail": {

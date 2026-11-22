@@ -43,7 +43,7 @@ declare class TextEncoder {
 declare class TextDecoder {
 	constructor(label?: string);
 	/** `{ stream: true }` keeps a split multi-byte character for the next call. */
-	decode(input?: Uint8Array, options?: { stream?: boolean }): string;
+	decode(input?: Uint8Array | ArrayBuffer, options?: { stream?: boolean }): string;
 }
 
 /**
@@ -112,7 +112,7 @@ interface Response {
 declare class Response {
 	constructor(
 		body?: string | Uint8Array | ReadableStream<Uint8Array> | null,
-		init?: { status?: number; headers?: Record<string, string> | FetchHeaders },
+		init?: ResponseInit,
 	);
 }
 
@@ -146,4 +146,36 @@ declare class URL {
 
 declare class URLSearchParams {
 	get(name: string): string | null;
+}
+
+/**
+ * The socket's slice (step 8, docs/implementation/08-websocket.md). `WebSocketPair`
+ * is Cloudflare's, not web-standard, and it is declared here because the session
+ * object is core code that a Worker's Durable Object delegates to. The name is
+ * `WebSocket` rather than one of its own so the workerd program, which takes its
+ * globals from the Workers types and does not see this file (decision 125), has it
+ * too — one name in both programs, which is the same trick `Request` and `Response`
+ * use.
+ */
+interface WebSocket {
+	send(data: string): void;
+	/** Bytes queued for a client that is not reading, which is how a slow one is spotted. */
+	readonly bufferedAmount: number;
+	close(code?: number, reason?: string): void;
+	/** Per-connection state that survives hibernation, under the platform's cap. */
+	serializeAttachment(value: unknown): void;
+	deserializeAttachment(): unknown;
+}
+
+declare const WebSocketPair: { new (): { 0: WebSocket; 1: WebSocket } };
+
+interface ResponseInit {
+	status?: number;
+	headers?: Record<string, string> | FetchHeaders;
+	/** A 101 response carries the server's end of the pair. */
+	webSocket?: WebSocket;
+}
+
+declare class Response {
+	readonly webSocket: WebSocket | null;
 }

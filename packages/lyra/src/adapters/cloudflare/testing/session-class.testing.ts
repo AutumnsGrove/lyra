@@ -13,7 +13,7 @@ import type { JsonValue } from "../../../core/json.js";
 import type { ModelSlot, ModelRequest } from "../../../core/model.js";
 import { ok } from "../../../core/result.js";
 import type { RunDefinition } from "../../../core/runtime.js";
-import { counterIds } from "../../memory/index.js";
+import { systemIds } from "../../../core/system-clock.js";
 import {
 	createFinishTool,
 	fakeClock,
@@ -180,7 +180,9 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 				},
 			},
 			clock,
-			ids: counterIds(),
+			// Random ids, as a host uses: this object can be evicted and rebuilt, and a
+			// counter that restarts at one would hand out an id the record already holds.
+			ids: systemIds(),
 			tokens: TOKENS,
 			host: "workers-test",
 		});
@@ -207,6 +209,11 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		return this.#requests;
 	}
 
+	/** What each socket carries between frames, which is what hibernation must keep. */
+	attachments(): unknown[] {
+		return this.ctx.getWebSockets().map((socket) => socket.deserializeAttachment());
+	}
+
 	/** The record, read through the same storage adapter the session writes. */
 	async lines(): Promise<string[]> {
 		const read = await durableObjectStorage(this.ctx.storage).read();
@@ -219,6 +226,20 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 
 	override async alarm(): Promise<void> {
 		await this.#build().alarm();
+	}
+
+	/** The hibernating socket handlers, delegated to the object a host ships. */
+	override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		await this.#build().webSocketMessage(ws, message);
+	}
+
+	override webSocketClose(ws: WebSocket, code: number, reason: string): void {
+		this.#build().webSocketClose(ws, code, reason);
+	}
+
+	override webSocketError(ws: WebSocket, error: unknown): void {
+		void error;
+		this.#build().webSocketError(ws);
 	}
 
 	/** The trusted door a service binding's entry point calls. */

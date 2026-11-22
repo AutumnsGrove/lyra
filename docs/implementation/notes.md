@@ -8,6 +8,77 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 8, slices 1 to 3, 2026-11-21
+
+- **WebSockets under Durable Objects need their own vitest config**, as decision 101
+  said: `vitest.ws.config.ts` runs one worker with `isolate: false`, and
+  `vitest.workers.config.ts` excludes the socket files so they do not also run in the
+  mode that cannot carry them (found in review: they ran twice).
+- **The workerd socket harness has one wall I could not get past.** Two behaviours the
+  step document asks for hang in this harness rather than failing:
+  eviction *mid-run* with a socket open, where `runDurableObjectAlarm` never settles,
+  and a backed-up reader, where the client's `bufferedAmount` never grows enough to
+  trip the cap and the close never comes. Both worked on paper and neither is in the
+  tree: WSK13 and WSK15 are not written, and the two-minute hang each leaves behind
+  is worse than a failing assertion. What *is* covered: an eviction with a socket
+  open and a parked run (WSK12), the attachment's contents and size (WSK14), and a
+  reconnect catching up from the record (WSK08, WSK09). The backpressure code
+  (`bufferedAmount` against a 1 MiB default) is in and untested here; the honest next
+  step is to probe it against a real deployment, or to find the harness option that
+  makes the client back up.
+- **`getWebSockets()` is empty after an eviction in this harness**, even though a
+  frame still reaches the handler's `ws` and a response still reaches the client. So
+  the re-follow after a wake is driven by the frame itself (`watch(socket)` before it
+  is handled), not by the platform's list, and a socket that never sends anything
+  after an eviction will not get live events until it does. That is also why WSK14
+  reads the attachment's `seq` as a cursor rather than as the exact last frame: the
+  wrapper `getWebSockets()` returns does not show the handler's writes.
+- **`webSocketClose` has to answer the close.** Cloudflare's hibernation docs require
+  it, and the tests never awaited the close event, so nothing caught it missing.
+- **A socket's `hello` starts the events**, so a test that wants to see a *live*
+  event has to drain the replay first; two tests passed on replay alone before the
+  review caught it.
+
+## Step 8, wrap-up, 2026-11-21
+
+- **The example Worker's ceiling moved to 48 KiB** (decision 143): passing the three
+  hibernation handlers through crossed 44 KiB by 91 bytes, and there is nothing to cut
+  in three delegating methods.
+- **`main`'s gate was red for everyone** when the two Claude review workflows landed
+  unformatted: `pnpm format` checks workflow files, and it is the gate's first step.
+  Fixed in pull request #31 rather than inside this branch, so the two changes stay
+  separable.
+- **`getWebSockets()` is empty after an eviction in this harness**, so the re-follow is
+  driven by the next frame on a socket, not by the platform's list. A socket that
+  never speaks again after an eviction gets no live events until it does; the record
+  is the catch-up either way.
+- **`webSocketClose` has to answer the close**, which Cloudflare's hibernation docs
+  require and the tests never awaited, so nothing caught it missing.
+- **The plain-GET 500 was the front door's fault**: forwarding a `GET /v1/ws` that did
+  not ask to upgrade made workerd throw. The header is checked before a pair is made.
+- **The gate**: 521 Node tests, 50 workerd tests, 31 socket tests, 15 fuzz/property
+  targets, `matrixcheck` 343 rows with none unbuilt, package 133,514 B of 180,224 B,
+  the example 45,147 B of 49,152 B.
+- **Not done, and said so in the PR:** WSK13 (eviction mid-run with a socket open) and
+  WSK15 (a backed-up reader) are unwritten because both hang in this harness;
+  `pnpm lyra --transport ws` is a dev tool and is not in the gate.
+
+## Step 8, review round 3, 2026-11-21
+
+- **Events started before the hello exchange.** The frame handler followed the
+  socket on every frame, so a refused command or a bad hello still began the stream.
+  It follows only a socket that has greeted, which the hello itself sets.
+- **The greeting wrote back a stale cursor.** The attachment is read at the top of the
+  handler, before the replay the watch starts; writing `greeted: true` from that copy
+  put `seq` back to where the replay began, so a wake would replay the record the
+  client already had. The greeting is saved before the watch now, and a test evicts
+  after a replay and asserts the next frame brings no events.
+- **Two ids collided across an eviction in the test class.** It used `counterIds`, and
+  a rebuilt object restarted the counter, so an appended entry took an id the record
+  already held and the active path broke — which looked exactly like "the events
+  never arrive" and cost an hour. The test class uses `systemIds` now, as a host does.
+  Worth remembering: anything that can be evicted cannot count.
+
 ## Approvals, review round 4, 2026-11-21
 
 - **Every command that appends claims the record now**, not only a decision and a run

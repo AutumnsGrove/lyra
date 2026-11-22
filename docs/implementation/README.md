@@ -25,7 +25,7 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 6 | [`06-protocol-http.md`](06-protocol-http.md) | Lyra | steps 4 and 5 merged | merged ([pull request #21](https://github.com/AutumnsGrove/lyra/pull/21), `66d5383`) |
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
-| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | not started |
+| 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | in review (`feat/step-08-websocket`, [pull request #29](https://github.com/AutumnsGrove/lyra/pull/29)) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
 ### Where the last session stopped (2026-11-22)
