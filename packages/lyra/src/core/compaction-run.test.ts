@@ -3,12 +3,14 @@ import { expect, test } from "vitest";
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
 import { loadRecord } from "../record/load.js";
 import {
+	crashingStorage,
 	createFinishTool,
 	fakeClock,
 	scriptedModel,
 	toolReturning,
 	type ScriptedTurn,
 } from "../testkit/index.js";
+import { until } from "./run-harness.testing.js";
 import type { CompactionSettings } from "./compaction.js";
 import type { Usage } from "./model.js";
 import type { RunEvent } from "./events.js";
@@ -356,4 +358,89 @@ test("CMP16 oversized older results are cut for the summarizer, and the record k
 	const entries = await entriesOf(run.storage);
 	const first = entries.find((entry) => entry.type === "tool_message");
 	expect(first?.type === "tool_message" ? first.content.length : 0).toBe(huge.length);
+});
+
+test("CMP14 the summary's usage survives a resume, so a limit means the same either way", async () => {
+	const turns: ScriptedTurn[] = [
+		call("c1", "read", 200),
+		call("c2", "look", 300),
+		call("c3", "read", 400),
+		call("c4", "look", 150),
+		call("c5", "read", 200),
+		call("c6", "read", 250),
+		call("c7", "read", 300),
+		call("c8", "finish", 350),
+	];
+	const summaries = [{ text: "the summary", usage: usage(300, 50) }];
+	const whole = harness(turns, { window: 600, summaries });
+	const uninterrupted = await whole.run();
+	expect(uninterrupted.reason).toBe("done");
+	const read = await whole.storage.read();
+	const lines = read.ok ? read.value : [];
+	const compactionAt = lines.findIndex((line) => line.includes('"type":"compaction"'));
+	expect(compactionAt).toBeGreaterThan(0);
+
+	// A kill right after the compaction entry, so the summary's own cost is on the
+	// record and nothing else about the run has moved on.
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const dying = crashingStorage(inner, { at: compactionAt + 1, when: "after" });
+	const first = scriptedModel(turns, { clock, position: "sequence", summaries });
+	first.contextWindow = 600;
+	void runTask({
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools: [
+			toolReturning("read", "x".repeat(400)),
+			toolReturning("look", "y".repeat(400)),
+			createFinishTool(),
+		],
+		model: first,
+		storage: dying,
+		clock,
+		ids: counterIds(),
+		compaction: { reserveTokens: 100, keepTokens: 100 },
+	});
+	await until(() => dying.appends() >= compactionAt + 1);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const killed = await inner.read();
+	expect(killed.ok).toBe(true);
+
+	// The record says how many turns were taken, which is where the script picks up.
+	const turnsTaken = (await entriesOf(inner)).filter(
+		(entry) => entry.type === "assistant_message",
+	).length;
+	const restarted = scriptedModel(turns, {
+		clock,
+		position: "sequence",
+		startTurn: turnsTaken,
+		summaries,
+	});
+	restarted.contextWindow = 600;
+	const resumed = await runTask({
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools: [
+			toolReturning("read", "x".repeat(400)),
+			toolReturning("look", "y".repeat(400)),
+			createFinishTool(),
+		],
+		model: restarted,
+		storage: inner,
+		clock,
+		ids: counterIds(),
+		compaction: { reserveTokens: 100, keepTokens: 100 },
+		resume: { lines: killed.ok ? killed.value : [], by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+	// The same run, the same spend, whichever side of the interruption it is asked on.
+	expect(resumed.usage).toEqual(uninterrupted.usage);
 });

@@ -286,6 +286,11 @@ export function createSession(options: SessionOptions): Session {
 		for (const used of seed?.usages ?? []) {
 			usage.add(used);
 		}
+		// A summary's cost is part of what the run spent, so a client watching the
+		// spend sees it survive an interruption (CMP14).
+		for (const used of seed?.summaryUsages ?? []) {
+			usage.add(used);
+		}
 		const handle = header === undefined ? undefined : runtime.active(header.run);
 		const queue = handle?.pending() ?? { steers: 0, followUps: 0 };
 		const state =

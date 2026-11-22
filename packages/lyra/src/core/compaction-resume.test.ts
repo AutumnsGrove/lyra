@@ -403,3 +403,111 @@ test("CMP22 a long run compacts several times and builds the same page as one th
 		}
 	}
 });
+
+test("CMP23 a record with a broken chain is shown as its active path, not every stored entry", async () => {
+	// A kill just after the fourth turn's result, then one line behind it blanked as
+	// a damaged record would be. The loader keeps the tail and notes the break; the
+	// model's view has to be the same conversation `replayConversation` reports.
+	const clock = fakeClock();
+	const whole = fakeClock();
+	const wholeStorage = memoryStorage();
+	const uninterrupted = await runTask({ ...base(whole, wholeStorage), model: model(whole) });
+	expect(uninterrupted.reason).toBe("done");
+	const readWhole = await wholeStorage.read();
+	const lines = readWhole.ok ? readWhole.value : [];
+	const compactionAt = lines.findIndex((line) => line.includes('"type":"compaction"'));
+	expect(compactionAt).toBeGreaterThan(0);
+	// Two appends after the compaction: the fourth turn's request and its result.
+	const killAt = compactionAt + 3;
+
+	const inner = memoryStorage();
+	const dying = crashingStorage(inner, { at: killAt, when: "after" });
+	void runTask({ ...base(clock, dying), model: model(clock) });
+	await until(() => dying.appends() >= killAt);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const killed = await inner.read();
+	expect(killed.ok).toBe(true);
+	const saved = killed.ok ? killed.value : [];
+
+	// The third result is behind the compaction, so blanking it breaks the chain
+	// while leaving the compaction and the step after it intact.
+	let seen = 0;
+	const broken = saved.map((line) => {
+		if (!line.includes('"type":"tool_message"')) {
+			return line;
+		}
+		seen += 1;
+		return seen === 3 ? "" : line;
+	});
+	const loaded = loadRecord(broken);
+	expect(loaded.ok).toBe(true);
+	expect(loaded.ok ? loaded.value.notes.length : 0).toBeGreaterThan(0);
+
+	const turnsTaken = entriesOf(broken).filter(
+		(entry) => entry.type === "assistant_message",
+	).length;
+	const scripted = model(clock, turnsTaken);
+	const resumed = await runTask({
+		...base(clock, inner),
+		model: scripted,
+		resume: { lines: broken, by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+
+	// The request really happened, so the check below is not passing on nothing.
+	const first = scripted.requests[0];
+	expect(first).toBeDefined();
+	const callIds = (first?.messages ?? []).flatMap((message) =>
+		message.role === "assistant" ? message.toolCalls.map((call) => call.id) : [],
+	);
+	// The step the chain still holds is there, and the one it lost is not.
+	expect(callIds).toContain("c4");
+	expect(callIds).not.toContain("c3");
+});
+
+test("CMP24 a resume whose record ends at a compaction goes on instead of failing input_too_large", async () => {
+	// A tight window with no reserve: the last reply's reported input tokens describe
+	// the conversation before the cut, so using them as the base would claim the view
+	// cannot fit when it is only the summary and one kept step.
+	const tight = { contextWindow: 500, reserveTokens: 0, keepTokens: 100 };
+	const whole = fakeClock();
+	const wholeStorage = memoryStorage();
+	const uninterrupted = await runTask({
+		...base(whole, wholeStorage),
+		compaction: tight,
+		model: model(whole),
+	});
+	expect(uninterrupted.reason).toBe("done");
+	const readWhole = await wholeStorage.read();
+	const lines = readWhole.ok ? readWhole.value : [];
+	const compactionAt = lines.findIndex((line) => line.includes('"type":"compaction"'));
+	expect(compactionAt).toBeGreaterThan(0);
+
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const dying = crashingStorage(inner, { at: compactionAt + 1, when: "after" });
+	void runTask({ ...base(clock, dying), compaction: tight, model: model(clock) });
+	await until(() => dying.appends() >= compactionAt + 1);
+	for (let tick = 0; tick < 20; tick += 1) {
+		await Promise.resolve();
+	}
+	const killed = await inner.read();
+	expect(killed.ok).toBe(true);
+	const kept = killed.ok ? killed.value : [];
+	expect(kept.some((line) => line.includes('"type":"compaction"'))).toBe(true);
+
+	const turnsTaken = entriesOf(kept).filter((entry) => entry.type === "assistant_message").length;
+	const resumed = await runTask({
+		...base(clock, inner),
+		compaction: tight,
+		model: model(clock, turnsTaken),
+		resume: { lines: kept, by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+	// It did not compact again either: the view it was given already fit.
+	const after = await inner.read();
+	const entries = entriesOf(after.ok ? after.value : []);
+	expect(entries.filter((entry) => entry.type === "compaction")).toHaveLength(1);
+});

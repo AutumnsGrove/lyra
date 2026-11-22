@@ -4,7 +4,7 @@ import { loadRecord } from "./load.js";
 import type { RecordEntry, RecordHeader } from "./entries.js";
 import { encodeEntry, encodeHeader } from "./entries.js";
 import type { JsonValue } from "../core/json.js";
-import { fitEntry, utf8Length } from "./truncate.js";
+import { cutText, fitEntry, utf8Length } from "./truncate.js";
 
 /** The rows are in `docs/run-record.md`: REC01 to REC04. */
 
@@ -203,4 +203,23 @@ test("REC04 a second field that cannot fit even when empty is counted in the tot
 	expect(truncated?.droppedBytes).toBeGreaterThanOrEqual(1_200);
 	// And the call is still there, so the result that follows it is pair-able.
 	expect(fitted.entry.type === "assistant_message" ? fitted.entry.toolCalls : []).toHaveLength(2);
+});
+
+test("CMP18 a cap smaller than the marker still keeps the result inside it", () => {
+	// A tool's own cap is not validated by anything but itself, so a small one must
+	// still mean what it says: the cut is silent when even the marker would be over
+	// the budget, because a result over the cap is worse than one without a note.
+	const text = "z".repeat(5_000);
+	for (const cap of [1, 10, 20, 60]) {
+		const cut = cutText(text, cap, "call read again with a smaller range");
+		expect(cut).toBeDefined();
+		expect({ cap, bytes: utf8Length(cut?.text ?? "") <= cap }).toEqual({ cap, bytes: true });
+		expect(cut?.droppedBytes ?? 0).toBe(text.length - (cut?.text.length ?? 0));
+		expect(cut?.droppedBytes ?? 0).toBeGreaterThan(0);
+	}
+
+	// With room for the marker, the note and the tool's hint are both there.
+	const roomy = cutText(text, 200, "call read again");
+	expect(roomy?.text).toContain("[truncated:");
+	expect(roomy?.text).toContain("call read again");
 });

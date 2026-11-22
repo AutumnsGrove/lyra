@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
 import { loadRecord } from "../record/load.js";
+import { utf8Length } from "../record/truncate.js";
 import { createFinishTool, fakeClock, scriptedModel, toolReturning } from "../testkit/index.js";
 import { timelineTestRecipe, type TimelineState } from "../testkit/timeline-recipe.js";
 import { defineTool, type Tool } from "./tool.js";
@@ -155,6 +156,41 @@ test("CMP18 a result over the cap is cut when it arrives, and the record keeps w
 	const asked = model.requests.at(-1)?.messages.find((message) => message.role === "tool");
 	expect(asked?.role === "tool" ? asked.content : "").toBe(first.content);
 	expect(events[0]).toBe(first.content);
+
+	// A cap that means nothing is not a cap: a tool that sets zero falls back to the
+	// next one out rather than emptying what the model reads.
+	const clockAgain = fakeClock();
+	const otherStorage = memoryStorage();
+	const pointless = toolReturning("read", "z".repeat(200), { maxResultBytes: 0 });
+	const second = await runTask({
+		runId: "run-2",
+		task: "test-task",
+		host: "test-host",
+		input: "read the thing",
+		system: "you are a test",
+		tools: [pointless, createFinishTool()],
+		model: scriptedModel(
+			[
+				{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+				{ toolCalls: [{ id: "c2", name: "finish", args: {} }] },
+			],
+			{ clock: clockAgain },
+		),
+		storage: otherStorage,
+		clock: clockAgain,
+		ids: counterIds(),
+		toolResultBytes: 50,
+	});
+	expect(second.reason).toBe("done");
+	const third = (await entriesOf(otherStorage)).find(
+		(entry) => entry.type === "tool_message" && entry.toolCallId === "c1",
+	);
+	if (third?.type !== "tool_message") {
+		throw new Error("the two-hundred-byte result is not in the record");
+	}
+	// The recipe's cap applied, not the tool's zero.
+	expect(third.content.length).toBeGreaterThan(0);
+	expect(utf8Length(third.content)).toBeLessThanOrEqual(50);
 });
 
 test("CMP19 a tool whose state needs the cut part keeps it in details, so replay rebuilds it", async () => {

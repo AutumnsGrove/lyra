@@ -8,6 +8,35 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Step 7, review round 1, 2026-11-21
+
+- **A resume after a compaction could fail `input_too_large` although the view fit.**
+  `lastInputTokens` came from the last reply's reported input tokens, but after a
+  `compaction` entry that number describes the conversation *before* the cut. Two
+  fixes, both test-first (CMP24). The seed now hands back a base only when no
+  compaction came after the last reply, so the estimate after a cut is the view's
+  own. And the `input_too_large` branch compares the real conversation's estimate
+  against the window rather than the reported base, so it cannot claim that
+  compacting cannot help when a compaction already did. The guard is the one that
+  shows: right after a cut the view has one step, so a stale base could only spend a
+  `chooseCut` call on nothing. It still matters with a big `keepTokens`, where a cut
+  can keep several steps and a stale base would immediately compact again.
+- **A summary's cost vanished on resume**, which contradicts CMP14 and LIM06: the
+  seed collected assistant usages only. It now collects a compaction's `usage` as
+  well, kept apart from the assistant usages so it never becomes the input base, and
+  both the run's totals and `get_state` add them (CMP14's resume half).
+- **The resumed view was built from every loaded entry, not the active path.** A
+  record whose chain the loader reports as broken has entries the conversation does
+  not contain, so the model was shown the pre-break history while `get_messages` and
+  `replayConversation` showed the chain. `buildView(activePath(...))` makes the two
+  the same conversation (CMP23).
+- **`cutText` could return more than the cap it was given** when the cap was smaller
+  than the marker itself: the binary search stopped at zero and returned the marker
+  alone. The cut is now silent in that case — a result over the cap a tool set is
+  worse than one without a note — and a cap that is zero, negative or fractional is
+  not a cap at all, so the next one out applies instead of emptying the result
+  (CMP18).
+
 ## Step 7, wrap-up, 2026-11-21
 
 - **A testkit rule met compaction and broke.** The scripted model chose its turn by

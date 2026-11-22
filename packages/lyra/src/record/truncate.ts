@@ -159,8 +159,18 @@ export function cutText(
 	const suffix = hint === undefined || hint === "" ? "" : ` ${hint}`;
 	// Measured with the widest number the marker could carry, so the real one fits.
 	const marker = (dropped: number): string => `${markerFor(dropped)}${suffix}`;
+	const budget = (length: number): boolean =>
+		utf8Length(sliceAtCodePoint(text, length)) <= maxBytes;
 	const fits = (length: number): boolean =>
 		utf8Length(sliceAtCodePoint(text, length) + marker(Number.MAX_SAFE_INTEGER)) <= maxBytes;
+
+	// A cap smaller than the marker itself cannot carry a note. The cut is then
+	// silent: a result over the cap the tool set is worse than one without a
+	// marker, and the tool's own cap is the thing that has to hold.
+	if (!fits(0)) {
+		const kept = sliceAtCodePoint(text, largest(budget, text.length));
+		return { text: kept, droppedBytes: total - utf8Length(kept) };
+	}
 
 	let low = 0;
 	let high = text.length;
@@ -175,6 +185,25 @@ export function cutText(
 	const kept = sliceAtCodePoint(text, low);
 	const droppedBytes = total - utf8Length(kept);
 	return { text: kept + marker(droppedBytes), droppedBytes };
+}
+
+/**
+ * The longest prefix of `length` characters that `fits` accepts, by halving. It
+ * returns 0 when nothing does, which is a cap of zero or a character that is
+ * itself over the budget.
+ */
+function largest(fits: (length: number) => boolean, length: number): number {
+	let low = 0;
+	let high = length;
+	while (low < high) {
+		const middle = Math.ceil((low + high) / 2);
+		if (fits(middle)) {
+			low = middle;
+		} else {
+			high = middle - 1;
+		}
+	}
+	return low;
 }
 
 export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {

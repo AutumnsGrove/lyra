@@ -23,6 +23,7 @@ import {
 	DEFAULT_RESULT_CAP_BYTES,
 	DEFAULT_SUMMARY_INSTRUCTIONS,
 	defaultReserveTokens,
+	estimateConversation,
 	estimateSinceLastReply,
 	shouldCompact,
 	summarize,
@@ -49,7 +50,7 @@ import { readResumeSeed, reserveIds, type ResumeSeed } from "./resume.js";
 import { replayState } from "./state.js";
 import type { ModelError, ModelReply, ModelRequest, ModelSlot, ToolCall, Usage } from "./model.js";
 import type { LyraError } from "./result.js";
-import { entryMessage } from "../record/replay.js";
+import { activePath, entryMessage } from "../record/replay.js";
 import type { StorageSlot } from "./slots.js";
 import type { Tool, ToolOutcome } from "./tool.js";
 import { cutText, fitEntry, utf8Length } from "../record/truncate.js";
@@ -75,6 +76,15 @@ export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
 
 /** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
 export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
+
+/**
+ * A byte cap a caller set, when it is one that says anything. A zero, a fraction
+ * or a negative has no meaning as a limit, so it is not one: the next cap out
+ * applies instead of the result being emptied.
+ */
+function usableCap(value: number | undefined): number | undefined {
+	return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
 
 /** The cap an entry has: the record's own, lowered to the storage's when that is smaller. */
 export function entryCapBytes(storage: StorageSlot, requested?: number): number {
@@ -521,7 +531,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		// exactly what the model saw, so a resume replays the same text. Nothing older
 		// is rewritten, which is what keeps the stable prefix cacheable (decision 40).
 		const tool = tools.get(call.name);
-		const cap = tool?.maxResultBytes ?? config.toolResultBytes ?? DEFAULT_RESULT_CAP_BYTES;
+		const cap =
+			usableCap(tool?.maxResultBytes) ??
+			usableCap(config.toolResultBytes) ??
+			DEFAULT_RESULT_CAP_BYTES;
 		const cut = cutText(outcome.content, cap, tool?.truncationHint);
 		const content = cut?.text ?? outcome.content;
 		const entry: ToolMessageEntry = {
@@ -784,15 +797,18 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 
 		const cut = chooseCut(viewEntries, keepTokens);
 		if (cut === undefined) {
-			if (estimate <= contextWindow) {
-				// There is nothing older to summarize yet, and the request still fits.
+			// There is nothing older to summarize. What decides a failure here is the
+			// view itself, not the reported base: a compaction may have shortened the
+			// conversation since that number was counted (CMP24).
+			const viewTokens = estimateConversation(messages);
+			if (viewTokens <= contextWindow) {
 				return undefined;
 			}
 			// No summary can make a single step fit, so the run says so plainly rather
 			// than spending a call on it and failing differently (decision 6's limit).
 			const error: LyraError = {
 				code: "bad_request",
-				message: `input_too_large: the conversation is about ${estimate} tokens and this model's context window is ${contextWindow}, so compacting cannot make it fit`,
+				message: `input_too_large: the conversation is about ${viewTokens} tokens and this model's context window is ${contextWindow}, so compacting cannot make it fit`,
 			};
 			emit({ type: "error", run: runId, ts: clock.now(), error });
 			failureDetail = "input_too_large";
@@ -1226,8 +1242,15 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				for (const usage of seed.usages) {
 					usageTotal.add(usage);
 				}
+				// A summary is a call like any other for a limit, so its cost is part of
+				// what the run already spent (CMP14).
+				for (const usage of seed.summaryUsages) {
+					usageTotal.add(usage);
+				}
 				turns = seed.turns;
-				lastInputTokens = seed.usages.at(-1)?.inputTokens;
+				// The base the estimate starts from, which the seed drops when a cut came
+				// after the last reply: that number then describes a longer conversation.
+				lastInputTokens = seed.lastInputTokens;
 				parent = seed.parent;
 				closedActiveMs = seed.activeMs;
 				let prepared: TaskStart | undefined;
@@ -1307,7 +1330,10 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					}
 					// The conversation is the record's view, up to the latest compaction's
 					// pointer, so a resumed run sees what the compacted one saw (decision 39).
-					const seededView = buildView(seed.record.entries, stateTexts());
+					// The active path, not every stored entry: a record whose chain is
+					// damaged has entries the conversation does not contain, and the view
+					// has to be the same conversation replay reports (CMP23).
+					const seededView = buildView(activePath(seed.record.entries), stateTexts());
 					viewEntries = seededView.entries;
 					messages = seededView.messages;
 					previousSummary = seededView.summary;
