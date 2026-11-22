@@ -89,6 +89,18 @@ before, except that a tool result is now capped at 50 KiB as the model reads it.
   and `Tool.truncationHint` shape how a big result is cut, and `ModelSlot.contextWindow` is where a host
   says how much its model can read.
 
+### Changed
+
+- The example Worker's ceiling moves from 28 KiB to 48 KiB gzipped, for the protocol the example now
+  mounts as a server and for the three socket handlers a hibernating socket needs (decisions 134 and
+  143).
+- A tool result's model-facing content is capped at 50 KiB when it arrives, or at the tool's own
+  `maxResultBytes`, with a marker and the tool's hint for getting the rest. The record now holds what
+  the model saw rather than always the whole result, and the `tool_end` event carries the same text
+  (decision 138).
+- `ModelRequest` gained an optional `purpose: "compaction"`, which an adapter may ignore, so a summary
+  call can be told apart from a turn (decision 136).
+
 ## [0.2.0] - 2026-11-21
 
 Lyra gains its first real model adapter, and nothing existing changes. `0.1.0` keepers upgrade with
@@ -136,17 +148,9 @@ Node's timer type fits; its exported `systemClock()` and `systemIds()` are uncha
 
 ### Changed
 
-- The example Worker's ceiling moves from 44 KiB to 48 KiB gzipped, for the socket
-  handlers a hibernating socket needs (decision 143).
 - The package's size ceiling moves from 68 KiB to 84 KiB gzipped for the OpenAI-style adapter
   (decision 123), and then to 88 KiB for the misbehaving model, cassettes and the presets (decision
   128).
-- A tool result's model-facing content is capped at 50 KiB when it arrives, or at the tool's own
-  `maxResultBytes`, with a marker and the tool's hint for getting the rest. The record now holds what
-  the model saw rather than always the whole result, and the `tool_end` event carries the same text
-  (decision 138).
-- `ModelRequest` gained an optional `purpose: "compaction"`, which an adapter may ignore, so a summary
-  call can be told apart from a turn (decision 136).
 
 ## [0.1.0] - 2026-11-19
 
