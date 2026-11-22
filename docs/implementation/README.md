@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
@@ -28,7 +28,7 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | not started |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 
-### Where the last session stopped (2026-11-21)
+### Where the last session stopped (2026-11-22)
 
 - **The approvals and proposals slice is merged**, pull request #27, merge commit
   `6970a1e`, after six review rounds: a tool's policy and risk with the check before
@@ -39,8 +39,9 @@ Last updated: 2026-11-21. This folder turns `docs/first-slice.md` (what to build
   that queues rather than failing). **`unbuilt-rows.json` is empty**: every row
   written during planning is built. The gate on the merged head: 521 Node tests, 50
   workerd tests, 15 fuzz/property targets, coverage 92.09% statements and 85.62%
-  branches, the package at 129,695 B of 180,224 B, and `matrixcheck` 330 rows (330
-  tested). Decisions 139 to 142 are the slice's own. Next is step 8, WebSocket, whose
+  branches, the package at 129,695 B of 180,224 B measured locally (a Linux runner
+  compresses it a few hundred bytes tighter, as these notes say), and `matrixcheck`
+  330 rows (330 tested). Decisions 139 to 142 are the slice's own. Next is step 8, WebSocket, whose
   document is already written and depends on nothing here.
 
 - **Step 7, compaction, is merged**, pull request #25, merge commit `eb95d42`, after
