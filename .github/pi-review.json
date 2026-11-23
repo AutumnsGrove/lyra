@@ -33,9 +33,7 @@
     "include": [],
     "exclude": [
       "docs/**",
-      "CHANGELOG.md",
-      "AGENTS.md",
-      "CLAUDE.md"
+      "CHANGELOG.md"
     ]
   },
   "pi": {

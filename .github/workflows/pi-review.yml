@@ -11,8 +11,6 @@ on:
       - "**"
       - "!docs/**"
       - "!CHANGELOG.md"
-      - "!AGENTS.md"
-      - "!CLAUDE.md"
   issue_comment:
     types: [created]
 
