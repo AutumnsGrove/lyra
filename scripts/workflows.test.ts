@@ -144,6 +144,7 @@ describe("pull request runs", () => {
 	test("neither reviewer runs on a pull request from a bot", async () => {
 		const reviewers = ["claude-code-review.yml", "pi-review.yml"];
 		const skipsBots = "github.event.pull_request.user.type != 'Bot'";
+		const mentionHalf = "github.event_name == 'issue_comment'";
 		for (const file of reviewers) {
 			const workflow = await readWorkflow(file);
 			expect(
@@ -154,10 +155,30 @@ describe("pull request runs", () => {
 			const conditions = Object.values(workflow.jobs ?? {}).map((job) =>
 				collapse(job.if ?? ""),
 			);
+			const condition = conditions.find((text) => text.includes(skipsBots));
 			expect(
-				conditions.some((condition) => condition.includes(skipsBots)),
+				condition,
 				`${file} reviews pull requests from bots, which fail on the secret GitHub withholds`,
-			).toBe(true);
+			).toBeDefined();
+			if (condition === undefined) {
+				continue;
+			}
+
+			/**
+			 * The clause has to be in the pull request half, not merely somewhere in the
+			 * condition. `pi-review`'s is `(pull request) || (@pi mention)`, and a case
+			 * satisfied by any occurrence would pass while the pull request half lost
+			 * its copy, because the mention half is where a copy would most plausibly be
+			 * moved to (found in review). The mention alternative is where the second
+			 * half starts, so the clause has to come before it.
+			 */
+			const secondHalf = condition.indexOf(mentionHalf);
+			if (secondHalf !== -1) {
+				expect(
+					condition.indexOf(skipsBots),
+					`${file} mentions the bot clause only outside the pull request half, so a bot's pull request still starts it`,
+				).toBeLessThan(secondHalf);
+			}
 		}
 
 		/**
@@ -223,6 +244,36 @@ describe("pi-review's generated workflow", () => {
 			declared,
 			"an exclude that saves a review has gone missing, so prose-only pull requests are reviewed again",
 		).toEqual(expect.arrayContaining(["docs/research/**", "CHANGELOG.md"]));
+	});
+
+	/**
+	 * The one case that watches the source rather than the generated copy. The bot
+	 * guard reaches the workflow through `triggers.skipBots`, so reverting the
+	 * setting alone leaves the checked-in workflow correct and every other case
+	 * green: the guard holds until somebody regenerates, and then it is gone. Two
+	 * assertions, because they fail for different reasons — the setting is the
+	 * policy decision 151 made, and the agreement between the two is what catches
+	 * the drift that a sync would make real.
+	 */
+	test("the settings still say a bot's pull request does not start it", async () => {
+		const settings = parse(await readFile(join(ROOT, ".github/pi-review.json"), "utf8")) as {
+			triggers?: { skipBots?: boolean };
+		};
+		expect(
+			settings.triggers?.skipBots,
+			"skipBots is off, so the next sync drops the guard and every Dependabot pull request fails both readers again",
+		).toBe(true);
+
+		const condition = collapse(
+			Object.values((await readWorkflow("pi-review.yml")).jobs ?? {})
+				.map((job) => job.if ?? "")
+				.join(" "),
+		);
+		const carriesIt = condition.includes("github.event.pull_request.user.type != 'Bot'");
+		expect(
+			carriesIt,
+			`the workflow and the settings disagree: skipBots is true and pi-review.yml does not carry the clause (run the sync)`,
+		).toBe(true);
 	});
 
 	/**
