@@ -245,11 +245,11 @@ test("REC04 an entry that cannot fit even when cut is refused, never over the ca
 		details: { count: 12 },
 	};
 	const fitted = fitEntry(entry, 200);
-	// Either it was refused, or what came back is inside the cap. Never a line over it.
-	if (fitted.refused === undefined) {
-		expect(utf8Length(fitted.line)).toBeLessThanOrEqual(200);
-	}
-	// With this structure and this cap there is nothing to keep, so the honest answer
-	// is the refusal the same rule gives any structure that is too big on its own.
-	expect(fitted.refused).toBeDefined();
+	// Against the pre-fix code this was a fit of 201 bytes, so this is the assertion
+	// that catches the bug: no line over the cap ever comes back as a fit.
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(200);
+	// And the honest answer for this entry is the refusal the same rule gives any
+	// structure that is too big on its own, not a fit with the marker on an empty
+	// field.
+	expect(fitted.refused).toMatch(/structure/);
 });
