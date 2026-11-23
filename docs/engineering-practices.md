@@ -171,6 +171,22 @@ The decision documents in this folder do not yet have row tables. Each would get
 
 Each fuzz target has a seed set of the nasty cases from the catalog, and runs for a few seconds in CI. Longer runs happen on demand.
 
+**A committed corpus, because a generator keeps nothing** (decision 150, issue #41). A target draws fresh
+cases every run, so an input that failed last week no longer exists and nothing replays it. Each target
+therefore has a corpus module beside it — `core/corpus/schema.testing.ts`, and so on — holding named cases
+as typed values, so a case with the wrong shape is a compile error rather than a mystery at run time. The
+same `holds` function is used by the generator and by `replay`, so the two cannot drift apart. Each target
+is three files — the cases and `holds` in `corpus/<target>.testing.ts`, the replay in
+`corpus/<target>.test.ts`, the generator in `<target>.fuzz.test.ts` — and the replay is a plain test on
+purpose: `*.fuzz.test.ts` is excluded from `pnpm test`, so a replay written inside the fuzz file would miss
+both the gate's own test run and the nightly shuffle. `replay` on an empty corpus throws:
+a corpus with nothing in it is a test that cannot fail. A failing generated case is reported in the thrown
+error's message, shrunk to the smallest input that still fails and printed with `fc.stringify` as a value
+ready to paste into the corpus module — `fc.stringify` and not `JSON.stringify`, which turns `NaN` into
+`null` and drops a key holding `undefined`, and the generators use both. Nothing writes into the tree, because the core has no filesystem access and a test that
+writes into `src/` races with a parallel worker; `scripts/fuzz-corpus.test.ts` keeps a list of the targets
+that do not replay a corpus yet, with a reason each, so a new target cannot arrive without one silently.
+
 **A model whose output is random.** The fake model server can also be driven by a seeded generator that produces valid-looking but wrong replies (truncated JSON, wrong tool names, repeated calls). A run against it must always end in exactly one `run_end`, with a record that loads, no matter what.
 
 ### Tools, and what is unconfirmed
@@ -271,20 +287,34 @@ A live run can record the real HTTP exchange (with keys and auth headers removed
 
 ### Definition of done
 
-A change is done when one command passes, and the same command runs in CI:
+A change is done when one command passes, and the same command runs in CI. It runs in two halves
+(decision 145, issue #37), because a whitespace failure should report in a minute rather than queue behind
+the workerd suite:
 
 ```
-pnpm ci
-  format       # prettier check
-  typecheck    # tsc --noEmit, strict
-  build        # core, adapters, the Workers build
-  test         # L0 to L3, then L4 in workerd, each with its own run
-  fuzz         # short fuzz and property runs, seeds printed on failure
-  importcheck  # the import rules above, and no node:* in the core
-  matrixcheck  # every spec row has a test, every cited ID exists
-  budget       # package size and bundle size within budget
-  coverage     # 85% floor on the core (decision 66), a smoke alarm
+pnpm run ci                      # both halves, in this order
+  pnpm run ci:fast
+    format        # prettier check
+    typecheck     # tsc --noEmit, strict, for the core and the workerd test program
+    build         # core, adapters, the Workers build
+    importcheck   # the import rules above, and no node:* in the core
+    matrixcheck   # every spec row has a test, every cited ID exists
+    workflowcheck # the workflow YAML itself (decision 146)
+    build:example # the example Worker, bundled by wrangler --dry-run
+    budget        # package size and bundle size within budget
+  pnpm run ci:slow
+    test          # L0 to L3, and each fuzz target's committed corpus
+    test:workers  # L4 in workerd, and the socket suite
+    fuzz          # short fuzz and property runs
+    coverage      # 85% floor on the core (decision 66), a smoke alarm
 ```
+
+In CI the two halves are two jobs with no `needs:` between them, so neither waits for the other.
+
+Two things are deliberately **not** in the gate, because both depend on the world rather than on the diff:
+`pnpm run audit` (decision 148) reads the registry, and `pnpm run nightly` (decision 149) runs the suite
+twice, shuffled, to find state left behind between tests. The first runs in `security.yml` on pull requests,
+on `main` and weekly; the second in `nightly.yml`, on a schedule.
 
 The tests for the change were written first and watched failing. A fast loop (`pnpm test`) runs while working. It is not the gate.
 

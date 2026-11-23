@@ -1,0 +1,37 @@
+# Both halves of this repository move without anyone touching it. The Workers
+# toolchain ships constantly, and `@cloudflare/workers-types` is a dated snapshot
+# that goes stale silently: a type that changed shape months ago keeps
+# typechecking against the old one. The workflows are the other half, because a
+# pinned `uses: action@v7` tag can be retargeted or gain a fix, and nobody
+# remembers to look.
+#
+# Majors are left ungrouped on purpose, in both ecosystems. Nova learned it the
+# hard way: without the `update-types` filter a group swallowed three majors of
+# `upload-artifact` into one pull request (#110), which cannot be read as a
+# single change. A major can rename an input or move a runtime, so it gets its
+# own pull request even though that means more of them.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: fix
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]

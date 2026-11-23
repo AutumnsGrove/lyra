@@ -1,0 +1,52 @@
+name: security
+
+# A dependency can go vulnerable while nothing in this repository changes: an
+# advisory is published and the pinned version in `pnpm-lock.yaml` is suddenly
+# known-bad. That is what the weekly run is for. The pull request run is the other
+# direction -- a lockfile change that brings one in, before it is merged.
+#
+# The cost of running on pull requests is honest and small: a newly published
+# advisory will also go red on a pull request that did not touch that package.
+# The step names the module and links the advisory, and `scripts/security-allow.json`
+# is how an unrelated one is taken out of the way instead of blocking the change.
+#
+# This is deliberately not part of `pnpm run ci` (docs/engineering-practices.md,
+# "Definition of done"): the scan reads the registry, and the gate has to work
+# offline.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+
+# A force-push supersedes the scan it replaced. A scheduled run is never cancelled
+# by anything, so only pull requests cancel.
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # `--ignore-scripts` on purpose. This job is checking whether a dependency is
+      # dangerous, so it is the last one that should run a devDependency's install
+      # script. `pnpm audit` reads the lockfile, and nothing here is built.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # The scan's own exit code decides the job: `audit` fails on a high or
+      # critical advisory, and it fails when it cannot reach the registry rather
+      # than reporting a clean scan it never ran.
+      - run: pnpm run audit

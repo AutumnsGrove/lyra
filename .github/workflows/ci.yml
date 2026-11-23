@@ -19,9 +19,13 @@ permissions:
   contents: read
 
 jobs:
-  gate:
+  # The cheap half, and it is cheap on purpose: formatting, the types, the build,
+  # the three checks that only read the tree, the example bundle, and its budget.
+  # A whitespace failure is reported by this job in about a minute, and that is
+  # worth a second machine.
+  fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,7 +36,34 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The same command a person runs locally, so CI and the local gate cannot
-      # drift (AGENTS.md, "Definition of done"). pnpm reserves `pnpm ci` itself,
-      # so the gate runs through `run`.
-      - run: pnpm run ci
+      # The same commands a person runs locally, so CI and the local gate cannot
+      # drift (`AGENTS.md`, "Definition of done"). `pnpm run ci` is the two halves
+      # in sequence, which is what a local run does; here they run side by side.
+      - run: pnpm run ci:fast
+
+  # The slow half: the Node suite, workerd and the socket suite, the short fuzz
+  # run, and the coverage floor, which replays the Node suite under a reporter.
+  #
+  # Deliberately no `needs: fast`. The halves answer different questions, and
+  # making one wait behind the other adds the slower job's runtime to every
+  # failure, including the ones the fast half would have reported in a minute.
+  #
+  # Thirty minutes, not the fifteen the one job had, and it is the sum of what the
+  # half is allowed to take rather than slack: fifteen fuzz targets each get a 60 s
+  # test timeout (`vitest.fuzz.config.ts`), so a loaded machine can legally spend
+  # fifteen minutes there alone, and coverage replays the whole Node suite on top of
+  # it. A warm run is under a minute; the ceiling is a hang guard.
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run ci:slow

@@ -1,7 +1,8 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { decodeReply } from "./decode-reply.js";
+import { generate } from "../testkit/corpus.testing.js";
+import { holds } from "./corpus/decode-reply.testing.js";
 
 /**
  * MOD10 in `docs/core-loop.md`. The decoder sits on an adapter's boundary, so it
@@ -41,34 +42,5 @@ const nasty = fc.oneof(
 );
 
 test("MOD10 any value decodes or is refused, and what it accepts is a reply", () => {
-	fc.assert(
-		fc.property(nasty, (value) => {
-			const result = decodeReply(value);
-			if (!result.ok) {
-				expect(result.error.code).toBe("bad_request");
-				expect(typeof result.error.message).toBe("string");
-				return;
-			}
-			const reply = result.value;
-			expect(typeof reply.text).toBe("string");
-			expect(typeof reply.model).toBe("string");
-			expect(Number.isSafeInteger(reply.usage.inputTokens)).toBe(true);
-			expect(reply.usage.inputTokens).toBeGreaterThanOrEqual(0);
-			expect(Number.isSafeInteger(reply.usage.outputTokens)).toBe(true);
-			expect(reply.usage.outputTokens).toBeGreaterThanOrEqual(0);
-			expect(["stop", "length", "tool_calls", "content_filter", "other"]).toContain(
-				reply.finishReason,
-			);
-			expect(Array.isArray(reply.toolCalls)).toBe(true);
-			const ids = new Set<string>();
-			for (const call of reply.toolCalls) {
-				expect(call.id.length).toBeGreaterThan(0);
-				expect(call.name.length).toBeGreaterThan(0);
-				expect(typeof call.arguments).toBe("string");
-				ids.add(call.id);
-			}
-			expect(ids.size).toBe(reply.toolCalls.length);
-		}),
-		{ numRuns: 1_000 },
-	);
+	generate("decode-reply", nasty, holds, { numRuns: 1_000 });
 });

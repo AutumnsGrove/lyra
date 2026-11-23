@@ -1,0 +1,4 @@
+{
+	"//": "Advisories this repository has read and decided to live with (issue #39). Every entry needs a reason: a silent allow-list is the same as not scanning. Remove an entry when the fix lands, and check the weekly workflow is still green when you do.",
+	"allow": []
+}

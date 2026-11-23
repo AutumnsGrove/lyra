@@ -1,0 +1,91 @@
+name: nightly
+
+# The pull request gate runs the suite once, in whatever order the runner happened
+# to give it. That cannot find a test that only fails beside another one, or a
+# second run that inherits state from the first.
+#
+# So: every suite twice over, in a shuffled order, every night on main (issue #40).
+# All three, not only the Node one -- the workerd and socket suites are the ones
+# that run with isolation off, so they are the reason this exists. A failure is
+# filed as an issue with the shuffle seed, because a red run nobody can reproduce
+# is a red run nobody reads.
+#
+# What it is not: a timing-race detector. This repository uses a fake clock and
+# never sleeps on real time. The yield is state leaking between tests and files,
+# which matters here because the workerd and socket suites run with isolation off
+# (decision 101).
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  # So the workflow can be rehearsed from a branch before it is trusted.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The one thing this job does besides testing is file the issue.
+  issues: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  shuffle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The same command a local run uses. The seed is chosen by the script rather
+      # than by Vitest, so it can appear in the issue; the failure is reported by
+      # the next step, which needs the body file, so this one must not exit early.
+      - name: Twice over, in a shuffled order
+        id: run
+        continue-on-error: true
+        env:
+          NIGHTLY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: pnpm run nightly --body-file nightly.md --title-file nightly-title.txt
+      - name: File or update the issue
+        if: steps.run.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # The title is the identity the dedupe below compares, so it carries the
+          # failing tests and nothing that changes between runs. The seed is random
+          # per night by design and lives in the body for that reason.
+          test -s nightly-title.txt || { echo "::error::the nightly script wrote no title"; exit 1; }
+          title=$(cat nightly-title.txt)
+          # One issue per distinct failure: the same nightly going red twice should
+          # be a comment, not a second issue with the same title.
+          #
+          # The comparison goes through jq's `env`, not through awk's `-v`. awk
+          # processes backslash escapes in a `-v` assignment, so a test name holding
+          # one would never equal its own issue title and a new issue would be filed
+          # every night -- the failure decision 149 exists to avoid. Nothing runs this
+          # step, so it has to be right by reading it.
+          existing=$(TITLE="${title}" gh issue list --state open --limit 100 --json number,title \
+            --jq '[.[] | select(.title == env.TITLE)][0].number // ""')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body-file nightly.md
+          else
+            # No `--label`: filing must not depend on a label still existing in the
+            # repository, because `gh` fails outright when it does not and the run
+            # would go red with no issue -- the one outcome this job exists to
+            # prevent. The title's `nightly:` prefix is the tag.
+            gh issue create --title "${title}" --body-file nightly.md
+          fi
+      # The run step carries `continue-on-error` so the step above can read its
+      # output, which also means a red suite would otherwise leave this job green.
+      # This is the red, and it comes last so the issue is filed before the job
+      # fails.
+      - name: Fail the run
+        if: steps.run.outcome == 'failure'
+        run: exit 1

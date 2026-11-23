@@ -13,8 +13,20 @@ import type { FixtureSession } from "./testing/fixture-session.testing.js";
  * a property worth keeping.
  */
 
+/**
+ * A name per run of the case, because the fixture counts its fetches in storage and
+ * the nightly runs the case more than once in one worker (`--repeats`), so a fixed
+ * name starts the second run at 3. The first nightly run found exactly that.
+ *
+ * A counter rather than a random id: the point is isolation between repetitions,
+ * and a random name would make the test's own input differ on every run, which is
+ * the one thing a test here does not do (AGENTS.md, "Tests").
+ */
+let smokeRun = 0;
+
 test("CFL00 a Durable Object runs under the plugin", async () => {
-	const id = env.FIXTURE_SESSION.idFromName("smoke");
+	smokeRun += 1;
+	const id = env.FIXTURE_SESSION.idFromName(`smoke-${smokeRun}`);
 	const stub = env.FIXTURE_SESSION.get(id);
 
 	const first = await stub.fetch("http://fixture/");
