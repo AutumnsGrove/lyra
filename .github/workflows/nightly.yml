@@ -4,9 +4,11 @@ name: nightly
 # to give it. That cannot find a test that only fails beside another one, or a
 # second run that inherits state from the first.
 #
-# So: the suite twice over, in a shuffled order, every night on main (issue #40).
-# A failure is filed as an issue with the shuffle seed, because a red run nobody
-# can reproduce is a red run nobody reads.
+# So: every suite twice over, in a shuffled order, every night on main (issue #40).
+# All three, not only the Node one -- the workerd and socket suites are the ones
+# that run with isolation off, so they are the reason this exists. A failure is
+# filed as an issue with the shuffle seed, because a red run nobody can reproduce
+# is a red run nobody reads.
 #
 # What it is not: a timing-race detector. This repository uses a fake clock and
 # never sleeps on real time. The yield is state leaking between tests and files,
