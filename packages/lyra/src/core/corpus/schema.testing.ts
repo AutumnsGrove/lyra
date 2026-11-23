@@ -36,7 +36,9 @@ export const cases: Readonly<Record<string, SchemaCase>> = {
 	],
 	"a-schema-that-is-not-an-object": ["not a schema", null],
 	"a-value-of-the-wrong-type": [{ type: "number", minimum: 1 }, "one"],
-	"a-validator-shaped-function-in-the-value": [{ type: "object" }, { f: "() => {}" }],
+	// A real function, not a string that looks like one: the property asserts that an
+	// accepted value is never a function, and a string would not exercise that.
+	"a-function-as-the-value": [{ type: "object" }, () => {}],
 	"nothing-at-all": [null, null],
 };
 

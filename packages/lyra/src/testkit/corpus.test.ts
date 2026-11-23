@@ -103,8 +103,32 @@ test("CORPUS the reported case is the case, not the argument list", () => {
 	} catch (error) {
 		message = error instanceof Error ? error.message : String(error);
 	}
-	expect(message).toContain('\n[\n  "abc",\n  [\n    1,\n    2\n  ]\n]\n');
+	expect(message).toContain('\n["abc",[1,2]]\n');
 	expect(message).not.toContain("[\n  [\n");
+});
+
+/**
+ * The printed case is the value, not JSON's idea of it. `JSON.stringify` turns
+ * `NaN` into `null`, which would replay a different input and might pass; the
+ * decode-reply generator uses `fc.double()` for token counts, so this is reachable
+ * (found in review).
+ */
+test("CORPUS the printed case keeps values JSON cannot carry", () => {
+	let message = "";
+	try {
+		generate(
+			"reader",
+			fc.constant({ inputTokens: Number.NaN, arguments: undefined }),
+			() => {
+				throw new Error("the case was refused");
+			},
+			{ numRuns: 1 },
+		);
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	expect(message).toContain("Number.NaN");
+	expect(message).toContain('"arguments":undefined');
 });
 
 /** The failure still fails: reporting the case must not swallow it. */

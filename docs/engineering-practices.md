@@ -181,8 +181,9 @@ is three files — the cases and `holds` in `corpus/<target>.testing.ts`, the re
 purpose: `*.fuzz.test.ts` is excluded from `pnpm test`, so a replay written inside the fuzz file would miss
 both the gate's own test run and the nightly shuffle. `replay` on an empty corpus throws:
 a corpus with nothing in it is a test that cannot fail. A failing generated case is reported in the thrown
-error's message, shrunk to the smallest input that still fails and printed as JSON ready to paste into the
-corpus module. Nothing writes into the tree, because the core has no filesystem access and a test that
+error's message, shrunk to the smallest input that still fails and printed with `fc.stringify` as a value
+ready to paste into the corpus module — `fc.stringify` and not `JSON.stringify`, which turns `NaN` into
+`null` and drops a key holding `undefined`, and the generators use both. Nothing writes into the tree, because the core has no filesystem access and a test that
 writes into `src/` races with a parallel worker; `scripts/fuzz-corpus.test.ts` keeps a list of the targets
 that do not replay a corpus yet, with a reason each, so a new target cannot arrive without one silently.
 

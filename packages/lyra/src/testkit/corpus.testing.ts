@@ -16,6 +16,11 @@ import fc from "fast-check";
  * - **A printed case is the shrunk one.** A case copied from the first random
  *   failure is unreadable; fast-check shrinks to the smallest input that still
  *   fails, and that is the one worth writing down.
+ * - **A printed case is the case.** `JSON.stringify` is lossy exactly where the
+ *   generators reach: `NaN`, `Infinity` and `-0` become `null` or `0`, keys holding
+ *   `undefined` disappear, and a `bigint` throws. A case printed that way replays a
+ *   different input, and may pass. `fc.stringify` prints a JavaScript value, which
+ *   is what a corpus module holds (found in review).
  *
  * Cases live beside their target as a `.testing.ts` module rather than JSON, so
  * the shape of a case is checked by the compiler: a case with the wrong fields is
@@ -85,9 +90,14 @@ export function generate<T>(
 	// its only element. Printing the list nested every pasted case one level deeper,
 	// which is a type error for a typed corpus and a silently wrong replay for an
 	// `unknown` one (found in review).
-	const only = details.counterexample?.[0];
+	//
+	// `fc.stringify` rather than `JSON.stringify`, because the generators reach for
+	// values JSON cannot carry (`fc.double()` makes `NaN`, `fc.constant(undefined)`
+	// makes a missing key) and a lossy case is a case that may pass.
 	const smallest =
-		only === undefined ? "(none: it failed without a case)" : JSON.stringify(only, null, 2);
+		details.counterexample === null
+			? "(none: it failed without a case)"
+			: fc.stringify(details.counterexample[0]);
 	throw new Error(
 		[
 			`${target} found a failing case. Add this to ${target}'s corpus file:`,
