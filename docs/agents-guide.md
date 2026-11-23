@@ -127,7 +127,7 @@ Look at the `review` row in `gh pr checks <number>` and act on the state it repo
 | --------------------------- | --------------------------------------------------------------------------------------- |
 | pending                     | **Wait. Do not push.** A push cancels it, and the wait starts over on the new head.      |
 | a review for this head      | Push **once**, with every finding from both readers in it. One push per finding restarts the cycle and pays for the read again. |
-| absent                      | The pull request changes only prose nothing obeys (`docs/research/**`, `CHANGELOG.md`), so it will never run. Push when `fast`, `slow` and `claude-review` are done. |
+| absent                      | The changed files are all under `docs/research/` or are `CHANGELOG.md`, so it will never run. Push when `fast`, `slow` and `claude-review` are done. Absent when that is **not** true of the files means the run has not registered yet: treat it as `pending`. |
 | failed, or cancelled by someone else's push | It will not post for this head. Say so on the thread, then push.           |
 | still pending about half an hour after your push | It will not post. Say so on the thread, then push.                 |
 
