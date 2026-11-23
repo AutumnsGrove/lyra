@@ -41,9 +41,17 @@ jobs:
   claude-review:
     # A draft is not ready to be read yet, and a fork's code never runs with
     # this job's token. `pi-review` has the same guard.
+    #
+    # A bot-authored pull request is skipped rather than attempted, and it is
+    # the same three-part reason on both readers: GitHub hands a workflow the
+    # Dependabot actor started no repository secrets, and this action refuses a
+    # non-human actor outright, so the run can only fail. `pi-review` skips the
+    # same pull requests from its own settings (decision 151), and a red check
+    # on every weekly bump is how a team learns to ignore a red review.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
