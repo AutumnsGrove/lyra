@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { describe, expect, test } from "vitest";
 
 import { handWrittenWorkflows } from "./workflowcheck.ts";
-import { permissionsOf, readWorkflow, ROOT, triggers } from "./workflows.ts";
+import { permissionsOf, readWorkflow, ROOT, triggers, type Workflow } from "./workflows.ts";
 
 /**
  * The workflow files, and the dependabot config that keeps their actions
@@ -69,6 +69,29 @@ describe("workflow permissions", () => {
 				`${basename(file)} grants writes ${writes.join(", ")}`,
 			).toEqual([...allowed].sort());
 		}
+	});
+});
+
+describe("timeouts", () => {
+	/**
+	 * The release gate runs `pnpm run ci`, which is the two halves of `ci.yml` in
+	 * sequence, so its ceiling has to cover what each half is given. The two numbers
+	 * are in different files and nothing else relates them: a tag timing out while
+	 * the pull request passed would be the worst place to find out (found in
+	 * review).
+	 */
+	test("the release gate can take as long as both halves together", async () => {
+		const ci = await readWorkflow("ci.yml");
+		const release = await readWorkflow("release.yml");
+		const minutes = (workflow: Workflow, job: string): number => {
+			const value = (workflow.jobs?.[job] as { "timeout-minutes"?: number } | undefined)?.[
+				"timeout-minutes"
+			];
+			expect(value, `${job} has no timeout`).toBeTypeOf("number");
+			return value ?? 0;
+		};
+		const halves = minutes(ci, "fast") + minutes(ci, "slow");
+		expect(minutes(release, "gate")).toBeGreaterThanOrEqual(halves);
 	});
 });
 

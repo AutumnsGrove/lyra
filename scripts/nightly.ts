@@ -183,7 +183,7 @@ export function issueTitle(outcome: Outcome): string {
 	const names = [
 		...new Set(
 			outcome.failures.map((failure) => {
-				const file = basename(failure.file);
+				const file = fileOf(failure.file);
 				return failure.test === NO_TEST_RAN ? file : `${file}: ${shortName(failure.test)}`;
 			}),
 		),
@@ -191,6 +191,19 @@ export function issueTitle(outcome: Outcome): string {
 	const shown = names.slice(0, 3).join(", ");
 	const more = names.length > 3 ? `, and ${names.length - 3} more` : "";
 	return `nightly: ${shown}${more} failed under --shuffle`;
+}
+
+/**
+ * A file's name for the title: the path after `src/`, which is unique within the
+ * package, falling back to the base name for a path that has no `src/` in it.
+ *
+ * The base name alone was not enough: two files in different directories can share
+ * one, and then two different failures share an issue title across nights (found in
+ * review). The whole absolute path is too long for a title.
+ */
+function fileOf(path: string): string {
+	const parts = path.split(/[\\/]src[\\/]/);
+	return parts[parts.length - 1] ?? basename(path);
 }
 
 function shortName(fullName: string): string {

@@ -9,7 +9,7 @@ import fc from "fast-check";
  * the gate, next to the generator, and it runs whether or not the generator
  * happens to visit that shape again.
  *
- * Two rules this file enforces, both learned from what goes wrong:
+ * Three rules this file enforces, each learned from what goes wrong:
  *
  * - **An empty corpus is a failure.** A corpus that exists and holds nothing
  *   would make `replay` a test that cannot fail, which is the same as no test.

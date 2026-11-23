@@ -28,7 +28,13 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # `pnpm run ci` here is both halves in sequence, so this ceiling has to cover
+    # what `ci.yml` gives each of them separately: 10 minutes for the fast half and
+    # 30 for the slow one, where fifteen fuzz targets at a 60-second test timeout
+    # can legally spend fifteen minutes by themselves. A tag that timed out while a
+    # pull request passed would be the worst place to find that out (found in
+    # review).
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:

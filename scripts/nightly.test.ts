@@ -331,6 +331,27 @@ describe("the issue title", () => {
 		expect(issueTitle(outcome)).toContain("nightly: a.test.ts: holds failed");
 	});
 
+	/**
+	 * Two files with the same base name in different directories are still two
+	 * failures, so the name is the path after `src/` rather than the base name.
+	 */
+	test("two files with one base name are two titles", () => {
+		const path = (dir: string): string => `packages/lyra/src/${dir}/corpus/reader.test.ts`;
+		const one = readReport(
+			[run(report([file(path("core"), "failed", [assertion("s > holds", "failed")])]))],
+			"5",
+			2,
+		);
+		const two = readReport(
+			[run(report([file(path("protocol"), "failed", [assertion("s > holds", "failed")])]))],
+			"5",
+			2,
+		);
+		expect(issueTitle(one)).toContain("core/corpus/reader.test.ts: holds");
+		expect(issueTitle(two)).toContain("protocol/corpus/reader.test.ts: holds");
+		expect(issueTitle(one)).not.toBe(issueTitle(two));
+	});
+
 	/** A red run with nothing to name is still one issue, not a new one per night. */
 	test("a run that could not report has one title, whatever the seed", () => {
 		const first = readReport([run(null)], "1", 2);
