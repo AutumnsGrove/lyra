@@ -19,6 +19,29 @@ interface Manifest {
 	scripts: Record<string, string>;
 }
 
+/**
+ * Every step the gate is made of, in the order each half runs them.
+ *
+ * Written out rather than derived, because a list derived from `package.json`
+ * would agree with any change to it, including deleting a step. This is the only
+ * thing that notices a check dropped from **both** halves, which is the failure
+ * that looks green: the tests would keep passing because the check stopped
+ * running, not because it stopped failing.
+ */
+const GATE = {
+	fast: [
+		"format",
+		"typecheck",
+		"build",
+		"importcheck",
+		"matrixcheck",
+		"workflowcheck",
+		"build:example",
+		"budget",
+	],
+	slow: ["test", "test:workers", "fuzz", "coverage"],
+} as const;
+
 async function scripts(): Promise<Record<string, string>> {
 	const pkg = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8")) as Manifest;
 	return pkg.scripts;
@@ -43,15 +66,15 @@ describe("the gate", () => {
 		expect(pkg["ci:slow"], "ci:slow is missing").toBeDefined();
 	});
 
-	test("no step belongs to both halves", async () => {
+	/**
+	 * The halves together are the whole gate, in the order above. A step removed
+	 * from one half and not added to the other shows up here; a step that belongs to
+	 * both is caught by the same case, because it would appear twice.
+	 */
+	test("the two halves are exactly the gate, in order", async () => {
 		const pkg = await scripts();
-		const fast = namedScripts(pkg["ci:fast"]);
-		const slow = namedScripts(pkg["ci:slow"]);
-		expect(fast.filter((step) => slow.includes(step))).toEqual([]);
-		// Each half must run something, or a task-list typo turns half the gate into
-		// a no-op that passes.
-		expect(fast.length).toBeGreaterThan(0);
-		expect(slow.length).toBeGreaterThan(0);
+		expect(namedScripts(pkg["ci:fast"])).toEqual([...GATE.fast]);
+		expect(namedScripts(pkg["ci:slow"])).toEqual([...GATE.slow]);
 	});
 
 	test("every step the halves name is a script that exists", async () => {
