@@ -8,6 +8,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+### Fixed
+
+- `fitEntry` could return a line over the cap it was given: a small cap with a long id left a window where
+  the entry could not fit even with its text emptied, and the marker was written on top of the empty field.
+  It now refuses the entry as the same rule does for any structure that is too big on its own (REC04).
+
 ## [0.3.1] - 2026-11-22
 
 Fixes only, which the note above reserves a patch for. Upgrade with

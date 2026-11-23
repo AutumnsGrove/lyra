@@ -251,7 +251,20 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 		}
 		const originalBytes = utf8Length(original);
 		candidate.write("");
-		if (sizeWithMarker(working, candidate.field) > maxBytes) {
+
+		// The search below assumes that keeping none of the text fits, so that is what
+		// is checked -- with the marker, which is part of the saved text. Measuring the
+		// structure alone left a window where the check passed and no length fitted,
+		// and the search then returned the marker on an empty field: a line over the
+		// cap (found by the committed corpus, issue #41).
+		const fits = (length: number): boolean => {
+			candidate.write(sliceAtCodePoint(original, length) + WIDEST_MARKER);
+			const size = sizeWithMarker(working, candidate.field);
+			candidate.write("");
+			return size <= maxBytes;
+		};
+
+		if (!fits(0)) {
 			// Emptying this field is not enough on its own, so it goes whole and its
 			// bytes join the total. Leaving them uncounted would save an entry that lost
 			// a kilobyte with nothing in it saying so, and a resume would replay a call
@@ -259,14 +272,6 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			dropped += originalBytes;
 			continue;
 		}
-
-		// Restore as much of it as fits, measured with the widest marker.
-		const fits = (length: number): boolean => {
-			candidate.write(sliceAtCodePoint(original, length) + WIDEST_MARKER);
-			const size = sizeWithMarker(working, candidate.field);
-			candidate.write("");
-			return size <= maxBytes;
-		};
 		let low = 0;
 		let high = original.length;
 		while (low < high) {

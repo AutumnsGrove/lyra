@@ -223,3 +223,33 @@ test("CMP18 a cap smaller than the marker still keeps the result inside it", () 
 	expect(roomy?.text).toContain("[truncated:");
 	expect(roomy?.text).toContain("call read again");
 });
+
+/**
+ * REC04 regression, found by the committed corpus (issue #41). The search for how
+ * much text to keep assumes that keeping none of it fits, and measures that
+ * pessimistically with the widest marker. The check before the search measured the
+ * structure *without* a marker in the text, so there was a window -- a small cap, a
+ * long id, a big details block -- where that check passed, no amount of text fitted
+ * with the marker, and the function returned the marker on top of an empty field:
+ * a line one byte over its cap.
+ */
+test("REC04 an entry that cannot fit even when cut is refused, never over the cap", () => {
+	const entry: RecordEntry = {
+		type: "tool_message",
+		id: "e8",
+		parent: null,
+		ts: START,
+		toolCallId: "c1",
+		isError: false,
+		content: "x".repeat(4_000),
+		details: { count: 12 },
+	};
+	const fitted = fitEntry(entry, 200);
+	// Either it was refused, or what came back is inside the cap. Never a line over it.
+	if (fitted.refused === undefined) {
+		expect(utf8Length(fitted.line)).toBeLessThanOrEqual(200);
+	}
+	// With this structure and this cap there is nothing to keep, so the honest answer
+	// is the refusal the same rule gives any structure that is too big on its own.
+	expect(fitted.refused).toBeDefined();
+});
