@@ -38,6 +38,12 @@ export function holds([entry, cap]: TruncateCase): void {
 	if (fitted.refused !== undefined) {
 		// Only a structure too big on its own may be refused, and it says so.
 		expect(fitted.refused).toMatch(/structure|content to cut/);
+		// The line a refusal carries is the structure with the field emptied, which may
+		// well be under the cap: what could not fit was that plus a marker. So the
+		// invariant below is "a line over the cap is never returned as a fit", which is
+		// the shape of the bug this corpus found, and the case that found it was this
+		// file's cap-200 entry (it returned 201 before the fix, caught by the assertion
+		// under this early return).
 		return;
 	}
 	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(cap);

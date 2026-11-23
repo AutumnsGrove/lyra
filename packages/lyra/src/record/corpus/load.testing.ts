@@ -34,13 +34,19 @@ export const cases: Readonly<Record<string, LoadCase>> = {
 		entries: [entries["a-user-message"]],
 		junk: ["[1,2,3]", "null"],
 	},
+	"a-record-cut-off-at-the-end": {
+		entries: [entries["a-user-message"], entries["an-assistant-message-with-two-calls"]],
+		junk: ["", '{"type":"tool_message","id":"e3"'],
+	},
 	"a-header-with-nothing-after-it": { entries: [], junk: [] },
+	// A parent chain and nothing else: a status whose parent is missing is a note, not
+	// a clean load, which the first version of this case was.
 	"a-whole-run-in-order": {
 		entries: [
 			entries["a-user-message"],
 			entries["an-assistant-message-with-two-calls"],
 			entries["a-tool-message"],
-			entries["a-status-entry"],
+			entries["a-tool-message-that-failed"],
 		],
 		junk: [],
 	},
@@ -70,6 +76,13 @@ export function holds(theCase: LoadCase): void {
 		}
 		input.push(encodeEntry(entry));
 	}
+	// Junk past the last entry trails it. An eviction cuts a record off at the end,
+	// which is the shape a case named for a half-written line is really about, and
+	// dropping the tail meant those cases fed the loader less than their names said
+	// (found in review).
+	for (const line of noise.slice(theCase.entries.length)) {
+		input.push(line);
+	}
 
 	const loaded = loadRecord(input);
 	expect(loaded.ok).toBe(true);
@@ -77,4 +90,8 @@ export function holds(theCase: LoadCase): void {
 		return;
 	}
 	expect(loaded.value.entries).toEqual(theCase.entries);
+	// Every junk line is reported. Without this the junk would be decoration: deleting
+	// the loop that feeds it changed nothing, because the entries came out the same
+	// either way (found in review). A case's junk is now load-bearing.
+	expect(loaded.value.notes).toHaveLength(noise.length);
 }
