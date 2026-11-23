@@ -121,7 +121,7 @@ the format (decision 30).
 | REC01 | A tool result larger than the entry cap | Saved truncated, with a marker giving the bytes dropped |
 | REC02 | Reasoning text or proposal evidence larger than the cap | Saved truncated, with a marker |
 | REC03 | A user message larger than the cap | `bad_request`, nothing saved |
-| REC04 | Any oversized input | The save never fails and the run does not fail for size: content is cut to fit, and only an entry whose *structure* alone is over the cap (thousands of calls in one turn) is refused, with the reason said out loud |
+| REC04 | Any oversized input | The save never fails and the run does not fail for size: content is cut to fit, and only an entry whose *structure* alone is over the cap — counting the truncation marker it would need — is refused, with the reason said out loud |
 | REC05 | Resume with the same tool-set hash, version and instructions hash | Continues, with no extra entry |
 | REC06 | Resume with the same tool-set hash and a new version or reworded instructions | Continues, and saves a `recipe_updated` entry naming both pins |
 | REC07 | Resume with a tool removed that the record already used | Parks as stuck with detail `recipe_changed`, naming the tool |
