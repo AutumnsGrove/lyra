@@ -22,6 +22,8 @@ export interface Step {
 
 export interface Job {
 	uses?: string;
+	/** The condition that decides whether the job runs at all. */
+	if?: string;
 	steps?: Step[];
 	permissions?: Record<string, string>;
 }

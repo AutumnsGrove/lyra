@@ -7,6 +7,16 @@ import { handWrittenWorkflows } from "./workflowcheck.ts";
 import { permissionsOf, readWorkflow, ROOT, triggers, type Workflow } from "./workflows.ts";
 
 /**
+ * A folded (`>-`) condition reaches us with its line breaks still in it, so a
+ * clause that wrapped differently would read as a different clause. Comparing
+ * the collapsed text is the difference between a case about the guard and a
+ * case about how the guard happens to be indented today.
+ */
+function collapse(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
+/**
  * The workflow files, and the dependabot config that keeps their actions
  * current (issues #36 and #38).
  *
@@ -113,6 +123,90 @@ describe("pull request runs", () => {
 			expect(workflow.concurrency?.group, basename(file)).toBeDefined();
 		}
 	});
+
+	/**
+	 * GitHub gives a workflow triggered by Dependabot no repository secrets, so
+	 * both reviewers start on that pull request and die before they can read
+	 * anything: `pi-review` exits 1 and posts no artifact, and the Claude action
+	 * refuses a non-human actor by policy. A red check on every weekly bump is a
+	 * red check everybody learns to ignore, which is exactly the habit the rest
+	 * of `AGENTS.md` spends a section trying to prevent, so neither reader runs
+	 * on an author GitHub calls a bot (decision 151).
+	 *
+	 * The clause is asserted by its exact text because the two ways of writing it
+	 * are not the same guard. `!= 'Bot'` is true when no pull request is in the
+	 * event at all, which is what keeps an `@pi` mention working on any pull
+	 * request: `pull_request` is absent from `issue_comment`, so the comparison
+	 * sees null and lets the run through. `== 'User'` reads as stricter and is
+	 * the one that would silently stop every mention, so the exact clause is the
+	 * assertion and a rewrite is what has to justify itself.
+	 */
+	test("neither reviewer runs on a pull request from a bot", async () => {
+		const reviewers = ["claude-code-review.yml", "pi-review.yml"];
+		const skipsBots = "github.event.pull_request.user.type != 'Bot'";
+		const mentionHalf = "github.event_name == 'issue_comment'";
+		for (const file of reviewers) {
+			const workflow = await readWorkflow(file);
+			expect(
+				triggers(workflow),
+				`${file} no longer runs on pull requests, so nothing is reviewed`,
+			).toContain("pull_request");
+
+			const conditions = Object.values(workflow.jobs ?? {}).map((job) =>
+				collapse(job.if ?? ""),
+			);
+			const condition = conditions.find((text) => text.includes(skipsBots));
+			expect(
+				condition,
+				`${file} reviews pull requests from bots, which fail on the secret GitHub withholds`,
+			).toBeDefined();
+			if (condition === undefined) {
+				continue;
+			}
+
+			/**
+			 * The clause has to be in the pull request half, not merely somewhere in the
+			 * condition. `pi-review`'s is `(pull request) || (@pi mention)`, and a case
+			 * satisfied by any occurrence would pass while the pull request half lost
+			 * its copy, because the mention half is where a copy would most plausibly be
+			 * moved to (found in review). The mention alternative is where the second
+			 * half starts, so the clause has to come before it.
+			 *
+			 * A condition with no mention half is a plain `&&` chain, and there the
+			 * failure is the opposite one: the clause is present but joined with `||`,
+			 * which makes it a way in rather than a requirement, and the job starts on
+			 * every bot's pull request while this case still passes (found in the next
+			 * round of review). The Claude job has no `||` today and does not want one,
+			 * so the absence is the assertion.
+			 */
+			const secondHalf = condition.indexOf(mentionHalf);
+			if (secondHalf !== -1) {
+				expect(
+					condition.indexOf(skipsBots),
+					`${file} mentions the bot clause only outside the pull request half, so a bot's pull request still starts it`,
+				).toBeLessThan(secondHalf);
+			} else {
+				expect(
+					condition,
+					`${file} joins the bot clause with ||, so it is an alternative rather than a requirement`,
+				).not.toContain("||");
+			}
+		}
+
+		/**
+		 * `@pi` is the one way a bot's pull request can still be reviewed, because
+		 * a person asked for it on the thread, and that path carries its own
+		 * actor guard: the commenter has to be an owner, member or collaborator.
+		 * Dropping it would let a stranger on a fork reach the reviewer by
+		 * commenting, so it is asserted here rather than left to the renderer.
+		 */
+		const piReview = collapse(
+			Object.values((await readWorkflow("pi-review.yml")).jobs ?? {})
+				.map((job) => job.if ?? "")
+				.join(" "),
+		);
+		expect(piReview).toContain("github.event.comment.user.type != 'Bot'");
+	});
 });
 
 /**
@@ -162,6 +256,36 @@ describe("pi-review's generated workflow", () => {
 			declared,
 			"an exclude that saves a review has gone missing, so prose-only pull requests are reviewed again",
 		).toEqual(expect.arrayContaining(["docs/research/**", "CHANGELOG.md"]));
+	});
+
+	/**
+	 * The one case that watches the source rather than the generated copy. The bot
+	 * guard reaches the workflow through `triggers.skipBots`, so reverting the
+	 * setting alone leaves the checked-in workflow correct and every other case
+	 * green: the guard holds until somebody regenerates, and then it is gone. Two
+	 * assertions, because they fail for different reasons — the setting is the
+	 * policy decision 151 made, and the agreement between the two is what catches
+	 * the drift that a sync would make real.
+	 */
+	test("the settings still say a bot's pull request does not start it", async () => {
+		const settings = parse(await readFile(join(ROOT, ".github/pi-review.json"), "utf8")) as {
+			triggers?: { skipBots?: boolean };
+		};
+		expect(
+			settings.triggers?.skipBots,
+			"skipBots is off, so the next sync drops the guard and every Dependabot pull request fails both readers again",
+		).toBe(true);
+
+		const condition = collapse(
+			Object.values((await readWorkflow("pi-review.yml")).jobs ?? {})
+				.map((job) => job.if ?? "")
+				.join(" "),
+		);
+		const carriesIt = condition.includes("github.event.pull_request.user.type != 'Bot'");
+		expect(
+			carriesIt,
+			`the workflow and the settings disagree: skipBots is true and pi-review.yml does not carry the clause (run the sync)`,
+		).toBe(true);
 	});
 
 	/**
