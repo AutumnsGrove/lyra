@@ -160,15 +160,17 @@ Commits are semantic and one line (`feat:`, `fix:`, `test:`, `docs:`, `refactor:
 
 Look at the `review` row in `gh pr checks <number>` and act on the state it reports. There are five, and no others:
 
-| `review` on this head                            | What to do                                                                                                                                    |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| pending                                          | **Wait. Do not push.** A push cancels it, and the wait starts over on the new head.                                                           |
-| a review for this head                           | Push **once**, with every finding from both readers in it. One push per finding restarts the cycle and pays for the read again.               |
-| absent                                           | The pull request changes only prose (`docs/**`, `CHANGELOG.md`), so it will never run. Push when `fast`, `slow` and `claude-review` are done. |
-| failed, or cancelled by someone else's push      | It will not post for this head. Say so on the thread, then push.                                                                              |
-| still pending about half an hour after your push | It will not post. Say so on the thread, then push.                                                                                            |
+| `review` on this head                            | What to do                                                                                                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| pending                                          | **Wait. Do not push.** A push cancels it, and the wait starts over on the new head.                                                                                  |
+| a review for this head                           | Push **once**, with every finding from both readers in it. One push per finding restarts the cycle and pays for the read again.                                      |
+| absent                                           | The pull request changes only prose nothing obeys (`docs/research/**`, `CHANGELOG.md`), so it will never run. Push when `fast`, `slow` and `claude-review` are done. |
+| failed, or cancelled by someone else's push      | It will not post for this head. Say so on the thread, then push.                                                                                                     |
+| still pending about half an hour after your push | It will not post. Say so on the thread, then push.                                                                                                                   |
 
 Two more things hold whatever the row says. A red `fast` or `slow` is the one exception: both readers are then reading a tree that does not build, so fix it and push. And read the thread rather than only the check, because a review job can finish green having posted nothing at all — no comment is not no findings.
+
+`docs/research/` and `CHANGELOG.md` are the whole of the carve-out, and nothing else under `docs/` is in it: the spec documents, `docs/agents-guide.md` and `docs/implementation/**` are instructions a pull request can rewrite, and only `pi-review` reads its guidance from the base commit. An `@pi` mention reaches the job on any pull request regardless, because the comment trigger takes no paths filter.
 
 **What else runs.** Besides the gate's two jobs and the two reviewers, `security.yml` scans for advisories on pull requests, on `main` and weekly, and `nightly.yml` runs every suite twice over, shuffled, and files an issue with the seed when it finds something. Neither is a required check and neither belongs in `pnpm run ci`: both depend on the world rather than on the diff (decisions 148 and 149). `.github/dependabot.yml` keeps the toolchain and the action tags current, so a bump arrives as a pull request that runs all of the above.
 

@@ -32,7 +32,7 @@
   "paths": {
     "include": [],
     "exclude": [
-      "docs/**",
+      "docs/research/**",
       "CHANGELOG.md"
     ]
   },

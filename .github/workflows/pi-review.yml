@@ -9,7 +9,7 @@ on:
     types: [opened, synchronize, ready_for_review, reopened]
     paths:
       - "**"
-      - "!docs/**"
+      - "!docs/research/**"
       - "!CHANGELOG.md"
   issue_comment:
     types: [created]

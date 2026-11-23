@@ -127,11 +127,13 @@ Look at the `review` row in `gh pr checks <number>` and act on the state it repo
 | --------------------------- | --------------------------------------------------------------------------------------- |
 | pending                     | **Wait. Do not push.** A push cancels it, and the wait starts over on the new head.      |
 | a review for this head      | Push **once**, with every finding from both readers in it. One push per finding restarts the cycle and pays for the read again. |
-| absent                      | The pull request changes only prose (`docs/**`, `CHANGELOG.md`), so it will never run. Push when `fast`, `slow` and `claude-review` are done. |
+| absent                      | The pull request changes only prose nothing obeys (`docs/research/**`, `CHANGELOG.md`), so it will never run. Push when `fast`, `slow` and `claude-review` are done. |
 | failed, or cancelled by someone else's push | It will not post for this head. Say so on the thread, then push.           |
 | still pending about half an hour after your push | It will not post. Say so on the thread, then push.                 |
 
 Two more things hold whatever the row says. A red `fast` or `slow` is the one exception: both readers are then reading a tree that does not build, so fix it and push. And read the thread rather than only the check, because a review job can finish green having posted nothing at all — no comment is not no findings.
+
+`docs/research/` and `CHANGELOG.md` are the whole of the carve-out, and nothing else under `docs/` is in it: the spec documents, `docs/agents-guide.md` and `docs/implementation/**` are instructions a pull request can rewrite, and only `pi-review` reads its guidance from the base commit. An `@pi` mention reaches the job on any pull request regardless, because the comment trigger takes no paths filter.
 
 ## Releasing
 
