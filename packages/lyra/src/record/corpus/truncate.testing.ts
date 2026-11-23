@@ -39,13 +39,15 @@ export function holds([entry, cap]: TruncateCase): void {
 		// Only a structure too big on its own may be refused, and it says so.
 		expect(fitted.refused).toMatch(/structure|content to cut/);
 		// The line a refusal carries is the structure with the field emptied, which may
-		// well be under the cap: what could not fit was that plus a marker. So the
-		// invariant below is "a line over the cap is never returned as a fit", which is
-		// the shape of the bug this corpus found, and the case that found it was this
-		// file's cap-200 entry (it returned 201 before the fix, caught by the assertion
-		// under this early return).
+		// well be under the cap: what could not fit was that plus a marker. What has to
+		// hold is that a host can still write it and read it back, so a refusal is
+		// never a line nobody can load.
+		const refusedLine = loadRecord([encodeHeader(header), fitted.line]);
+		expect(refusedLine.ok).toBe(true);
 		return;
 	}
+	// The cap check guards the fit path only, and it is where the over-cap bug showed
+	// up: before the fix this returned a 201-byte line as a fit, for a cap of 200.
 	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(cap);
 
 	// What was saved is a record that reads back to the same thing.
