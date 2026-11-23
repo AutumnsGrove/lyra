@@ -1,9 +1,11 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { generate } from "../testkit/corpus.testing.js";
 import type { RecordEntry } from "../record/entries.js";
-import { chooseCut, entryTokens, estimateTokens } from "./compaction.js";
+import { entryTokens, estimateTokens } from "./compaction.js";
 import { hostileEntryArbitrary } from "./compaction-generators.testing.js";
+import { holds } from "./corpus/compaction.testing.js";
 
 /**
  * CMP02 and CMP05 in `docs/context-size.md` over hostile text: a record's content
@@ -12,20 +14,10 @@ import { hostileEntryArbitrary } from "./compaction-generators.testing.js";
  * answer rather than throw. Seeds print on failure (fast-check's own default).
  */
 test("CMP02 chooseCut never throws on hostile content and still starts a whole step", () => {
-	fc.assert(
-		fc.property(
-			fc.array(hostileEntryArbitrary(), { maxLength: 6 }),
-			fc.nat({ max: 5_000 }),
-			(entries: RecordEntry[], keepTokens: number) => {
-				const cut = chooseCut(entries, keepTokens);
-				if (cut === undefined) {
-					return;
-				}
-				expect(entries[cut.index]?.id).toBe(cut.firstKept);
-				expect(["user_message", "assistant_message"]).toContain(entries[cut.index]?.type);
-				expect(cut.replaces).toBe(cut.index);
-			},
-		),
+	generate(
+		"compaction",
+		fc.tuple(fc.array(hostileEntryArbitrary(), { maxLength: 6 }), fc.nat({ max: 5_000 })),
+		holds,
 		{ numRuns: 400 },
 	);
 });

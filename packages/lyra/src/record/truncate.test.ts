@@ -223,3 +223,58 @@ test("CMP18 a cap smaller than the marker still keeps the result inside it", () 
 	expect(roomy?.text).toContain("[truncated:");
 	expect(roomy?.text).toContain("call read again");
 });
+
+/**
+ * REC04 regression, found by the committed corpus (issue #41). The search for how
+ * much text to keep assumes that keeping none of it fits, and measures that
+ * pessimistically with the widest marker. The check before the search measured the
+ * structure *without* a marker in the text, so there was a window -- a small cap, a
+ * long id, a big details block -- where that check passed, no amount of text fitted
+ * with the marker, and the function returned the marker on top of an empty field:
+ * a line one byte over its cap.
+ */
+test("REC04 an entry that cannot fit even when cut is refused, never over the cap", () => {
+	const entry: RecordEntry = {
+		type: "tool_message",
+		id: "e8",
+		parent: null,
+		ts: START,
+		toolCallId: "c1",
+		isError: false,
+		content: "x".repeat(4_000),
+		details: { count: 12 },
+	};
+	const fitted = fitEntry(entry, 200);
+	// Against the pre-fix code this was a fit of 201 bytes, so this is the assertion
+	// that catches the bug: no line over the cap ever comes back as a fit.
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(200);
+	// And the honest answer for this entry is the refusal the same rule gives any
+	// structure that is too big on its own, not a fit with the marker on an empty
+	// field.
+	expect(fitted.refused).toMatch(/structure/);
+});
+
+/**
+ * REC04, the other direction: a refusal must not take a save that fits. The gate
+ * before the search has to measure the marker the entry *would* carry, not the
+ * widest one it could ever carry, or an entry whose marker-only line is inside the
+ * cap is refused and the run fails for size — which REC04 says must never happen.
+ * Found in review, after the fix above over-corrected.
+ */
+test("REC04 an entry whose marker-only line fits is cut, not refused", () => {
+	const entry: RecordEntry = {
+		type: "tool_message",
+		id: "e8",
+		parent: null,
+		ts: START,
+		toolCallId: "c1",
+		isError: false,
+		content: "x".repeat(4_000),
+		details: { count: 12 },
+	};
+	// 201 bytes holds the line with the field emptied and its marker in place; 200 is
+	// one short of it, which is the over-cap bug above.
+	const fitted = fitEntry(entry, 201);
+	expect(fitted.refused).toBeUndefined();
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(201);
+});

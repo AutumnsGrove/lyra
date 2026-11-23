@@ -1,6 +1,8 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { generate } from "../../testkit/corpus.testing.js";
+import { holds } from "./corpus/sse.testing.js";
 import { sseReader } from "./sse.js";
 
 /**
@@ -38,38 +40,7 @@ const cuts = fc
 	.map((cuts) => [...cuts].sort((a, b) => a - b));
 
 test("OAI13 any bytes in any pieces give a reply or an error, never a throw", () => {
-	fc.assert(
-		fc.property(nasty, cuts, (text, cuts) => {
-			const reader = sseReader({ maxBytes: 100_000 });
-			let position = 0;
-			for (const cut of [...cuts, text.length]) {
-				if (position >= text.length) {
-					break;
-				}
-				const at = Math.max(position, Math.min(cut, text.length));
-				const pushed = reader.push(text.slice(position, at));
-				position = at;
-				if (!pushed.ok) {
-					expect(typeof pushed.error.message).toBe("string");
-					expect(pushed.error.code).toBe("provider_error");
-					return;
-				}
-				if (pushed.value !== undefined) {
-					// A finished reply is bounded by the bytes that produced it.
-					expect(pushed.value.text.length).toBeLessThanOrEqual(text.length + 1);
-					return;
-				}
-			}
-			const ended = reader.end();
-			if (ended.ok) {
-				expect(ended.value.text.length).toBeLessThanOrEqual(text.length + 1);
-			} else {
-				expect(ended.error.code).toBe("provider_error");
-				expect(typeof ended.error.message).toBe("string");
-			}
-		}),
-		{ numRuns: 400 },
-	);
+	generate("sse", fc.tuple(nasty, cuts), holds, { numRuns: 400 });
 });
 
 test("OAI13 a stream past the cap is refused rather than assembled", () => {
