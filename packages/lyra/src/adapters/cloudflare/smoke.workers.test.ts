@@ -14,7 +14,12 @@ import type { FixtureSession } from "./testing/fixture-session.testing.js";
  */
 
 test("CFL00 a Durable Object runs under the plugin", async () => {
-	const id = env.FIXTURE_SESSION.idFromName("smoke");
+	// A name per run, because the fixture counts its fetches in storage and the
+	// nightly runs this test more than once in the same worker (`--repeats`), so a
+	// fixed name starts the second run at 3. The first nightly run found exactly
+	// that. What the case is for is that two fetches share one object's storage, not
+	// that the name is fixed.
+	const id = env.FIXTURE_SESSION.idFromName(`smoke-${crypto.randomUUID()}`);
 	const stub = env.FIXTURE_SESSION.get(id);
 
 	const first = await stub.fetch("http://fixture/");
