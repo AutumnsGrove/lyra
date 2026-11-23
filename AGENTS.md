@@ -103,22 +103,31 @@ over the protocol (both arrived with step 6).
 
 ## Definition of done
 
-A change is done when **`pnpm run ci`** passes, and it runs the same checks as the CI workflow:
+A change is done when **`pnpm run ci`** passes, and it runs the same checks as the CI workflow. The gate is
+two halves (decision 145): a cheap one that reports in about a minute, and a slow one, run as two jobs side
+by side in CI and in this order locally.
 
 ```
-pnpm run ci
-  format       # prettier check
-  typecheck    # tsc --noEmit, strict, for the core and the workerd test program
-  build        # tsc, to dist
-  test         # unit through scenarios
-  test:workers # the Cloudflare adapter in the real runtime
-  fuzz         # short fuzz and property runs, seeds printed on failure
-  importcheck  # import rules, and no node:* in the core
-  matrixcheck  # every spec row has a test
-  budget       # the package, and the example Worker's bundle
-  build:example # wrangler deploy --dry-run, never a deploy
-  coverage     # 85% floor on the Node-tested core
+pnpm run ci            # both halves, in this order
+  ci:fast
+    format          # prettier check
+    typecheck       # tsc --noEmit, strict, for the core and the workerd test program
+    build           # tsc, to dist
+    importcheck     # import rules, and no node:* in the core
+    matrixcheck     # every spec row has a test
+    workflowcheck   # the workflow YAML itself (actionlint, decision 146)
+    build:example   # wrangler deploy --dry-run, never a deploy
+    budget          # the package, and the example Worker's bundle
+  ci:slow
+    test            # unit through scenarios
+    test:workers    # the Cloudflare adapter in the real runtime, and the socket suite
+    fuzz            # short fuzz and property runs, and each target's committed corpus
+    coverage        # 85% floor on the Node-tested core
 ```
+
+Two checks are deliberately outside the gate, because both depend on the world instead of the diff:
+`pnpm run audit` (advisories, decision 148) and `pnpm run nightly` (the suite twice over, shuffled,
+decision 149). They run from `security.yml` and `nightly.yml`.
 
 Beyond the gate: the tests for the change were written first and watched failing, the docs the change touches are updated, and anything unfinished is stated in the issue or the commit message. An empty list is a valid result. A silent gap is not.
 
@@ -136,7 +145,9 @@ Commits are semantic and one line (`feat:`, `fix:`, `test:`, `docs:`, `refactor:
 
 **Two reviewers read every pull request, and the slow one still counts.** `claude-review` runs the prompt in `.github/workflows/claude-code-review.yml` and finishes in well under a minute. `pi-review` (the `review` job) reads the same diff for longer: a minute to a few, twenty allowed inside a 33-minute job, and longer on a cold run while it installs dependencies. Both leave their findings on the thread, and both are worth reading.
 
-The trap is the concurrency group every workflow here carries: a push restarts both reviews and cancels the run in flight. So a push made the moment Claude's review lands cancels `pi-review` mid-read, and the next push does it again — a pull request can go through several rounds, every check green, without the second opinion ever arriving. **Wait for both before pushing again**, collect their findings into one push rather than one push per finding, and read the thread rather than only the check: a review job can finish green having posted nothing at all, and then there is no comment to answer. If `pi-review` has not posted about half an hour after the push, it will not, and the pull request should say so rather than wait. A red `gate` is the exception, because both reviewers are then reading a tree that does not build.
+The trap is the concurrency group every workflow here carries: a push restarts both reviews and cancels the run in flight. So a push made the moment Claude's review lands cancels `pi-review` mid-read, and the next push does it again — a pull request can go through several rounds, every check green, without the second opinion ever arriving. **Wait for both before pushing again**, collect their findings into one push rather than one push per finding, and read the thread rather than only the check: a review job can finish green having posted nothing at all, and then there is no comment to answer. If `pi-review` has not posted about half an hour after the push, it will not, and the pull request should say so rather than wait. A red `fast` or `slow` job is the exception, because both reviewers are then reading a tree that does not build.
+
+**What else runs.** Besides the gate's two jobs and the two reviewers, `security.yml` scans for advisories on pull requests, on `main` and weekly, and `nightly.yml` runs the suite twice over, shuffled, and files an issue with the seed when it finds something. Neither is a required check and neither belongs in `pnpm run ci`: both depend on the world rather than on the diff (decisions 148 and 149). `.github/dependabot.yml` keeps the toolchain and the action tags current, so a bump arrives as a pull request that runs all of the above.
 
 ## Releasing
 
