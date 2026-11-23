@@ -154,9 +154,12 @@ export function readReport(runs: readonly ConfigRun[], seed: string, repeats: nu
 				);
 			}
 		}
-		// A non-zero exit with a green report means something failed outside the report:
-		// an unhandled rejection, a config that would not load, a worker that died.
-		if (run.exitCode !== null && run.exitCode !== 0) {
+		// A non-zero exit with a green report means something failed outside the
+		// report: an unhandled rejection, a config that would not load, a worker that
+		// died. A suite that named the tests that failed has already said why it
+		// exited non-zero, so repeating it as a problem puts a second, phantom
+		// failure in every issue the nightly files (found by rehearsing the filer).
+		if (run.exitCode !== null && run.exitCode !== 0 && outcome.failures.length === named) {
 			outcome.problems.push(`${run.config}: vitest exited ${run.exitCode}`);
 		}
 	}
