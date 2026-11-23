@@ -3,10 +3,11 @@
 	"compilerOptions": {
 		// The release script is TypeScript run by Node's type stripping, so its
 		// relative imports name `.ts` files, and it may use the Node builtins that
-		// `src/` is forbidden: it is outside the package and never published.
+		// `src/` is forbidden: it is outside the package and never published. The
+		// same is true of the CI guards, which read the workflow YAML.
 		"allowImportingTsExtensions": true,
 		"types": ["node"]
 	},
-	"include": ["release-notes/**/*.ts"],
+	"include": ["**/*.ts"],
 	"exclude": []
 }
