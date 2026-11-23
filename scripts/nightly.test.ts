@@ -346,7 +346,11 @@ describe("arguments", () => {
 		expect(argument("--seed", ["--seed", "12"])).toBe("12");
 		expect(argument("--seed", ["--seed=12"])).toBe("12");
 		expect(argument("--seed", [])).toBeUndefined();
-		expect(argument("--seeds=1", ["--seeds=1"])).toBeUndefined();
+		// A flag whose name only starts with this one is not this one. This is the
+		// assertion that fails if inline detection is ever loosened from
+		// `startsWith(`${name}=`)` to `startsWith(name)`.
+		expect(argument("--seed", ["--seeds=1"])).toBeUndefined();
+		expect(argument("--seed", ["--seed="])).toBe("");
 	});
 });
 
