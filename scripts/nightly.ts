@@ -165,16 +165,21 @@ export function chooseSeed(from?: string): string {
 	return String(Math.floor(Math.random() * 1_000_000));
 }
 
+/**
+ * Every field is explicitly `| undefined` as well as optional, because the CLI
+ * block below passes whatever flags it was given and `exactOptionalPropertyTypes`
+ * treats "absent" and "present but undefined" as different.
+ */
 interface RunOptions {
-	seed?: string;
-	repeats?: number;
+	seed?: string | undefined;
+	repeats?: number | undefined;
 	/** Where to write the issue body, so the workflow can `gh issue create -F`. */
-	bodyFile?: string;
+	bodyFile?: string | undefined;
 	/** Where to write the title, which is the identity the workflow dedupes on. */
-	titleFile?: string;
-	runUrl?: string;
+	titleFile?: string | undefined;
+	runUrl?: string | undefined;
 	/** Replace the runner, so the cases do not start a suite. */
-	runSuite?: (seed: string, repeats: number) => Promise<unknown>;
+	runSuite?: ((seed: string, repeats: number) => Promise<unknown>) | undefined;
 }
 
 /** Everything `pnpm run nightly` does, in one call, so the workflow has one command. */
