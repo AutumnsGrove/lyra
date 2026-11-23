@@ -352,6 +352,87 @@ describe("the issue title", () => {
 		expect(issueTitle(one)).not.toBe(issueTitle(two));
 	});
 
+	/**
+	 * A path outside `src/` is named by its base name. The Node suite runs
+	 * the test files under `scripts/`, so this is a real shape, not a fixture: the full path
+	 * would put the runner's workspace into the title.
+	 */
+	test("a file outside src is named by its base name", () => {
+		const outcome = readReport(
+			[
+				run(
+					report([
+						file("/home/runner/work/lyra/lyra/scripts/gate.test.ts", "failed", [
+							assertion("the gate > a step is missing", "failed"),
+						]),
+					]),
+				),
+			],
+			"5",
+			2,
+		);
+		const title = issueTitle(outcome);
+		expect(title).toContain("gate.test.ts: a step is missing");
+		expect(title).not.toContain("/home/runner");
+	});
+
+	/**
+	 * The title is a GitHub issue title, which is capped at 256 characters. Three
+	 * long names with a path each is the worst shape this can take, and going over
+	 * the cap fails `gh issue create` and leaves a red run with no issue.
+	 */
+	test("three long names still fit an issue title", () => {
+		const long = "a test name that goes on for quite a while to make the point";
+		const outcome = readReport(
+			[
+				run(
+					report([
+						file(`packages/lyra/src/core/corpus/${"x".repeat(40)}.test.ts`, "failed", [
+							assertion(`suite > ${long} one`, "failed"),
+						]),
+						file(`packages/lyra/src/core/corpus/${"y".repeat(40)}.test.ts`, "failed", [
+							assertion(`suite > ${long} two`, "failed"),
+						]),
+						file(`packages/lyra/src/core/corpus/${"z".repeat(40)}.test.ts`, "failed", [
+							assertion(`suite > ${long} three`, "failed"),
+						]),
+					]),
+				),
+			],
+			"5",
+			2,
+		);
+		const title = issueTitle(outcome);
+		expect(title.length).toBeLessThanOrEqual(256);
+		// A count and a digest: the names are in the body, and the identity is still
+		// stable for the dedupe.
+		expect(title).toMatch(/^nightly: 3 failures under --shuffle \([0-9a-f]{8}\)$/);
+	});
+
+	/** The digest is the identity, so the same failures keep the same title. */
+	test("a long title is stable for the same failures and different otherwise", () => {
+		const long = (suffix: string): ConfigRun =>
+			run(
+				report([
+					file(`packages/lyra/src/core/corpus/${suffix}.test.ts`, "failed", [
+						assertion(
+							`suite > a test name long enough to overflow the cap ${suffix}`,
+							"failed",
+						),
+						assertion(
+							`suite > another long name to push it over the cap ${suffix}`,
+							"failed",
+						),
+					]),
+				]),
+			);
+		const first = issueTitle(readReport([long("one")], "5", 2));
+		const again = issueTitle(readReport([long("one")], "999", 2));
+		const other = issueTitle(readReport([long("two")], "5", 2));
+		expect(first).toBe(again);
+		expect(first).not.toBe(other);
+	});
+
 	/** A red run with nothing to name is still one issue, not a new one per night. */
 	test("a run that could not report has one title, whatever the seed", () => {
 		const first = readReport([run(null)], "1", 2);

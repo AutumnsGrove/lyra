@@ -190,7 +190,31 @@ export function issueTitle(outcome: Outcome): string {
 	].sort();
 	const shown = names.slice(0, 3).join(", ");
 	const more = names.length > 3 ? `, and ${names.length - 3} more` : "";
-	return `nightly: ${shown}${more} failed under --shuffle`;
+	const title = `nightly: ${shown}${more} failed under --shuffle`;
+	// GitHub caps an issue title at 256 characters, and `gh issue create` fails past
+	// it -- a red run with no issue, which is the outcome this workflow exists to
+	// prevent. Long file paths plus long test names reach that (found in review), so
+	// a title that will not fit becomes a count and a digest of the full set: still a
+	// stable identity for the dedupe, with the names in the body.
+	if (title.length <= 200) {
+		return title;
+	}
+	const plural = names.length === 1 ? "" : "s";
+	return `nightly: ${names.length} failure${plural} under --shuffle (${digest(names.join("\n"))})`;
+}
+
+/**
+ * A stable 32-bit digest, FNV-1a, rendered as eight hex characters. It only has to
+ * be the same for the same set of names on two nights, and different for a
+ * different set; it is not a security boundary.
+ */
+function digest(text: string): string {
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < text.length; index += 1) {
+		hash ^= text.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	}
+	return hash.toString(16).padStart(8, "0");
 }
 
 /**
@@ -203,7 +227,13 @@ export function issueTitle(outcome: Outcome): string {
  */
 function fileOf(path: string): string {
 	const parts = path.split(/[\\/]src[\\/]/);
-	return parts[parts.length - 1] ?? basename(path);
+	// The count, not a null check: `split` always returns at least one element, so
+	// indexing alone returned the whole path for anything outside `src/` -- which is
+	// every test file under `scripts/` that the Node suite runs. The title then carried the
+	// runner's workspace path, and three long names could pass GitHub's 256-character
+	// limit and fail `gh issue create`, leaving a red run with no issue (found in
+	// review).
+	return parts.length > 1 ? (parts[parts.length - 1] ?? basename(path)) : basename(path);
 }
 
 function shortName(fullName: string): string {
