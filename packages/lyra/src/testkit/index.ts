@@ -56,6 +56,26 @@ export {
 	type CrashingStorage,
 	type CrashingStorageOptions,
 } from "./crashing-storage.js";
+/**
+ * The scenario runner, the decoder and the matchers.
+ *
+ * Exported because a host outside this repository is what runs the files a third
+ * time — through its own adapter, against its own model (decision 67). The runner
+ * was in `dist` but not on the surface, so no consumer could reach it.
+ */
+export {
+	decodeScenario,
+	matchScenarioEvents,
+	matchScenarioRecord,
+	runScenario,
+	type Expectation,
+	type Scenario,
+	type ScenarioCompaction,
+	type ScenarioOutcome,
+	type ScenarioRunOptions,
+	type ScenarioTool,
+	type ScenarioToolBehavior,
+} from "./scenario.js";
 export {
 	renderHandles,
 	renderPage,
