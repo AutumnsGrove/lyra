@@ -114,7 +114,7 @@ Details are in [`engineering-practices.md`](engineering-practices.md).
 
 ## The repository and releases
 
-One package with subpath exports (`core`, `memory`, `cloudflare`, `openai`, `testkit`, and `node` later), each with its own allowed imports, enforced by a check. Semver at 0.x, published to npm from the start. A release is a changelog edit, a PR, and a tag. On the tag, CI runs the gate, builds, publishes, and a Pi agent writes the GitHub release body from the changelog and the commit log, with a fallback so a release never waits on the model. That workflow and its script are built (step R, `docs/release-notes.md`), and releases publish: the latest is `0.3.0`, and a tag publishes over OIDC, with no token in the repository. `pi-review` reviews pull requests, installed by Autumn as PR #1 (decisions 69 to 77). Details are in [`repository.md`](repository.md).
+One package with subpath exports (`core`, `memory`, `cloudflare`, `openai`, `testkit`, and `node` later), each with its own allowed imports, enforced by a check. Semver at 0.x, published to npm from the start. A release is a changelog edit, a PR, and a tag. On the tag, CI runs the gate, builds, publishes, and a Pi agent writes the GitHub release body from the changelog and the commit log, with a fallback so a release never waits on the model. That workflow and its script are built (step R, `docs/release-notes.md`), and releases publish: the latest is `0.3.1`, and a tag publishes over OIDC, with no token in the repository. `pi-review` reviews pull requests, installed by Autumn as PR #1 (decisions 69 to 77). Details are in [`repository.md`](repository.md).
 
 ## The first slice
 
