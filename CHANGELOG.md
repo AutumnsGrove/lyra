@@ -31,8 +31,9 @@ import { decodeScenario, runScenario } from "@autumnsgrove/lyra/testkit";
 ```
 
 Row `KIT14` asserts the four functions are reachable from `./testkit`, and it fails if the export is
-removed. It checks the source index rather than the installed package; the installed-package check is the
-scratch install in step 7 of `AGENTS.md`'s "Releasing", run before this release was called done.
+removed. It checks the source index rather than the installed package. The installed package is checked by the
+scratch install in step 7 of `AGENTS.md`'s "Releasing", which runs after the tag and before this release
+is called done.
 
 ## [0.3.0] - 2026-11-22
 
