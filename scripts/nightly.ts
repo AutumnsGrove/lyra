@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * The nightly run: the suite twice over, in a shuffled order (issue #40).
+ * The nightly run: every suite twice over, in a shuffled order (issue #40).
  *
- * The pull request gate runs the suite once, in whatever order the runner
+ * The pull request gate runs each suite once, in whatever order the runner
  * produced. That cannot see a test that passes alone and fails beside another
- * one, or a run that inherits state from the run before it. Both matter here: the
- * workerd and socket suites run with isolation off (decision 101), so shared
- * state between files is the exact class of bug this can find.
+ * one, or a run that inherits state from the run before it. All three suites are
+ * run here, not only the Node one: the workerd and socket suites run with
+ * isolation off (decision 101), so shared state between files is the exact class
+ * of bug this exists to find, and leaving them out would make the reason for the
+ * workflow false.
  *
  * The honest caveat: this repository uses a fake clock and never sleeps on real
  * time, so there is little timing flakiness to find. The yield is state leakage.
@@ -28,10 +30,28 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** How many times each test runs. Two is enough to catch state left behind. */
 const DEFAULT_REPEATS = 2;
 
+/**
+ * The three suites the gate runs, and the config each one needs. The default
+ * config is the Node suite; the other two are separate programs because the
+ * workers runtime and the single-worker socket suite cannot share one.
+ */
+const CONFIGS = [
+	{ config: "node", args: [] as readonly string[] },
+	{ config: "workerd", args: ["--config", "vitest.workers.config.ts"] as readonly string[] },
+	{ config: "socket", args: ["--config", "vitest.ws.config.ts"] as readonly string[] },
+];
+
 /** A failing test, named the way the reporter names it. */
 export interface Failure {
 	file: string;
 	test: string;
+}
+
+/** What one Vitest invocation answered: its exit status and its JSON report. */
+export interface ConfigRun {
+	config: string;
+	exitCode: number | null;
+	report: unknown;
 }
 
 export interface Outcome {
@@ -40,8 +60,8 @@ export interface Outcome {
 	passed: boolean;
 	failures: Failure[];
 	totalTests: number;
-	/** Why the run could not be read, when the report was missing or damaged. */
-	problem?: string;
+	/** Why the run is red when it named no failing test: a crash, a missing report. */
+	problems: string[];
 }
 
 export interface Report {
@@ -57,49 +77,83 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Read Vitest's JSON report.
+ * Read what the suites reported.
  *
- * Two things may be red. A failing assertion is the obvious one. The other is a
- * file that failed to collect, which has no failing assertion at all -- an import
- * that throws, a test that threw outside a case -- and reading only the
- * assertions would report that run as green. Nova's first scheduled run went
- * green with a red suite behind it for exactly this kind of reason, so a damaged
- * or missing report is a failure here rather than an empty list of failures.
+ * Three things may be red, and all three are read. A failing assertion is the
+ * obvious one. A file that failed to collect has no failing assertion at all --
+ * an import that throws, a hook outside a case. And a run can be red with no
+ * failing test whatsoever: a filter that matched nothing, a crash after the
+ * report was written, a config that would not load. The report's own `success`
+ * flag and the child's exit status are the only evidence for that last one, and
+ * reading only the assertions reported such a run as green (found in review: an
+ * invocation with a test filter matching nothing exits 1, writes
+ * `{"success":false,"testResults":[]}`, and was filed as a pass).
  */
-export function readReport(report: unknown, seed: string, repeats: number): Outcome {
-	const outcome: Outcome = { seed, repeats, passed: false, failures: [], totalTests: 0 };
-	if (!isRecord(report) || !Array.isArray(report.testResults)) {
-		return { ...outcome, problem: "the run produced no readable report" };
+export function readReport(runs: readonly ConfigRun[], seed: string, repeats: number): Outcome {
+	const outcome: Outcome = {
+		seed,
+		repeats,
+		passed: false,
+		failures: [],
+		totalTests: 0,
+		problems: [],
+	};
+	if (runs.length === 0) {
+		return { ...outcome, problems: ["no suite was run"] };
 	}
-	outcome.totalTests = typeof report.numTotalTests === "number" ? report.numTotalTests : 0;
-	for (const file of report.testResults) {
-		if (!isRecord(file)) {
-			continue;
-		}
-		const name = typeof file.name === "string" ? file.name : "(unknown file)";
-		const assertions = Array.isArray(file.assertionResults) ? file.assertionResults : [];
-		for (const assertion of assertions) {
-			if (!isRecord(assertion) || assertion.status !== "failed") {
-				continue;
+	for (const run of runs) {
+		const named = outcome.failures.length;
+		const report = run.report;
+		if (!isRecord(report) || !Array.isArray(report.testResults)) {
+			outcome.problems.push(`${run.config}: the run produced no readable report`);
+		} else {
+			if (typeof report.numTotalTests === "number") {
+				outcome.totalTests += report.numTotalTests;
 			}
-			const test =
-				typeof assertion.fullName === "string"
-					? assertion.fullName
-					: typeof assertion.title === "string"
-						? assertion.title
-						: "(unknown test)";
-			outcome.failures.push({ file: name, test });
+			for (const file of report.testResults) {
+				if (!isRecord(file)) {
+					continue;
+				}
+				const name = typeof file.name === "string" ? file.name : "(unknown file)";
+				const assertions = Array.isArray(file.assertionResults)
+					? file.assertionResults
+					: [];
+				for (const assertion of assertions) {
+					if (!isRecord(assertion) || assertion.status !== "failed") {
+						continue;
+					}
+					const test =
+						typeof assertion.fullName === "string"
+							? assertion.fullName
+							: typeof assertion.title === "string"
+								? assertion.title
+								: "(unknown test)";
+					outcome.failures.push({ file: name, test });
+				}
+				// A file that failed with nothing failing inside it: a collection error, or
+				// a teardown that threw. It still fails the run.
+				if (
+					file.status === "failed" &&
+					assertions.every((a) => !isRecord(a) || a.status !== "failed")
+				) {
+					outcome.failures.push({ file: name, test: "(the file failed to run)" });
+				}
+			}
+			// The report says the run failed and named no test: nothing was run, or
+			// something broke outside a case.
+			if (report.success !== true && outcome.failures.length === named) {
+				outcome.problems.push(
+					`${run.config}: the report says the run failed and named no test`,
+				);
+			}
 		}
-		// A file that failed with nothing failing inside it: a collection error, or a
-		// teardown that threw. It still fails the run.
-		if (
-			file.status === "failed" &&
-			assertions.every((a) => !isRecord(a) || a.status !== "failed")
-		) {
-			outcome.failures.push({ file: name, test: "(the file failed to run)" });
+		// A non-zero exit with a green report means something failed outside the report:
+		// an unhandled rejection, a config that would not load, a worker that died.
+		if (run.exitCode !== null && run.exitCode !== 0) {
+			outcome.problems.push(`${run.config}: vitest exited ${run.exitCode}`);
 		}
 	}
-	outcome.passed = outcome.failures.length === 0;
+	outcome.passed = outcome.failures.length === 0 && outcome.problems.length === 0;
 	return outcome;
 }
 
@@ -111,8 +165,8 @@ export function readReport(report: unknown, seed: string, repeats: number): Outc
  */
 export function issueTitle(outcome: Outcome): string {
 	if (outcome.failures.length === 0) {
-		// The run is red with nothing to name: the report was missing, or the suite
-		// never started. That is one issue, however many times it happens.
+		// The run is red with nothing to name: a suite crashed, or never started. That
+		// is one issue, however many times it happens.
 		return "nightly: the shuffled run could not report a result";
 	}
 	const names = [...new Set(outcome.failures.map((failure) => shortName(failure.test)))].sort();
@@ -136,12 +190,17 @@ export function issueBody(outcome: Outcome, runUrl?: string): string {
 		"",
 		"```",
 		`pnpm exec vitest run --sequence.shuffle --sequence.seed=${outcome.seed} --repeats=${outcome.repeats}`,
+		`pnpm exec vitest run --config vitest.workers.config.ts --sequence.shuffle --sequence.seed=${outcome.seed} --repeats=${outcome.repeats}`,
+		`pnpm exec vitest run --config vitest.ws.config.ts --sequence.shuffle --sequence.seed=${outcome.seed} --repeats=${outcome.repeats}`,
 		"```",
 		"",
 		`Tests run: ${outcome.totalTests}. Failures: ${outcome.failures.length}.`,
 	];
-	if (outcome.problem !== undefined) {
-		lines.push("", `The report could not be read: ${outcome.problem}.`);
+	if (outcome.problems.length > 0) {
+		lines.push("", "The run itself reported a problem:", "");
+		for (const problem of outcome.problems) {
+			lines.push(`- ${problem}`);
+		}
 	}
 	if (outcome.failures.length > 0) {
 		lines.push("", "```");
@@ -179,7 +238,7 @@ interface RunOptions {
 	titleFile?: string | undefined;
 	runUrl?: string | undefined;
 	/** Replace the runner, so the cases do not start a suite. */
-	runSuite?: ((seed: string, repeats: number) => Promise<unknown>) | undefined;
+	runSuite?: ((seed: string, repeats: number) => Promise<ConfigRun[]>) | undefined;
 }
 
 /** Everything `pnpm run nightly` does, in one call, so the workflow has one command. */
@@ -187,8 +246,7 @@ export async function nightly(options: RunOptions = {}): Promise<Report> {
 	const seed = chooseSeed(options.seed);
 	const repeats = options.repeats ?? DEFAULT_REPEATS;
 	const run = options.runSuite ?? runVitest;
-	const report = await run(seed, repeats);
-	const outcome = readReport(report, seed, repeats);
+	const outcome = readReport(await run(seed, repeats), seed, repeats);
 	const built: Report = {
 		seed,
 		repeats,
@@ -208,39 +266,48 @@ export async function nightly(options: RunOptions = {}): Promise<Report> {
 }
 
 /**
- * The suite, twice over, shuffled. The JSON reporter writes beside the temp
+ * The suites, twice over, shuffled. Each report is written beside the temp
  * directory rather than into the tree, because a stray report file would be
  * committed by the next person to run `git add -A`.
+ *
+ * Every config runs even when an earlier one failed: the point of the nightly is
+ * to see all of it in one run, and stopping at the first red would hide the
+ * second.
  */
-async function runVitest(seed: string, repeats: number): Promise<unknown> {
+async function runVitest(seed: string, repeats: number): Promise<ConfigRun[]> {
 	const dir = await mkdtemp(join(tmpdir(), "nightly-"));
-	const output = join(dir, "report.json");
-	const code = await new Promise<number>((settle, fail) => {
-		const child = spawn(
-			"pnpm",
-			[
-				"exec",
-				"vitest",
-				"run",
-				"--sequence.shuffle",
-				`--sequence.seed=${seed}`,
-				`--repeats=${repeats}`,
-				"--reporter=json",
-				`--outputFile=${output}`,
-			],
-			{ cwd: ROOT, stdio: "inherit" },
-		);
-		child.on("error", fail);
-		child.on("close", (exit) => {
-			settle(exit ?? 1);
+	const runs: ConfigRun[] = [];
+	for (const { config, args } of CONFIGS) {
+		const output = join(dir, `${config}.json`);
+		const exitCode = await new Promise<number | null>((settle, fail) => {
+			const child = spawn(
+				"pnpm",
+				[
+					"exec",
+					"vitest",
+					"run",
+					...args,
+					"--sequence.shuffle",
+					`--sequence.seed=${seed}`,
+					`--repeats=${repeats}`,
+					"--reporter=json",
+					`--outputFile=${output}`,
+				],
+				{ cwd: ROOT, stdio: "inherit" },
+			);
+			child.on("error", fail);
+			child.on("close", (exit) => {
+				settle(exit);
+			});
 		});
-	});
-	try {
-		return JSON.parse(await readFile(output, "utf8"));
-	} catch {
-		// No report is a failure with a reason, not a crash: the caller reports it.
-		return { code, testResults: undefined };
+		try {
+			runs.push({ config, exitCode, report: JSON.parse(await readFile(output, "utf8")) });
+		} catch {
+			// No report is a failure with a reason, not a crash: the caller reports it.
+			runs.push({ config, exitCode, report: undefined });
+		}
 	}
+	return runs;
 }
 
 /**
