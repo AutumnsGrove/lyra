@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { judge, readAllowList, type AllowEntry } from "./audit.ts";
+import { judge, readAllowList, verdict, type AllowEntry } from "./audit.ts";
 
 /**
  * The advisory scan's judgment (issue #39).
@@ -138,5 +138,37 @@ describe("a report it cannot read", () => {
 		const shaped = join(dir, "shaped.json");
 		await writeFile(shaped, JSON.stringify({ nope: true }));
 		await expect(readAllowList(shaped)).rejects.toThrow(/"allow" array/);
+	});
+});
+
+describe("a report that is not a report", () => {
+	/**
+	 * The registry answers with an error object when it cannot be reached, and that
+	 * parses as JSON. Review found this one: `judge` threw, `audit` rejected through
+	 * the top-level await, and the job went red with a stack trace instead of the
+	 * "could not reach the registry" sentence the file promises.
+	 */
+	test("an error-shaped report is a red verdict with a reason, not a throw", () => {
+		const result = verdict(JSON.stringify({ error: { code: "ENOTFOUND" } }), noAllow);
+		expect(result.code).toBe(1);
+		expect(result.output).toContain("could not be read");
+		expect(result.output).toContain("advisories object");
+	});
+
+	test("text that is not JSON is a red verdict with a reason", () => {
+		const result = verdict("pnpm: no such command", noAllow);
+		expect(result.code).toBe(1);
+		expect(result.output).toContain("could not read an audit report");
+	});
+
+	test("an empty report is red rather than clean", () => {
+		expect(verdict("", noAllow).code).toBe(1);
+	});
+
+	test("a clean report is green, and a high one is red", () => {
+		expect(verdict(JSON.stringify(report({})), noAllow).code).toBe(0);
+		const failing = verdict(JSON.stringify(report({ 1: advisory() })), noAllow);
+		expect(failing.code).toBe(1);
+		expect(failing.output).toContain("adm-zip");
 	});
 });

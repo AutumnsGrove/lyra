@@ -173,51 +173,82 @@ export function runAudit(cwd: string): Promise<AuditRun> {
 	});
 }
 
-/** Everything `pnpm run audit` does, in one call, so a workflow has one command. */
-export async function audit(cwd = ROOT): Promise<{ code: number; output: string }> {
-	const run = await runAudit(cwd);
+/**
+ * Turn what `pnpm audit` printed into a verdict.
+ *
+ * Everything that can go wrong is a red verdict with a reason rather than a
+ * throw: no readable JSON, a report shaped like an error (`{"error": …}`, which
+ * the registry answers with when it cannot be reached, and which parses as JSON
+ * and then is not a report at all), or an allow-list that cannot be read. A scan
+ * that errored must not read as a clean scan, and it must not read as a stack
+ * trace either (found in review).
+ */
+export function verdict(
+	reportText: string,
+	allowed: readonly AllowEntry[],
+): { code: number; output: string } {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(run.stdout);
+		parsed = JSON.parse(reportText);
 	} catch {
-		// The usual cause is no network, which prints nothing on stdout and explains
-		// itself on stderr. A scan that errored must not read as a clean scan.
-		return {
-			code: 1,
-			output: [
-				"audit: could not read an audit report from pnpm",
-				run.stderr.trim(),
-				`audit: pnpm exited ${run.code}`,
-			]
-				.filter((line) => line !== "")
-				.join("\n"),
-		};
+		return { code: 1, output: "audit: could not read an audit report from pnpm" };
 	}
 
-	const verdict = judge(parsed, await readAllowList());
+	let judged: Verdict;
+	try {
+		judged = judge(parsed, allowed);
+	} catch (cause) {
+		const reason = cause instanceof Error ? cause.message : String(cause);
+		return { code: 1, output: `audit: the report could not be read: ${reason}` };
+	}
+
 	const lines: string[] = [];
-	for (const advisory of verdict.failing) {
+	for (const advisory of judged.failing) {
 		lines.push(
 			`audit: ${advisory.severity.toUpperCase()} ${advisory.id} ${advisory.module}: ${advisory.title}`,
 			advisory.url === "" ? "" : `  ${advisory.url}`,
 		);
 	}
-	for (const advisory of verdict.allowed) {
+	for (const advisory of judged.allowed) {
 		lines.push(
 			`audit: allowed ${advisory.id} ${advisory.module} (${advisory.severity}), see scripts/security-allow.json`,
 		);
 	}
-	for (const advisory of verdict.noticed) {
+	for (const advisory of judged.noticed) {
 		lines.push(
 			`audit: below the ${FLOOR} floor, not failing: ${advisory.id} ${advisory.module}`,
 		);
 	}
 	lines.push(
-		verdict.ok
+		judged.ok
 			? `audit: clean above the ${FLOOR} floor`
-			: `audit: ${verdict.failing.length} advisor${verdict.failing.length === 1 ? "y" : "ies"} at or above ${FLOOR}`,
+			: `audit: ${judged.failing.length} advisor${judged.failing.length === 1 ? "y" : "ies"} at or above ${FLOOR}`,
 	);
-	return { code: verdict.ok ? 0 : 1, output: lines.filter((line) => line !== "").join("\n") };
+	return { code: judged.ok ? 0 : 1, output: lines.filter((line) => line !== "").join("\n") };
+}
+
+/** Everything `pnpm run audit` does, in one call, so a workflow has one command. */
+export async function audit(cwd = ROOT): Promise<{ code: number; output: string }> {
+	const run = await runAudit(cwd);
+	let allowed: AllowEntry[];
+	try {
+		allowed = await readAllowList();
+	} catch (cause) {
+		const reason = cause instanceof Error ? cause.message : String(cause);
+		return { code: 1, output: `audit: the allow-list could not be read: ${reason}` };
+	}
+
+	const result = verdict(run.stdout, allowed);
+	// The usual cause of an empty report is no network: pnpm says so on stderr and
+	// prints nothing on stdout, so its words are the only useful part of the answer.
+	const stderr = result.code === 0 ? "" : run.stderr.trim();
+	if (stderr === "") {
+		return result;
+	}
+	return {
+		code: result.code,
+		output: [result.output, stderr, `audit: pnpm exited ${run.code}`].join("\n"),
+	};
 }
 
 const invokedDirectly =
