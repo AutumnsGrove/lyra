@@ -1,6 +1,8 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { generate, replay } from "../testkit/corpus.testing.js";
+import { cases, type SchemaCase } from "./corpus/schema.testing.js";
 import { SchemaDefinitionError, compileSchema, formatErrors, validateValue } from "./schema.js";
 
 /**
@@ -46,27 +48,31 @@ const values = fc.oneof(
 	fc.constantFrom(null, [], {}, "text", 0, 1.5, true, { ["__proto__"]: { polluted: true } }),
 );
 
+/** The property, shared by the generator and the committed cases. */
+function holds([schema, value]: SchemaCase): void {
+	let compiled;
+	try {
+		compiled = compileSchema(schema);
+	} catch (error) {
+		expect(error).toBeInstanceOf(SchemaDefinitionError);
+		return;
+	}
+	const result = validateValue(compiled, value);
+	if (result.ok) {
+		// An accepted value is JSON, because the validator only ever passes on
+		// numbers, strings, booleans, null, arrays and objects.
+		expect(typeof result.value).not.toBe("function");
+		return;
+	}
+	expect(result.errors.length).toBeGreaterThan(0);
+	expect(result.errors.length).toBeLessThanOrEqual(10);
+	expect(formatErrors(result.errors).length).toBeLessThanOrEqual(2048);
+}
+
 test("SCH14 any schema and any value compile or are refused without throwing", () => {
-	fc.assert(
-		fc.property(schemaish, values, (schema, value) => {
-			let compiled;
-			try {
-				compiled = compileSchema(schema);
-			} catch (error) {
-				expect(error).toBeInstanceOf(SchemaDefinitionError);
-				return;
-			}
-			const result = validateValue(compiled, value);
-			if (result.ok) {
-				// An accepted value is JSON, because the validator only ever passes on
-				// numbers, strings, booleans, null, arrays and objects.
-				expect(typeof result.value).not.toBe("function");
-				return;
-			}
-			expect(result.errors.length).toBeGreaterThan(0);
-			expect(result.errors.length).toBeLessThanOrEqual(10);
-			expect(formatErrors(result.errors).length).toBeLessThanOrEqual(2048);
-		}),
-		{ numRuns: 500 },
-	);
+	generate("schema", fc.tuple(schemaish, values), holds, { numRuns: 500 });
+});
+
+test("SCH14 the committed cases still hold", () => {
+	replay("schema", cases, holds);
 });

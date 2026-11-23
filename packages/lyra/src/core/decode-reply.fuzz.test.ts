@@ -1,6 +1,8 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { generate, replay } from "../testkit/corpus.testing.js";
+import { cases } from "./corpus/decode-reply.testing.js";
 import { decodeReply } from "./decode-reply.js";
 
 /**
@@ -40,35 +42,42 @@ const nasty = fc.oneof(
 	}),
 );
 
-test("MOD10 any value decodes or is refused, and what it accepts is a reply", () => {
-	fc.assert(
-		fc.property(nasty, (value) => {
-			const result = decodeReply(value);
-			if (!result.ok) {
-				expect(result.error.code).toBe("bad_request");
-				expect(typeof result.error.message).toBe("string");
-				return;
-			}
-			const reply = result.value;
-			expect(typeof reply.text).toBe("string");
-			expect(typeof reply.model).toBe("string");
-			expect(Number.isSafeInteger(reply.usage.inputTokens)).toBe(true);
-			expect(reply.usage.inputTokens).toBeGreaterThanOrEqual(0);
-			expect(Number.isSafeInteger(reply.usage.outputTokens)).toBe(true);
-			expect(reply.usage.outputTokens).toBeGreaterThanOrEqual(0);
-			expect(["stop", "length", "tool_calls", "content_filter", "other"]).toContain(
-				reply.finishReason,
-			);
-			expect(Array.isArray(reply.toolCalls)).toBe(true);
-			const ids = new Set<string>();
-			for (const call of reply.toolCalls) {
-				expect(call.id.length).toBeGreaterThan(0);
-				expect(call.name.length).toBeGreaterThan(0);
-				expect(typeof call.arguments).toBe("string");
-				ids.add(call.id);
-			}
-			expect(ids.size).toBe(reply.toolCalls.length);
-		}),
-		{ numRuns: 1_000 },
+/**
+ * The property, shared by the generator and the committed cases so the two cannot
+ * drift apart.
+ */
+function holds(value: unknown): void {
+	const result = decodeReply(value);
+	if (!result.ok) {
+		expect(result.error.code).toBe("bad_request");
+		expect(typeof result.error.message).toBe("string");
+		return;
+	}
+	const reply = result.value;
+	expect(typeof reply.text).toBe("string");
+	expect(typeof reply.model).toBe("string");
+	expect(Number.isSafeInteger(reply.usage.inputTokens)).toBe(true);
+	expect(reply.usage.inputTokens).toBeGreaterThanOrEqual(0);
+	expect(Number.isSafeInteger(reply.usage.outputTokens)).toBe(true);
+	expect(reply.usage.outputTokens).toBeGreaterThanOrEqual(0);
+	expect(["stop", "length", "tool_calls", "content_filter", "other"]).toContain(
+		reply.finishReason,
 	);
+	expect(Array.isArray(reply.toolCalls)).toBe(true);
+	const ids = new Set<string>();
+	for (const call of reply.toolCalls) {
+		expect(call.id.length).toBeGreaterThan(0);
+		expect(call.name.length).toBeGreaterThan(0);
+		expect(typeof call.arguments).toBe("string");
+		ids.add(call.id);
+	}
+	expect(ids.size).toBe(reply.toolCalls.length);
+}
+
+test("MOD10 any value decodes or is refused, and what it accepts is a reply", () => {
+	generate("decode-reply", nasty, holds, { numRuns: 1_000 });
+});
+
+test("MOD10 the committed cases still hold", () => {
+	replay("decode-reply", cases, holds);
 });

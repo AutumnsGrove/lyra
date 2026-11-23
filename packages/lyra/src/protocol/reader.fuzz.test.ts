@@ -1,6 +1,8 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { generate, replay } from "../testkit/corpus.testing.js";
+import { cases, type ReaderCase } from "./corpus/reader.testing.js";
 import { lineReader } from "./reader.js";
 
 /**
@@ -8,6 +10,9 @@ import { lineReader } from "./reader.js";
  * parsed, and the failure-mode catalog names it as a fuzz target: whatever
  * arrives, in whatever pieces, it returns lines or closes on the cap, never by
  * throwing, hanging or growing past the cap.
+ *
+ * The committed cases in `corpus/reader.testing.ts` run through the same `holds`
+ * as the generator, so the two cannot drift apart (issue #41).
  */
 
 const nasty = fc.oneof(
@@ -26,39 +31,45 @@ const nasty = fc.oneof(
 	),
 );
 
+/** The property, independent of where the bytes came from. */
+function holds([text, cuts]: ReaderCase): void {
+	const bytes = new TextEncoder().encode(text);
+	const reader = lineReader({ maxLineBytes: 64 });
+	const lines: string[] = [];
+	let position = 0;
+	let overCap = false;
+	for (const cut of [...cuts].sort((a, b) => a - b)) {
+		if (position >= bytes.length || overCap) {
+			break;
+		}
+		const at = Math.max(position, Math.min(cut, bytes.length));
+		const read = reader.push(bytes.slice(position, at));
+		position = at;
+		lines.push(...read.lines);
+		overCap = read.overCap !== undefined;
+	}
+	if (!overCap && position < bytes.length) {
+		lines.push(...reader.push(bytes.slice(position)).lines);
+	}
+	lines.push(...reader.end().lines);
+	for (const line of lines) {
+		expect(typeof line).toBe("string");
+		expect(line).not.toBe("");
+		// A line always comes from the bytes that were fed, never from nothing.
+		expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(
+			Math.max(64, bytes.length),
+		);
+	}
+}
+
 test("FRM03 any bytes in any pieces give lines or a refusal, never a throw", () => {
-	fc.assert(
-		fc.property(nasty, fc.array(fc.nat({ max: 100 }), { maxLength: 10 }), (text, cuts) => {
-			const bytes = new TextEncoder().encode(text);
-			const reader = lineReader({ maxLineBytes: 64 });
-			const lines: string[] = [];
-			let position = 0;
-			let overCap = false;
-			for (const cut of [...cuts.sort((a, b) => a - b), bytes.length]) {
-				if (position >= bytes.length || overCap) {
-					break;
-				}
-				const at = Math.max(position, Math.min(cut, bytes.length));
-				const read = reader.push(bytes.slice(position, at));
-				position = at;
-				lines.push(...read.lines);
-				overCap = read.overCap !== undefined;
-			}
-			if (!overCap && position < bytes.length) {
-				lines.push(...reader.push(bytes.slice(position)).lines);
-			}
-			lines.push(...reader.end().lines);
-			for (const line of lines) {
-				expect(typeof line).toBe("string");
-				expect(line).not.toBe("");
-				// A line always comes from the bytes that were fed, never from nothing.
-				expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(
-					Math.max(64, bytes.length),
-				);
-			}
-		}),
-		{ numRuns: 400 },
-	);
+	generate("reader", fc.tuple(nasty, fc.array(fc.nat({ max: 100 }), { maxLength: 10 })), holds, {
+		numRuns: 400,
+	});
+});
+
+test("FRM03 the committed cases still hold", () => {
+	replay("reader", cases, holds);
 });
 
 test("FRM03 a stream of newlines never produces a frame", () => {
