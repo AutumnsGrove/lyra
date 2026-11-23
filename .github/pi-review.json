@@ -31,7 +31,12 @@
   },
   "paths": {
     "include": [],
-    "exclude": []
+    "exclude": [
+      "docs/**",
+      "CHANGELOG.md",
+      "AGENTS.md",
+      "CLAUDE.md"
+    ]
   },
   "pi": {
     "version": "1.5.2"

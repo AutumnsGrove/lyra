@@ -7,6 +7,12 @@ name: pi-review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!CHANGELOG.md"
+      - "!AGENTS.md"
+      - "!CLAUDE.md"
   issue_comment:
     types: [created]
 
