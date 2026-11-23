@@ -52,10 +52,11 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
   own. **WSK13 (an eviction mid-run with a socket open) and WSK15 (a backed-up reader)
   are not written**: both hang in this harness rather than failing, and `notes.md`
   records what was tried; the backpressure code is in and untested there. Next is step
-  9, the timeline task, which is Lattice work and waits on two things before it can
-  start: the open half of step 5 (the Lumen adapter) and the `0.3.0` release, which
-  carries steps 6 to 8 and the approvals slice in `CHANGELOG.md`, since step 9 needs
-  Lyra steps 1 to 8 merged and published. Nothing else in `first-slice.md` is left.
+  9, the timeline task, which is Lattice work and now waits on one thing before it can
+  start: the open half of step 5, the Lumen adapter. The other prerequisite is met —
+  `0.3.0` is published (2026-11-22) and carries steps 6 to 8 and the approvals slice,
+  which is what "Lyra steps 1 to 8 merged and published" asked for. Nothing else in
+  `first-slice.md` is left.
 
 - **The approvals and proposals slice is merged**, pull request #27, merge commit
   `6970a1e`, after six review rounds: a tool's policy and risk with the check before
@@ -204,7 +205,7 @@ measured locally; CI's gzip on the same commit runs a few hundred bytes smaller)
   release workflow over OIDC with provenance. `0.0.0` exists only to create the package record.
 
 
-**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and it becomes `merged` when the PR does). Step R was the release workflow that decision 95 puts before step 1. It did not block building the core, but Lattice cannot consume Lyra until a version is on npm, and it can now: `0.1.0` is published, and each later release is a changelog edit, a PR, and a tag.
+**This file is the project's resumable state:** a new session with no memory should be able to read the Status column, `notes.md`, and `AGENTS.md`'s "Where the work stands" and know exactly what is done and what is next. So the agent keeps them current in every PR (Autumn's call, 2026-11-16): update the Status column in the same PR that does the work (`in review` when you open it, and it becomes `merged` when the PR does). Step R was the release workflow that decision 95 puts before step 1. It did not block building the core, but Lattice cannot consume Lyra until a version is on npm, and it can now: `0.3.0` is the latest published, and each release is a changelog edit, a PR, and a tag.
 
 Step 0 is Lumen work in Lattice, and `AGENTS.md` and `first-slice.md` say it blocks step 1, so treat it as a dependency of 1a unless Autumn says otherwise. Steps 1 to 4 do use fakes and never touch Lumen, so she may waive it and let them be built while it is in progress, but that reversal is hers to make and to record in `decisions.md`; an agent must not infer it. What they must agree with is the Model slot contract, which step 1 defines and `lattice-briefs.md` repeats.
 
