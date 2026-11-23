@@ -76,12 +76,35 @@ test("CORPUS a generated failure reports the smallest case that still fails", ()
 	} catch (error) {
 		message = error instanceof Error ? error.message : String(error);
 	}
-	// The counterexample is its own block, between the sentence and `(seed …)`, so
-	// this cannot be satisfied by a digit that happens to appear in the seed or the
-	// run count. 11 is the smallest integer above the bound, and it is a one-element
-	// tuple because the property takes one arbitrary and the corpus stores tuples.
-	// The seed is a signed 32-bit integer, so it may be negative.
-	expect(message).toMatch(/^reader .*\n\[\n {2}11\n\]\n\(seed -?\d+, \d+ runs\)$/s);
+	// The case is its own block, between the sentence and `(seed …)`, so this cannot
+	// be satisfied by a digit that happens to appear in the seed or the run count.
+	// 11 is the smallest integer above the bound. The seed is a signed 32-bit
+	// integer, so it may be negative.
+	expect(message).toMatch(/^reader .*\n11\n\(seed -?\d+, \d+ runs\)$/s);
+});
+
+/**
+ * The reported value is the case, not fast-check's argument list. A property here
+ * takes one arbitrary, so the list has one element, and printing the list nested
+ * every case one level deeper: a type error for a typed corpus, and a replay of
+ * the wrong value for an `unknown` one (found in review).
+ */
+test("CORPUS the reported case is the case, not the argument list", () => {
+	let message = "";
+	try {
+		generate(
+			"reader",
+			fc.constant(["abc", [1, 2]] as const),
+			() => {
+				throw new Error("the case was refused");
+			},
+			{ numRuns: 1 },
+		);
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	expect(message).toContain('\n[\n  "abc",\n  [\n    1,\n    2\n  ]\n]\n');
+	expect(message).not.toContain("[\n  [\n");
 });
 
 /** The failure still fails: reporting the case must not swallow it. */

@@ -80,10 +80,14 @@ export function generate<T>(
 	if (!details.failed) {
 		return;
 	}
+	// `counterexample` is the list of arguments fast-check handed the property, not
+	// the case itself: a property here takes exactly one arbitrary, so the case is
+	// its only element. Printing the list nested every pasted case one level deeper,
+	// which is a type error for a typed corpus and a silently wrong replay for an
+	// `unknown` one (found in review).
+	const only = details.counterexample?.[0];
 	const smallest =
-		details.counterexample === null
-			? "(none: it failed without a case)"
-			: JSON.stringify(details.counterexample, null, 2);
+		only === undefined ? "(none: it failed without a case)" : JSON.stringify(only, null, 2);
 	throw new Error(
 		[
 			`${target} found a failing case. Add this to ${target}'s corpus file:`,
