@@ -171,6 +171,13 @@ describe("pull request runs", () => {
 			 * its copy, because the mention half is where a copy would most plausibly be
 			 * moved to (found in review). The mention alternative is where the second
 			 * half starts, so the clause has to come before it.
+			 *
+			 * A condition with no mention half is a plain `&&` chain, and there the
+			 * failure is the opposite one: the clause is present but joined with `||`,
+			 * which makes it a way in rather than a requirement, and the job starts on
+			 * every bot's pull request while this case still passes (found in the next
+			 * round of review). The Claude job has no `||` today and does not want one,
+			 * so the absence is the assertion.
 			 */
 			const secondHalf = condition.indexOf(mentionHalf);
 			if (secondHalf !== -1) {
@@ -178,6 +185,11 @@ describe("pull request runs", () => {
 					condition.indexOf(skipsBots),
 					`${file} mentions the bot clause only outside the pull request half, so a bot's pull request still starts it`,
 				).toBeLessThan(secondHalf);
+			} else {
+				expect(
+					condition,
+					`${file} joins the bot clause with ||, so it is an alternative rather than a requirement`,
+				).not.toContain("||");
 			}
 		}
 
