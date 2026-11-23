@@ -63,8 +63,14 @@ jobs:
           title=$(cat nightly-title.txt)
           # One issue per distinct failure: the same nightly going red twice should
           # be a comment, not a second issue with the same title.
-          existing=$(gh issue list --state open --limit 100 --json number,title \
-            --jq '.[] | "\(.number)\t\(.title)"' | awk -F'\t' -v t="${title}" '$2 == t {print $1; exit}')
+          #
+          # The comparison goes through jq's `env`, not through awk's `-v`. awk
+          # processes backslash escapes in a `-v` assignment, so a test name holding
+          # one would never equal its own issue title and a new issue would be filed
+          # every night -- the failure decision 149 exists to avoid. Nothing runs this
+          # step, so it has to be right by reading it.
+          existing=$(TITLE="${title}" gh issue list --state open --limit 100 --json number,title \
+            --jq '[.[] | select(.title == env.TITLE)][0].number // ""')
           if [ -n "${existing}" ]; then
             gh issue comment "${existing}" --body-file nightly.md
           else
