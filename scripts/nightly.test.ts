@@ -136,6 +136,43 @@ describe("reading the report", () => {
 		expect(outcome.problems.join(" ")).toMatch(/named no test/);
 	});
 
+	/**
+	 * The ordinary nightly failure, and the case the rehearsal found: a suite that
+	 * names the test which failed has already explained why Vitest exited 1, so
+	 * repeating it as a problem tells every reader of the issue that something
+	 * besides the failure went wrong. The filed rehearsal issue said "The run
+	 * itself reported a problem: node: vitest exited 1" above the failing test it
+	 * had just listed.
+	 */
+	test("a suite that named its failure is not also a problem", () => {
+		const outcome = readReport(
+			[run(report([file("a.test.ts", "failed", [assertion("s > a", "failed")])]), 1)],
+			"5",
+			2,
+		);
+		expect(outcome.passed).toBe(false);
+		expect(outcome.failures).toHaveLength(1);
+		expect(outcome.problems).toEqual([]);
+	});
+
+	/**
+	 * The other side of it, because the fix is per suite and not per run: one
+	 * suite failing a test does not excuse another suite that exited non-zero
+	 * having named nothing, which is what a dead worker looks like.
+	 */
+	test("one suite's named failure does not excuse another suite's silence", () => {
+		const outcome = readReport(
+			[
+				run(report([file("a.test.ts", "failed", [assertion("s > a", "failed")])]), 1),
+				run({ success: true, testResults: [] }, 1, "workerd"),
+			],
+			"5",
+			2,
+		);
+		expect(outcome.problems.join(" ")).toContain("workerd: vitest exited 1");
+		expect(outcome.problems.join(" ")).not.toContain("node: vitest exited 1");
+	});
+
 	test("a report that cannot be read is a failure with a reason", () => {
 		expect(readReport([run({})], "1", 2).problems.join(" ")).toMatch(/no readable report/);
 		expect(readReport([run(null)], "1", 2).passed).toBe(false);
