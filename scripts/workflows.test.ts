@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, test } from "vitest";
 
-import { handWrittenWorkflows, permissionsOf, readWorkflow, ROOT, triggers } from "./workflows.ts";
+import { handWrittenWorkflows } from "./workflowcheck.ts";
+import { permissionsOf, readWorkflow, ROOT, triggers } from "./workflows.ts";
 
 /**
  * The workflow files, and the dependabot config that keeps their actions
@@ -37,13 +38,13 @@ const ALLOWED_WRITES: Record<string, string[]> = {
 describe("workflow permissions", () => {
 	test("every hand-written workflow declares permissions", async () => {
 		for (const file of await handWrittenWorkflows()) {
-			const workflow = await readWorkflow(file);
+			const workflow = await readWorkflow(basename(file));
 			const declaredAtJob = Object.values(workflow.jobs ?? {}).some(
 				(job) => job.permissions !== undefined,
 			);
 			expect(
 				workflow.permissions ?? (declaredAtJob ? {} : undefined),
-				`${file} has no permissions block, so it runs with the repository default`,
+				`${basename(file)} has no permissions block, so it runs with the repository default`,
 			).toBeDefined();
 		}
 	});
@@ -55,8 +56,8 @@ describe("workflow permissions", () => {
 	 */
 	test("no hand-written workflow grants a write it was not given", async () => {
 		for (const file of await handWrittenWorkflows()) {
-			const workflow = await readWorkflow(file);
-			const allowed = ALLOWED_WRITES[file] ?? [];
+			const workflow = await readWorkflow(basename(file));
+			const allowed = ALLOWED_WRITES[basename(file)] ?? [];
 			// A job's permissions replace the workflow's, so every job is read and the
 			// writes are the union of what any of them can do.
 			const writes = Object.values(workflow.jobs ?? {})
@@ -65,7 +66,7 @@ describe("workflow permissions", () => {
 				.map(([scope]) => scope);
 			expect(
 				[...new Set(writes)].sort(),
-				`${file} grants writes ${writes.join(", ")}`,
+				`${basename(file)} grants writes ${writes.join(", ")}`,
 			).toEqual([...allowed].sort());
 		}
 	});
@@ -81,12 +82,12 @@ describe("pull request runs", () => {
 	 */
 	test("every pull request workflow cancels the run it supersedes", async () => {
 		for (const file of await handWrittenWorkflows()) {
-			const workflow = await readWorkflow(file);
+			const workflow = await readWorkflow(basename(file));
 			if (!triggers(workflow).includes("pull_request")) {
 				continue;
 			}
-			expect(workflow.concurrency?.["cancel-in-progress"], file).toBeDefined();
-			expect(workflow.concurrency?.group, file).toBeDefined();
+			expect(workflow.concurrency?.["cancel-in-progress"], basename(file)).toBeDefined();
+			expect(workflow.concurrency?.group, basename(file)).toBeDefined();
 		}
 	});
 });
