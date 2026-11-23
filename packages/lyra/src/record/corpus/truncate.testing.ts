@@ -15,18 +15,34 @@ import { entries, header } from "./entries.testing.js";
  * replay in `corpus/truncate.test.ts` share one definition (issue #41).
  */
 
-/** `[the entry to fit, the cap in bytes]`. */
-export type TruncateCase = readonly [RecordEntry, number];
+/** What a case expects `fitEntry` to answer, when it expects a particular one. */
+export type Outcome = "fit" | "refused";
+
+/**
+ * `[the entry to fit, the cap in bytes, what it should answer]`. The outcome is
+ * optional because most cases only care that the result is honest; the boundary
+ * cases name it, so the corpus guards both directions on its own rather than
+ * relying on the unit test for one of them (found in review).
+ */
+export type TruncateCase = readonly [RecordEntry, number, Outcome?];
 
 export const cases: Readonly<Record<string, TruncateCase>> = {
 	"an-entry-that-fits-as-it-is": [entries["a-standalone-tool-message"], 20_000],
 	"a-content-that-has-to-be-cut": [entries["a-tool-message-with-a-huge-content"], 500],
 	"a-reasoning-that-has-to-be-cut": [entries["an-assistant-message-with-a-long-reasoning"], 400],
-	"a-huge-content-at-the-smallest-cap": [entries["a-tool-message-with-a-huge-content"], 200],
+	"a-huge-content-at-the-smallest-cap": [
+		entries["a-tool-message-with-a-huge-content"],
+		200,
+		"refused",
+	],
 	// The other side of the same boundary: at 201 the marker-only line fits, so the
 	// entry has to be cut rather than refused. A gate that measured the widest marker
 	// refused this one and turned a save that fits into a failed run (found in review).
-	"the-marker-only-line-at-its-exact-cap": [entries["a-tool-message-with-a-huge-content"], 201],
+	"the-marker-only-line-at-its-exact-cap": [
+		entries["a-tool-message-with-a-huge-content"],
+		201,
+		"fit",
+	],
 	"a-long-reasoning-at-the-smallest-cap": [
 		entries["an-assistant-message-with-a-long-reasoning"],
 		200,
@@ -37,8 +53,13 @@ export const cases: Readonly<Record<string, TruncateCase>> = {
  * The property, shared by the generator and the replay: either the entry fits and
  * the record reads back to the same thing, or it is refused for its structure.
  */
-export function holds([entry, cap]: TruncateCase): void {
+export function holds([entry, cap, outcome]: TruncateCase): void {
 	const fitted = fitEntry(entry, cap);
+	if (outcome !== undefined) {
+		expect(fitted.refused === undefined ? "fit" : "refused", `an entry of ${cap} bytes`).toBe(
+			outcome,
+		);
+	}
 	if (fitted.refused !== undefined) {
 		// Only a structure too big on its own may be refused, and it says so.
 		expect(fitted.refused).toMatch(/structure|content to cut/);
