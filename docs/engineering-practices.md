@@ -175,8 +175,11 @@ Each fuzz target has a seed set of the nasty cases from the catalog, and runs fo
 cases every run, so an input that failed last week no longer exists and nothing replays it. Each target
 therefore has a corpus module beside it — `core/corpus/schema.testing.ts`, and so on — holding named cases
 as typed values, so a case with the wrong shape is a compile error rather than a mystery at run time. The
-same `holds` function is used by the generator and by `replay`, so the two cannot drift apart, and the
-corpus replays inside `pnpm test`, which means the gate protects it. `replay` on an empty corpus throws:
+same `holds` function is used by the generator and by `replay`, so the two cannot drift apart. Each target
+is three files — the cases and `holds` in `corpus/<target>.testing.ts`, the replay in
+`corpus/<target>.test.ts`, the generator in `<target>.fuzz.test.ts` — and the replay is a plain test on
+purpose: `*.fuzz.test.ts` is excluded from `pnpm test`, so a replay written inside the fuzz file would miss
+both the gate's own test run and the nightly shuffle. `replay` on an empty corpus throws:
 a corpus with nothing in it is a test that cannot fail. A failing generated case is reported in the thrown
 error's message, shrunk to the smallest input that still fails and printed as JSON ready to paste into the
 corpus module. Nothing writes into the tree, because the core has no filesystem access and a test that

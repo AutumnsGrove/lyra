@@ -1,11 +1,17 @@
+import { expect } from "vitest";
+
+import { SchemaDefinitionError, compileSchema, formatErrors, validateValue } from "../schema.js";
+
 /**
- * Committed cases for SCH14 (`core/schema.fuzz.test.ts`). A tool's arguments are
- * the model's doing, so they are hostile by default, and a schema is written by a
- * tool author who can be wrong. Each case here is one of those two mistakes: a
+ * The committed cases for SCH14, and the property they hold. A tool's arguments
+ * are the model's doing, so they are hostile by default, and a schema is written
+ * by a tool author who can be wrong. Each case is one of those two mistakes: a
  * schema this build must refuse, and a value that must be validated or reported
  * rather than thrown on.
  *
- * They are written here rather than generated so they replay on every gate run
+ * The property lives here so the generator in `schema.fuzz.test.ts` and the replay
+ * in `corpus/schema.test.ts` share one definition. The replay is a plain
+ * `.test.ts`, so `pnpm test` and the nightly shuffled run both cover it
  * (issue #41).
  */
 
@@ -33,3 +39,24 @@ export const cases: Readonly<Record<string, SchemaCase>> = {
 	"a-validator-shaped-function-in-the-value": [{ type: "object" }, { f: "() => {}" }],
 	"nothing-at-all": [null, null],
 };
+
+/** The property: a schema compiles or is refused, and a value validates or reports. */
+export function holds([schema, value]: SchemaCase): void {
+	let compiled;
+	try {
+		compiled = compileSchema(schema);
+	} catch (error) {
+		expect(error).toBeInstanceOf(SchemaDefinitionError);
+		return;
+	}
+	const result = validateValue(compiled, value);
+	if (result.ok) {
+		// An accepted value is JSON, because the validator only ever passes on
+		// numbers, strings, booleans, null, arrays and objects.
+		expect(typeof result.value).not.toBe("function");
+		return;
+	}
+	expect(result.errors.length).toBeGreaterThan(0);
+	expect(result.errors.length).toBeLessThanOrEqual(10);
+	expect(formatErrors(result.errors).length).toBeLessThanOrEqual(2048);
+}

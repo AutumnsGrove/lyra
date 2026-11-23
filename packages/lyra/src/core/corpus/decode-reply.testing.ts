@@ -1,10 +1,16 @@
+import { expect } from "vitest";
+
+import { decodeReply } from "../decode-reply.js";
+
 /**
- * Committed cases for MOD10 (`core/decode-reply.fuzz.test.ts`). Each one is a
- * reply shape a provider or a proxy has plausibly sent: a tool call with a
- * stringified argument object, a reply cut off by the token limit, a usage block
- * with negative counts, and the values that make `JSON.parse` the wrong tool.
+ * The committed cases for MOD10, and the property they hold. Each case is a reply
+ * shape a provider or a proxy has plausibly sent: a tool call with a stringified
+ * argument object, a reply cut off by the token limit, a usage block with negative
+ * counts, and the values that make `JSON.parse` the wrong tool.
  *
- * They are written here rather than generated so they replay on every gate run
+ * The property lives here so the generator in `decode-reply.fuzz.test.ts` and the
+ * replay in `corpus/decode-reply.test.ts` share one definition. The replay is a
+ * plain `.test.ts`, so `pnpm test` and the nightly shuffled run both cover it
  * (issue #41).
  */
 
@@ -44,3 +50,32 @@ export const cases: Readonly<Record<string, unknown>> = {
 	"a-missing-model": { text: "hi" },
 	"nothing-at-all": null,
 };
+
+/** The property: a value decodes or is refused, and what it accepts is a reply. */
+export function holds(value: unknown): void {
+	const result = decodeReply(value);
+	if (!result.ok) {
+		expect(result.error.code).toBe("bad_request");
+		expect(typeof result.error.message).toBe("string");
+		return;
+	}
+	const reply = result.value;
+	expect(typeof reply.text).toBe("string");
+	expect(typeof reply.model).toBe("string");
+	expect(Number.isSafeInteger(reply.usage.inputTokens)).toBe(true);
+	expect(reply.usage.inputTokens).toBeGreaterThanOrEqual(0);
+	expect(Number.isSafeInteger(reply.usage.outputTokens)).toBe(true);
+	expect(reply.usage.outputTokens).toBeGreaterThanOrEqual(0);
+	expect(["stop", "length", "tool_calls", "content_filter", "other"]).toContain(
+		reply.finishReason,
+	);
+	expect(Array.isArray(reply.toolCalls)).toBe(true);
+	const ids = new Set<string>();
+	for (const call of reply.toolCalls) {
+		expect(call.id.length).toBeGreaterThan(0);
+		expect(call.name.length).toBeGreaterThan(0);
+		expect(typeof call.arguments).toBe("string");
+		ids.add(call.id);
+	}
+	expect(ids.size).toBe(reply.toolCalls.length);
+}

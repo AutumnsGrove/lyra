@@ -69,12 +69,16 @@ describe("every fuzz target", () => {
 				).toBeDefined();
 				continue;
 			}
-			const modulePath = join(PACKAGE, dirname(target), "corpus", `${corpus}.testing.ts`);
-			const module = await readFile(modulePath, "utf8");
+			const corpusDir = join(PACKAGE, dirname(target), "corpus");
+			const module = await readFile(join(corpusDir, `${corpus}.testing.ts`), "utf8");
 			// The cases live in a module so the compiler checks their shape; a module
 			// that exports nothing would make `replay` throw "no cases" at run time,
 			// but this catches it before the suite does.
-			expect(module, `${modulePath} exports no cases`).toContain("export const cases");
+			expect(module, `${corpus} exports no cases`).toContain("export const cases");
+			// And the replay is a plain `.test.ts`, not a case inside the fuzz file:
+			// `pnpm test` is what runs it, and what the nightly shuffle repeats.
+			const replay = await readFile(join(corpusDir, `${corpus}.test.ts`), "utf8");
+			expect(replay, `${corpus}.test.ts does not replay its cases`).toContain("replay(");
 		}
 	});
 
