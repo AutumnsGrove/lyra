@@ -185,7 +185,8 @@ error's message, shrunk to the smallest input that still fails and printed with 
 ready to paste into the corpus module — `fc.stringify` and not `JSON.stringify`, which turns `NaN` into
 `null` and drops a key holding `undefined`, and the generators use both. Nothing writes into the tree, because the core has no filesystem access and a test that
 writes into `src/` races with a parallel worker; `scripts/fuzz-corpus.test.ts` keeps a list of the targets
-that do not replay a corpus yet, with a reason each, so a new target cannot arrive without one silently.
+that do not replay a corpus yet, with a reason each, so a new target cannot arrive without one silently; it is
+empty, because every target has one now.
 
 **A model whose output is random.** The fake model server can also be driven by a seeded generator that produces valid-looking but wrong replies (truncated JSON, wrong tool names, repeated calls). A run against it must always end in exactly one `run_end`, with a record that loads, no matter what.
 

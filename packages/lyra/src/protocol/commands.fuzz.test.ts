@@ -1,8 +1,8 @@
 import fc from "fast-check";
-import { expect, test } from "vitest";
+import { test } from "vitest";
 
-import { decodeCommand } from "./commands.js";
-import { decodeFrame } from "./frames.js";
+import { generate } from "../testkit/corpus.testing.js";
+import { holds } from "./corpus/commands.testing.js";
 
 /**
  * CMD15 in `docs/protocol.md`. A command is the only thing a client can make Lyra
@@ -40,42 +40,10 @@ const value = fc.oneof(
 const fields = fc.dictionary(fc.string({ maxLength: 12 }), value, { maxKeys: 8 });
 
 test("CMD15 any frame at all is a command or a refusal, never a throw", () => {
-	fc.assert(
-		fc.property(
-			name,
-			fields,
-			fc.oneof(fc.string({ maxLength: 10 }), fc.constant(undefined)),
-			(claimed, bag, id) => {
-				// The generated fields go in first, so they fuzz the command rather than
-				// the envelope: a bag with a `type` of its own would otherwise replace the
-				// frame's and this would test the frame decoder instead.
-				const parsed = decodeFrame(
-					JSON.stringify({
-						...bag,
-						type: "command",
-						...(id === undefined ? {} : { id }),
-						command: claimed,
-					}),
-				);
-				// The frame is always a JSON object with `type: "command"` once the bag is
-				// spread in first, so this can only fail if the decoder itself regressed;
-				// it is the guard that a well-formed command frame is still accepted.
-				expect(parsed.ok).toBe(true);
-				if (!parsed.ok) {
-					return;
-				}
-				const decoded = decodeCommand(parsed.value);
-				if (decoded.ok) {
-					// Whatever it accepted, it is one of the commands this build speaks and
-					// it carries the id it was answered with.
-					expect(typeof decoded.value.id).toBe("string");
-					expect(decoded.value.id).not.toBe("");
-				} else {
-					expect(["bad_request", "unsupported"]).toContain(decoded.error.code);
-					expect(decoded.error.message.length).toBeGreaterThan(0);
-				}
-			},
-		),
+	generate(
+		"commands",
+		fc.tuple(name, fields, fc.oneof(fc.string({ maxLength: 10 }), fc.constant(undefined))),
+		holds,
 		{ numRuns: 300 },
 	);
 });

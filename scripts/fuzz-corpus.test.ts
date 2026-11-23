@@ -17,21 +17,13 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = join(ROOT, "packages/lyra/src");
 
 /**
- * Targets that do not replay a corpus yet, and what stands in the way. An entry
- * here is a debt with a reason, not a licence: remove it when the target is
- * converted, and the case below notices if the list goes stale.
+ * Targets that do not replay a corpus yet, and what stands in the way.
+ *
+ * Empty, and that is the point: every fuzz target keeps its failures now. An entry
+ * here is a debt with a reason, not a licence, and the case below fails when the
+ * list goes stale.
  */
-const NOT_YET: Record<string, string> = {
-	"adapters/openai/sse.fuzz.test.ts": "the cases are byte streams; needs a text case shape first",
-	"core/compaction.fuzz.test.ts":
-		"the case is a whole record; needs the entry generators as literals",
-	"protocol/answers.fuzz.test.ts": "not converted yet",
-	"protocol/commands.fuzz.test.ts": "not converted yet",
-	"protocol/events.fuzz.test.ts": "not converted yet",
-	"record/load.fuzz.test.ts": "the case is a header plus entries; needs them as literals",
-	"record/truncate.fuzz.test.ts":
-		"the case is a whole entry; needs the entry generators as literals",
-};
+const NOT_YET: Record<string, string> = {};
 
 async function fuzzTargets(dir = PACKAGE): Promise<string[]> {
 	const found: string[] = [];

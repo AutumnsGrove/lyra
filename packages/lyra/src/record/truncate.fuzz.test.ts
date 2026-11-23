@@ -1,10 +1,10 @@
 import fc from "fast-check";
-import { expect, test } from "vitest";
+import { test } from "vitest";
 
 import type { JsonValue } from "../core/json.js";
-import { encodeHeader, type RecordEntry } from "./entries.js";
-import { loadRecord } from "./load.js";
-import { fitEntry, utf8Length } from "./truncate.js";
+import { generate } from "../testkit/corpus.testing.js";
+import type { RecordEntry } from "./entries.js";
+import { holds } from "./corpus/truncate.testing.js";
 
 /**
  * REC04 in `docs/run-record.md`: no size of content can make a save fail or fail
@@ -78,37 +78,12 @@ const assistantEntry = fc
 	});
 
 test("REC04 any entry and any cap: either it fits and loads back, or it is refused for its structure", () => {
-	const header = encodeHeader({
-		type: "header",
-		v: 1,
-		run: "run-1",
-		task: "fuzz",
-		startedAt: 1_700_000_000_000,
-		host: "test",
-	});
-
-	fc.assert(
-		fc.property(
-			fc.oneof(toolEntry, assistantEntry),
-			fc.integer({ min: 200, max: 20_000 }),
-			(entry, cap) => {
-				const fitted = fitEntry(entry, cap);
-				if (fitted.refused !== undefined) {
-					// Only a structure too big on its own may be refused, and it says so.
-					expect(fitted.refused).toMatch(/structure|content to cut/);
-					return;
-				}
-				expect(utf8Length(fitted.line)).toBeLessThanOrEqual(cap);
-
-				// What was saved is a record that reads back to the same thing.
-				const loaded = loadRecord([header, fitted.line]);
-				expect(loaded.ok).toBe(true);
-				if (loaded.ok) {
-					expect(loaded.value.notes).toEqual([]);
-					expect(loaded.value.entries).toEqual([fitted.entry]);
-				}
-			},
-		),
-		{ numRuns: 300 },
+	generate(
+		"truncate",
+		fc.tuple(fc.oneof(toolEntry, assistantEntry), fc.integer({ min: 200, max: 20_000 })),
+		holds,
+		{
+			numRuns: 300,
+		},
 	);
 });
