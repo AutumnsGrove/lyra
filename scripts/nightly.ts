@@ -176,11 +176,16 @@ export function issueTitle(outcome: Outcome): string {
 		// is one issue, however many times it happens.
 		return "nightly: the shuffled run could not report a result";
 	}
+	// Every name carries its file, because the title is the dedupe identity and two
+	// files can each have a test whose last segment is `holds`. Qualifying only when
+	// one outcome holds both cannot see the collision across two nights: the second
+	// night would be a comment on the first issue (found in review).
 	const names = [
 		...new Set(
-			outcome.failures.map((failure) =>
-				failure.test === NO_TEST_RAN ? basename(failure.file) : shortName(failure.test),
-			),
+			outcome.failures.map((failure) => {
+				const file = basename(failure.file);
+				return failure.test === NO_TEST_RAN ? file : `${file}: ${shortName(failure.test)}`;
+			}),
 		),
 	].sort();
 	const shown = names.slice(0, 3).join(", ");

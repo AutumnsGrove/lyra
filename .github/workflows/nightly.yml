@@ -76,7 +76,11 @@ jobs:
           if [ -n "${existing}" ]; then
             gh issue comment "${existing}" --body-file nightly.md
           else
-            gh issue create --title "${title}" --body-file nightly.md --label bug
+            # No `--label`: filing must not depend on a label still existing in the
+            # repository, because `gh` fails outright when it does not and the run
+            # would go red with no issue -- the one outcome this job exists to
+            # prevent. The title's `nightly:` prefix is the tag.
+            gh issue create --title "${title}" --body-file nightly.md
           fi
       # The run step carries `continue-on-error` so the step above can read its
       # output, which also means a red suite would otherwise leave this job green.

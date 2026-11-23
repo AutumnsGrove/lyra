@@ -296,6 +296,41 @@ describe("the issue title", () => {
 		expect(issueTitle(one)).not.toBe(issueTitle(two));
 	});
 
+	/**
+	 * Two files can each have a test whose last segment is the same word. One title
+	 * for both would make the second night a comment on the first issue, so a leaf
+	 * that is not unique is qualified with its file (found in review).
+	 */
+	test("two files sharing a leaf name are two titles", () => {
+		const one = readReport(
+			[run(report([file("a.test.ts", "failed", [assertion("s > holds", "failed")])]))],
+			"5",
+			2,
+		);
+		const two = readReport(
+			[run(report([file("b.test.ts", "failed", [assertion("s > holds", "failed")])]))],
+			"5",
+			2,
+		);
+		expect(issueTitle(one)).toContain("a.test.ts: holds");
+		expect(issueTitle(two)).toContain("b.test.ts: holds");
+		expect(issueTitle(one)).not.toBe(issueTitle(two));
+		expect(issueTitle(one)).not.toBe(issueTitle(two));
+	});
+
+	/**
+	 * Even a unique leaf is qualified, because uniqueness is not knowable from one
+	 * night: the same word in another file would produce the same title tomorrow.
+	 */
+	test("the title names the file, so a reused leaf cannot collide tomorrow", () => {
+		const outcome = readReport(
+			[run(report([file("a.test.ts", "failed", [assertion("s > holds", "failed")])]))],
+			"5",
+			2,
+		);
+		expect(issueTitle(outcome)).toContain("nightly: a.test.ts: holds failed");
+	});
+
 	/** A red run with nothing to name is still one issue, not a new one per night. */
 	test("a run that could not report has one title, whatever the seed", () => {
 		const first = readReport([run(null)], "1", 2);

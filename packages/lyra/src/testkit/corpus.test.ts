@@ -33,6 +33,19 @@ test("CORPUS an empty corpus is a failure, not a green replay", () => {
 	expect(() => replay("reader", {}, () => {})).toThrow(/no cases/);
 });
 
+/**
+ * A case whose value is `undefined` is a case. The old skip was there to satisfy
+ * indexing, and it meant a corpus of nothing but `undefined` passed the empty
+ * guard while running nothing (found in review).
+ */
+test("CORPUS a case whose value is undefined is still run", () => {
+	expect(() =>
+		replay("reader", { "nothing-at-all": undefined }, () => {
+			throw new Error("the undefined case was refused");
+		}),
+	).toThrow(/nothing-at-all.*undefined case was refused/s);
+});
+
 /** A failure names the case and the target, or nobody can find the file to open. */
 test("CORPUS a failing case names itself and its target", () => {
 	expect(() =>

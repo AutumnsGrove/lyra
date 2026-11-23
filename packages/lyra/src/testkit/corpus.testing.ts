@@ -50,11 +50,11 @@ export function replay<T>(target: string, cases: Cases<T>, holds: (value: T) => 
 			`${target} has no cases: a corpus with nothing in it is a test that cannot fail`,
 		);
 	}
-	for (const name of names) {
-		const value = cases[name];
-		if (value === undefined) {
-			continue;
-		}
+	// `Object.entries` rather than indexing, because a case whose value is literally
+	// `undefined` is a case: indexing makes it indistinguishable from a missing key,
+	// and the old skip ran nothing for it (found in review). `decode-reply` stores
+	// `unknown` and its generator draws `fc.constant(undefined)`, so it is reachable.
+	for (const [name, value] of Object.entries(cases)) {
 		try {
 			holds(value);
 		} catch (cause) {

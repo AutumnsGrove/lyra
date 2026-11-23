@@ -303,9 +303,9 @@ pnpm run ci                      # both halves, in this order
     build:example # the example Worker, bundled by wrangler --dry-run
     budget        # package size and bundle size within budget
   pnpm run ci:slow
-    test          # L0 to L3
+    test          # L0 to L3, and each fuzz target's committed corpus
     test:workers  # L4 in workerd, and the socket suite
-    fuzz          # short fuzz and property runs, and the committed corpus
+    fuzz          # short fuzz and property runs
     coverage      # 85% floor on the core (decision 66), a smoke alarm
 ```
 

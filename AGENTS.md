@@ -119,9 +119,9 @@ pnpm run ci            # both halves, in this order
     build:example   # wrangler deploy --dry-run, never a deploy
     budget          # the package, and the example Worker's bundle
   ci:slow
-    test            # unit through scenarios
+    test            # unit through scenarios, and each fuzz target's committed corpus
     test:workers    # the Cloudflare adapter in the real runtime, and the socket suite
-    fuzz            # short fuzz and property runs, and each target's committed corpus
+    fuzz            # short fuzz and property runs
     coverage        # 85% floor on the Node-tested core
 ```
 
