@@ -76,11 +76,12 @@ test("CORPUS a generated failure reports the smallest case that still fails", ()
 	} catch (error) {
 		message = error instanceof Error ? error.message : String(error);
 	}
-	// 11 is the smallest integer above the bound. The case is JSON, so it can be
-	// pasted into the corpus file as a new key.
-	expect(message).toContain("reader");
-	expect(message).toContain("11");
-	expect(message).toContain("seed");
+	// The counterexample is its own block, between the sentence and `(seed …)`, so
+	// this cannot be satisfied by a digit that happens to appear in the seed or the
+	// run count. 11 is the smallest integer above the bound, and it is a one-element
+	// tuple because the property takes one arbitrary and the corpus stores tuples.
+	// The seed is a signed 32-bit integer, so it may be negative.
+	expect(message).toMatch(/^reader .*\n\[\n {2}11\n\]\n\(seed -?\d+, \d+ runs\)$/s);
 });
 
 /** The failure still fails: reporting the case must not swallow it. */
