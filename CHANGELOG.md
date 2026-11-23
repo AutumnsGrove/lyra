@@ -8,6 +8,32 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-22
+
+Fixes only, which the note above reserves a patch for. Upgrade with
+`pnpm add @autumnsgrove/lyra@0.3.1`. Nothing changes for an existing caller: no export moved, no
+signature changed, and no behaviour differs. If you do not run the scenario files yourself, this release
+adds nothing you will use.
+
+**The scenario runner is on the surface.** `runScenario`, `decodeScenario`, `matchScenarioEvents` and
+`matchScenarioRecord` were built into `dist/testkit/scenario.js` from `0.3.0` and earlier, and the testkit
+index never re-exported them. The package's `exports` map has no `./testkit/*` entry, so there was no path
+to them from outside at all: the runner shipped, and no consumer could import it.
+
+That was a real stop rather than a tidiness problem. Decisions 63 and 67 ask a host to run the scenario
+files through its own adapter, and the host is Lattice, which reaches this package only through the
+published surface. The Lumen adapter's scenario run could not be written until this shipped.
+
+If you are running Lyra's scenarios in your own tests, the import that now works is:
+
+```ts
+import { decodeScenario, runScenario } from "@autumnsgrove/lyra/testkit";
+```
+
+Row `KIT14` asserts the four functions are reachable from `./testkit`, and it fails if the export is
+removed. It checks the source index rather than the installed package; the installed-package check is the
+scratch install in step 7 of `AGENTS.md`'s "Releasing", run before this release was called done.
+
 ## [0.3.0] - 2026-11-22
 
 Lyra has a wire. `0.2.0` keepers upgrade with `pnpm add @autumnsgrove/lyra@0.3.0`. Two things change for
