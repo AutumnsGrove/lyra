@@ -8,8 +8,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
-Lyra has a wire. `0.2.0` keepers can upgrade with `pnpm add @autumnsgrove/lyra@0.3.0` and change nothing:
-every existing export behaves as it did. What is new is the protocol over HTTP, a session object over it,
+## [0.3.0] - 2026-11-22
+
+Lyra has a wire. `0.2.0` keepers upgrade with `pnpm add @autumnsgrove/lyra@0.3.0`. Two things change for
+an existing caller, both spelled out below: a tool result is now capped at 50 KiB as the model reads it, and
+an exhaustive `switch` over three unions needs their new members. Everything else is additive, and every
+existing export behaves as it did. What is new is the protocol over HTTP, a session object over it,
 and two small additions to the core the protocol needed. A record's header now carries its session's
 tenant, and a record from before that field loads without it. `ResumeRequest` gained an optional
 `followUp`, `RuntimeOptions` and `RunConfig` gained an optional `tenant`, and `RunHandle` gained
@@ -32,6 +36,14 @@ more optional seams are new — `ModelSlot.contextWindow`, `Tool.currentState`, 
 `RunConfig.compaction` with `RunConfig.toolResultBytes` — and `Tool` gained
 `maxResultBytes` and `truncationHint`. A caller who sets none of them behaves as
 before, except that a tool result is now capped at 50 KiB as the model reads it.
+
+One thing stops a caller type-checking, and nothing else does: the unions gained members.
+`RecordEntry` gained five — `CompactionEntry`, `RequestEntry`, `RequestAnsweredEntry`, `ProposalEntry`
+and `ProposalDecidedEntry`; `ParkedReason` gained `waiting_for_person`; and a truncated entry's `field`
+gained `summary`. An exhaustive `switch` over any of them, with a `never` guard on the default, needs
+the new cases. Nothing else a `0.2.0` caller wrote stops compiling: every new member on `Tool`,
+`DefineToolOptions` and the run options is optional, and `makeModel`'s callback gained a third argument
+it may ignore.
 
 ### Added
 
