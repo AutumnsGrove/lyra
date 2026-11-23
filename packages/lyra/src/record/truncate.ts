@@ -123,10 +123,17 @@ function copyForCutting(entry: Truncatable): Truncatable {
 }
 
 /** The size the entry would have with a `truncated` marker naming this field. */
+function sizeWith(entry: Truncatable, field: Truncation["field"], droppedBytes: number): number {
+	return utf8Length(encodeEntry({ ...entry, truncated: { field, droppedBytes } }));
+}
+
+/**
+ * The line measured with the widest number the marker could hold, for the search
+ * below: anything measured this way is measured pessimistically, so the real marker
+ * always fits.
+ */
 function sizeWithMarker(entry: Truncatable, field: Truncation["field"]): number {
-	return utf8Length(
-		encodeEntry({ ...entry, truncated: { field, droppedBytes: Number.MAX_SAFE_INTEGER } }),
-	);
+	return sizeWith(entry, field, Number.MAX_SAFE_INTEGER);
 }
 
 function sliceAtCodePoint(text: string, length: number): string {
@@ -257,6 +264,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 		// structure alone left a window where the check passed and no length fitted,
 		// and the search then returned the marker on an empty field: a line over the
 		// cap (found by the committed corpus, issue #41).
+		//
+		// The marker here is the one this entry would really carry, not the widest one:
+		// keeping nothing makes both counts exact, and the widest would refuse an entry
+		// whose marker-only line fits -- a save that fits turned into a failed run,
+		// which REC04 forbids (found in review).
 		const fits = (length: number): boolean => {
 			candidate.write(sliceAtCodePoint(original, length) + WIDEST_MARKER);
 			const size = sizeWithMarker(working, candidate.field);
@@ -264,7 +276,12 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			return size <= maxBytes;
 		};
 
-		if (!fits(0)) {
+		candidate.write(markerFor(originalBytes));
+		const markerOnlyFits =
+			sizeWith(working, candidate.field, dropped + originalBytes) <= maxBytes;
+		candidate.write("");
+
+		if (!markerOnlyFits) {
 			// Emptying this field is not enough on its own, so it goes whole and its
 			// bytes join the total. Leaving them uncounted would save an entry that lost
 			// a kilobyte with nothing in it saying so, and a resume would replay a call

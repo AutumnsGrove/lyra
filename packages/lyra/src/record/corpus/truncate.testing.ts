@@ -23,6 +23,10 @@ export const cases: Readonly<Record<string, TruncateCase>> = {
 	"a-content-that-has-to-be-cut": [entries["a-tool-message-with-a-huge-content"], 500],
 	"a-reasoning-that-has-to-be-cut": [entries["an-assistant-message-with-a-long-reasoning"], 400],
 	"a-huge-content-at-the-smallest-cap": [entries["a-tool-message-with-a-huge-content"], 200],
+	// The other side of the same boundary: at 201 the marker-only line fits, so the
+	// entry has to be cut rather than refused. A gate that measured the widest marker
+	// refused this one and turned a save that fits into a failed run (found in review).
+	"the-marker-only-line-at-its-exact-cap": [entries["a-tool-message-with-a-huge-content"], 201],
 	"a-long-reasoning-at-the-smallest-cap": [
 		entries["an-assistant-message-with-a-long-reasoning"],
 		200,

@@ -253,3 +253,28 @@ test("REC04 an entry that cannot fit even when cut is refused, never over the ca
 	// field.
 	expect(fitted.refused).toMatch(/structure/);
 });
+
+/**
+ * REC04, the other direction: a refusal must not take a save that fits. The gate
+ * before the search has to measure the marker the entry *would* carry, not the
+ * widest one it could ever carry, or an entry whose marker-only line is inside the
+ * cap is refused and the run fails for size — which REC04 says must never happen.
+ * Found in review, after the fix above over-corrected.
+ */
+test("REC04 an entry whose marker-only line fits is cut, not refused", () => {
+	const entry: RecordEntry = {
+		type: "tool_message",
+		id: "e8",
+		parent: null,
+		ts: START,
+		toolCallId: "c1",
+		isError: false,
+		content: "x".repeat(4_000),
+		details: { count: 12 },
+	};
+	// 201 bytes holds the line with the field emptied and its marker in place; 200 is
+	// one short of it, which is the over-cap bug above.
+	const fitted = fitEntry(entry, 201);
+	expect(fitted.refused).toBeUndefined();
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(201);
+});
