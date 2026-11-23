@@ -38,11 +38,12 @@ more optional seams are new — `ModelSlot.contextWindow`, `Tool.currentState`, 
 before, except that a tool result is now capped at 50 KiB as the model reads it.
 
 One thing stops a caller type-checking, and nothing else does: the unions gained members.
-`RecordEntry` gained compaction, a request, its answer and a proposal; `ParkedReason` gained
-`waiting_for_person`; and a truncated entry's `field` gained `summary`. An exhaustive `switch` over
-any of them, with a `never` guard on the default, needs the new cases. Nothing else a `0.2.0` caller
-wrote stops compiling: every new member on `Tool`, `ToolDefinition` and the run options is optional,
-and `makeModel`'s callback gained a third argument it may ignore.
+`RecordEntry` gained five — `CompactionEntry`, `RequestEntry`, `RequestAnsweredEntry`, `ProposalEntry`
+and `ProposalDecidedEntry`; `ParkedReason` gained `waiting_for_person`; and a truncated entry's `field`
+gained `summary`. An exhaustive `switch` over any of them, with a `never` guard on the default, needs
+the new cases. Nothing else a `0.2.0` caller wrote stops compiling: every new member on `Tool`,
+`DefineToolOptions` and the run options is optional, and `makeModel`'s callback gained a third argument
+it may ignore.
 
 ### Added
 
