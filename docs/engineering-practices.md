@@ -372,6 +372,7 @@ how a run ends well; a run without one parks, which is still a correct ending.
 |---|---|---|
 | KIT12 | Bad: the seeded script | The same seed draws the same script, different seeds draw different ones, every turn is one of the named wrong kinds, and each kind really is what it says (truncated arguments that do not parse, a tool that does not exist, an empty reply, a `length` reply holding a call, usage with no cost) |
 | KIT13 | Happy: every run against it ends | For every seed, with a step limit, the run emits exactly one `run_end` as its last event, ends `done`, `parked` or `failed`, and its record loads with no notes and ends with a status |
+| KIT14 | Happy: the surface a host outside this repository uses | `runScenario`, `decodeScenario` and the two matchers are reachable from `./testkit`, so a project that runs the scenario files through its own adapter imports them from the package rather than from a path inside it |
 
 ## Spec rows: the scenario runner
 

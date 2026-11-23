@@ -347,3 +347,15 @@ test("KIT08 a scripted tool records every execution by call id", async () => {
 		),
 	).toEqual({ isError: false, content: "content" });
 });
+
+test("KIT14 the scenario runner is on the published testkit surface", async () => {
+	// Imported from the index rather than from `./scenario.js`: the point of the row
+	// is that a host outside this repository can reach it at all, and a relative
+	// import would prove nothing about what the package exports.
+	const surface = await import("./index.js");
+
+	expect(typeof surface.runScenario).toBe("function");
+	expect(typeof surface.decodeScenario).toBe("function");
+	expect(typeof surface.matchScenarioEvents).toBe("function");
+	expect(typeof surface.matchScenarioRecord).toBe("function");
+});
