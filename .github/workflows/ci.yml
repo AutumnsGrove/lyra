@@ -47,6 +47,12 @@ jobs:
   # Deliberately no `needs: fast`. The halves answer different questions, and
   # making one wait behind the other adds the slower job's runtime to every
   # failure, including the ones the fast half would have reported in a minute.
+  #
+  # Thirty minutes, not the fifteen the one job had, and it is the sum of what the
+  # half is allowed to take rather than slack: fifteen fuzz targets each get a 60 s
+  # test timeout (`vitest.fuzz.config.ts`), so a loaded machine can legally spend
+  # fifteen minutes there alone, and coverage replays the whole Node suite on top of
+  # it. A warm run is under a minute; the ceiling is a hang guard.
   slow:
     runs-on: ubuntu-latest
     timeout-minutes: 30
