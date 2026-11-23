@@ -22,7 +22,7 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,6 +40,13 @@ const CONFIGS = [
 	{ config: "workerd", args: ["--config", "vitest.workers.config.ts"] as readonly string[] },
 	{ config: "socket", args: ["--config", "vitest.ws.config.ts"] as readonly string[] },
 ];
+
+/**
+ * What a file that never ran is called. It has no failing test to name, and the
+ * title has to tell two of them apart, so the file name stands in (found in
+ * review: every collection failure collapsed into one issue title).
+ */
+const NO_TEST_RAN = "(the file failed to run)";
 
 /** A failing test, named the way the reporter names it. */
 export interface Failure {
@@ -136,7 +143,7 @@ export function readReport(runs: readonly ConfigRun[], seed: string, repeats: nu
 					file.status === "failed" &&
 					assertions.every((a) => !isRecord(a) || a.status !== "failed")
 				) {
-					outcome.failures.push({ file: name, test: "(the file failed to run)" });
+					outcome.failures.push({ file: name, test: NO_TEST_RAN });
 				}
 			}
 			// The report says the run failed and named no test: nothing was run, or
@@ -169,7 +176,13 @@ export function issueTitle(outcome: Outcome): string {
 		// is one issue, however many times it happens.
 		return "nightly: the shuffled run could not report a result";
 	}
-	const names = [...new Set(outcome.failures.map((failure) => shortName(failure.test)))].sort();
+	const names = [
+		...new Set(
+			outcome.failures.map((failure) =>
+				failure.test === NO_TEST_RAN ? basename(failure.file) : shortName(failure.test),
+			),
+		),
+	].sort();
 	const shown = names.slice(0, 3).join(", ");
 	const more = names.length > 3 ? `, and ${names.length - 3} more` : "";
 	return `nightly: ${shown}${more} failed under --shuffle`;
@@ -246,7 +259,23 @@ export async function nightly(options: RunOptions = {}): Promise<Report> {
 	const seed = chooseSeed(options.seed);
 	const repeats = options.repeats ?? DEFAULT_REPEATS;
 	const run = options.runSuite ?? runVitest;
-	const outcome = readReport(await run(seed, repeats), seed, repeats);
+	let runs: readonly ConfigRun[] = [];
+	let runnerError: string | undefined;
+	try {
+		runs = await run(seed, repeats);
+	} catch (cause) {
+		// The runner itself failed to start: no report, no exit status, and nothing
+		// else to read. Throwing here would leave no body and no title, and the
+		// workflow's filing step would stop at "wrote no title" -- a red run with no
+		// issue, which is the one thing this workflow exists to prevent (found in
+		// review).
+		runnerError = cause instanceof Error ? cause.message : String(cause);
+	}
+	const outcome = readReport(runs, seed, repeats);
+	if (runnerError !== undefined) {
+		outcome.problems.push(`the runner could not start: ${runnerError}`);
+		outcome.passed = false;
+	}
 	const built: Report = {
 		seed,
 		repeats,

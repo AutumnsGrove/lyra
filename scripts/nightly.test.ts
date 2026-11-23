@@ -283,6 +283,19 @@ describe("the issue title", () => {
 		expect(issueTitle(one)).not.toBe(issueTitle(two));
 	});
 
+	/**
+	 * Two files that never ran are two different failures, not one. They share the
+	 * sentinel for "no test", so the title has to fall back to the file name or the
+	 * second night becomes a comment on the first issue (found in review).
+	 */
+	test("two files that never ran are two titles", () => {
+		const one = readReport([run(report([file("a.test.ts", "failed", [])]))], "5", 2);
+		const two = readReport([run(report([file("b.test.ts", "failed", [])]))], "5", 2);
+		expect(issueTitle(one)).toContain("a.test.ts");
+		expect(issueTitle(two)).toContain("b.test.ts");
+		expect(issueTitle(one)).not.toBe(issueTitle(two));
+	});
+
 	/** A red run with nothing to name is still one issue, not a new one per night. */
 	test("a run that could not report has one title, whatever the seed", () => {
 		const first = readReport([run(null)], "1", 2);
@@ -389,6 +402,30 @@ describe("the run", () => {
 		expect(result.passed).toBe(true);
 		// Nothing to file, so nothing to title.
 		expect(result.title).toBe("");
+	});
+
+	/**
+	 * A runner that cannot start still files something. Throwing would leave no body
+	 * and no title, and the workflow's filing step would stop before it filed
+	 * (found in review).
+	 */
+	test("a runner that cannot start is red with a body, not a throw", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "nightly-test-"));
+		const bodyFile = join(dir, "body.md");
+		const titleFile = join(dir, "title.txt");
+		const result = await nightly({
+			seed: "1",
+			bodyFile,
+			titleFile,
+			runSuite: async () => {
+				throw new Error("spawn pnpm ENOENT");
+			},
+		});
+		expect(result.passed).toBe(false);
+		expect(result.title).toContain("could not report a result");
+		expect(result.body).toContain("spawn pnpm ENOENT");
+		expect(await readFile(bodyFile, "utf8")).toContain("could not start");
+		expect(await readFile(titleFile, "utf8")).toContain("could not report a result");
 	});
 
 	/** The seam end to end: a suite that died is red even with nothing named. */
