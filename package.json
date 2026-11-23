@@ -26,6 +26,7 @@
 		"matrixcheck": "node scripts/matrixcheck.mjs",
 		"workflowcheck": "node scripts/workflowcheck.ts",
 		"audit": "node scripts/audit.ts",
+		"nightly": "node scripts/nightly.ts",
 		"budget": "node scripts/budget.mjs",
 		"coverage": "vitest run --coverage",
 		"ci": "pnpm run ci:fast && pnpm run ci:slow",
