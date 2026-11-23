@@ -409,26 +409,33 @@ describe("the issue title", () => {
 		expect(title).toMatch(/^nightly: 3 failures under --shuffle \([0-9a-f]{8}\)$/);
 	});
 
-	/** The digest is the identity, so the same failures keep the same title. */
-	test("a long title is stable for the same failures and different otherwise", () => {
+	/**
+	 * The digest is the identity, so the same failures keep the same title. The
+	 * fixture has to overflow the 200-character threshold or the case proves nothing:
+	 * the first version of it produced a 176-character title and never reached the
+	 * digest at all (found in review).
+	 */
+	test("a condensed title is stable for the same failures and different otherwise", () => {
+		const wordy = "a test name long enough to push the title past the threshold ".repeat(3);
 		const long = (suffix: string): ConfigRun =>
 			run(
 				report([
-					file(`packages/lyra/src/core/corpus/${suffix}.test.ts`, "failed", [
-						assertion(
-							`suite > a test name long enough to overflow the cap ${suffix}`,
-							"failed",
-						),
-						assertion(
-							`suite > another long name to push it over the cap ${suffix}`,
-							"failed",
-						),
-					]),
+					file(
+						`packages/lyra/src/core/corpus/${"a".repeat(60)}-${suffix}.test.ts`,
+						"failed",
+						[
+							assertion(`suite > ${wordy} one ${suffix}`, "failed"),
+							assertion(`suite > ${wordy} two ${suffix}`, "failed"),
+							assertion(`suite > ${wordy} three ${suffix}`, "failed"),
+						],
+					),
 				]),
 			);
 		const first = issueTitle(readReport([long("one")], "5", 2));
 		const again = issueTitle(readReport([long("one")], "999", 2));
 		const other = issueTitle(readReport([long("two")], "5", 2));
+		// The digest path, not a names title.
+		expect(first).toMatch(/^nightly: 3 failures under --shuffle \([0-9a-f]{8}\)$/);
 		expect(first).toBe(again);
 		expect(first).not.toBe(other);
 	});
