@@ -115,9 +115,25 @@ Live tests call a real model. They are opt-in, never run in CI, and every one ha
 
 Commits are semantic and one line (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`), one concern each, green at every commit, citing the issue. A pull request says what it does and why, and what is unfinished.
 
-**Two reviewers read every pull request, and the slow one still counts.** `claude-review` runs the prompt in `.github/workflows/claude-code-review.yml` and finishes in well under a minute. `pi-review` (the `review` job) reads the same diff for longer: a minute to a few, twenty allowed inside a 33-minute job, and longer on a cold run while it installs dependencies. Both leave their findings on the thread, and both are worth reading.
+**Two reviewers read every pull request, and neither replaces the other.** `claude-review` runs the prompt in `.github/workflows/claude-code-review.yml` and finishes inside two minutes. It reads the diff and the files, it has no shell, and it owns everything reading is enough for: the paperwork a change owes, the wiring a suite of fakes hides, and whether a test's title claims more than its assertions check. `pi-review` (the `review` job) has a shell. It takes one to six minutes warm, it runs the code, and its findings carry the command that shows them, so it owns the bugs where the gate is lying: an off-by-a-few at a bound, a report that reads green on a red run. Decision 144 keeps both for that reason, and `.github/REVIEW.md` says which half is whose. That file is guidance for `pi-review` only, and it is read from the base commit, so a pull request cannot rewrite its own reviewer's instructions.
 
-The trap is the concurrency group every workflow here carries: a push restarts both reviews and cancels the run in flight. So a push made the moment Claude's review lands cancels `pi-review` mid-read, and the next push does it again — a pull request can go through several rounds, every check green, without the second opinion ever arriving. **Wait for both before pushing again**, collect their findings into one push rather than one push per finding, and read the thread rather than only the check: a review job can finish green having posted nothing at all, and then there is no comment to answer. If `pi-review` has not posted about half an hour after the push, it will not, and the pull request should say so rather than wait. A red `gate` is the exception, because both reviewers are then reading a tree that does not build.
+**Do not push while `pi-review` is reading. This is the one rule in this section.** Every workflow here cancels the run it superseded, so a push cancels `pi-review` mid-read, and a cancelled run has already read most of the pull request and spent most of what it was going to spend — which makes pushing to be fast the expensive choice rather than the cheap one. On PR #50 four cancelled runs cost thirteen minutes of reasoning that produced no review at all.
+
+**`claude-review` posting is never a reason to push.** It finishes in a minute or two and `pi-review` takes one to six; they are read together, so the moment Claude's comment arrives is the moment to read it and wait. Nor is "to see the checks" a reason: the checks are already running.
+
+Look at the `review` row in `gh pr checks <number>` and act on the state it reports. There are five, and no others:
+
+| `review` on this head       | What to do                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| pending                     | **Wait. Do not push.** A push cancels it, and the wait starts over on the new head.      |
+| a review for this head      | Push **once**, with every finding from both readers in it. One push per finding restarts the cycle and pays for the read again. |
+| absent                      | The changed files are all under `docs/research/` or are `CHANGELOG.md`, so it will never run. Push when `fast`, `slow` and `claude-review` are done. Absent when that is **not** true of the files means the run has not registered yet: treat it as `pending`. |
+| failed, or cancelled by someone else's push | It will not post for this head. Say so on the thread, then push.           |
+| still pending about half an hour after your push | It will not post. Say so on the thread, then push.                 |
+
+Two more things hold whatever the row says. A red `fast` or `slow` is the one exception: both readers are then reading a tree that does not build, so fix it and push. And read the thread rather than only the check, because a review job can finish green having posted nothing at all — no comment is not no findings.
+
+`docs/research/` and `CHANGELOG.md` are the whole of the carve-out, and nothing else under `docs/` is in it: the spec documents, `docs/agents-guide.md` and `docs/implementation/**` are instructions a pull request can rewrite, and only `pi-review` reads its guidance from the base commit. An `@pi` mention reaches the job on any pull request regardless, because the comment trigger takes no paths filter.
 
 ## Releasing
 

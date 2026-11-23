@@ -31,7 +31,10 @@
   },
   "paths": {
     "include": [],
-    "exclude": []
+    "exclude": [
+      "docs/research/**",
+      "CHANGELOG.md"
+    ]
   },
   "pi": {
     "version": "1.5.2"

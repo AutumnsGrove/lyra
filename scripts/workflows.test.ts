@@ -115,6 +115,78 @@ describe("pull request runs", () => {
 	});
 });
 
+/**
+ * `pi-review.yml` is generated from `.github/pi-review.json` by that extension's
+ * `pi-review:sync`, in another repository, so nothing here notices the two
+ * drifting apart. What makes the drift worth its own case is what it breaks:
+ * `AGENTS.md` says the `review` check is *absent* rather than pending on a pull
+ * request that changes only prose, and that is true only while the workflow's
+ * `paths` still says what the settings say. A job that starts running where the
+ * rule says it does not is a wait that never ends.
+ */
+describe("pi-review's generated workflow", () => {
+	async function excludes(): Promise<{
+		declared: string[];
+		included: string[];
+		settings: string[];
+	}> {
+		const workflow = await readWorkflow("pi-review.yml");
+		const on = workflow.on as { pull_request?: { paths?: string[] } } | undefined;
+		const patterns = on?.pull_request?.paths ?? [];
+		const declared = patterns
+			.filter((pattern) => pattern.startsWith("!"))
+			.map((pattern) => pattern.slice(1));
+		const included = patterns.filter((pattern) => !pattern.startsWith("!"));
+		const settings = parse(await readFile(join(ROOT, ".github/pi-review.json"), "utf8")) as {
+			paths?: { exclude?: string[] };
+		};
+		return { declared, included, settings: settings.paths?.exclude ?? [] };
+	}
+
+	/**
+	 * Equality alone is not enough, and this is the case that shows it: if the
+	 * renderer dropped every exclude, both sides would be `[]`, equality would
+	 * hold, and this block would call the filter correct while every prose-only
+	 * pull request went back to paying for a full review. So the two excludes that
+	 * do the work are named, and the positive pattern the negations subtract from
+	 * is required too, because GitHub rejects a filter that is all negations.
+	 */
+	test("the paths it skips are the ones the settings exclude", async () => {
+		const { declared, included, settings } = await excludes();
+		expect(
+			included,
+			"the negations have nothing to subtract from, and GitHub rejects a filter with no positive pattern",
+		).toEqual(["**"]);
+		expect(declared).toEqual(settings);
+		expect(
+			declared,
+			"an exclude that saves a review has gone missing, so prose-only pull requests are reviewed again",
+		).toEqual(expect.arrayContaining(["docs/research/**", "CHANGELOG.md"]));
+	});
+
+	/**
+	 * Skipping prose is a budget decision, and only prose nothing obeys qualifies.
+	 * `docs/agents-guide.md` is the draft `AGENTS.md` came from and
+	 * `docs/implementation/README.md` is what `AGENTS.md` tells a step builder to
+	 * follow, so both are instruction files in all but name: `pi-review` reads its
+	 * guidance from the base commit and `claude-review` reads the checkout, which
+	 * is the head, so a pull request that rewrote one of them and started no shell
+	 * reviewer would be asking only the reader that can be rewritten to read it.
+	 * `docs/research/` is the one directory that says of itself that it is not
+	 * settled fact, which is why it is the only prose that is skipped.
+	 */
+	test("it skips prose only, never a file an agent obeys", async () => {
+		const { declared } = await excludes();
+		const obeyed = declared.filter(
+			(pattern) => pattern !== "CHANGELOG.md" && !pattern.startsWith("docs/research/"),
+		);
+		expect(
+			obeyed,
+			"an excluded path outside docs/research/ is code or an instruction file, and both need the reviewer with a shell",
+		).toEqual([]);
+	});
+});
+
 describe("dependabot", () => {
 	interface Update {
 		"package-ecosystem"?: string;
