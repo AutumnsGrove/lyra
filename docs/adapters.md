@@ -159,6 +159,7 @@ memory as a deploy would.
 | CFL24 | Happy: the idempotent session id | The same key reaches the same object and answers the same session and run, a different job under that key is `conflict`, and another key is another object |
 | CFL25 | Bad: another tenant | A caller of another tenant is `not_found` for a session over HTTP, and the answer names no tenant |
 | CFL26 | Happy: the trusted door | A method that names the tenant runs a command for it with no token and answers with the frame |
+| CFL27 | Bad: an alarm with a socket whose attachment cannot be read | The alarm still resolves and leaves no unhandled rejection behind, because the detached re-follow of the sockets that outlived an eviction catches what it throws |
 
 ## Spec rows: the OpenAI-style model adapter (step 5)
 

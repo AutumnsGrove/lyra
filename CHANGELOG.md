@@ -73,6 +73,11 @@ new API and any breaking change, and a patch bump is fixes only.
   so a large authenticated body cost the Worker its memory first. It now reads through the 2 MiB cap and stops
   there, and a body that fails mid-read is `bad_request` instead of an exception, here and in the HTTP handler
   (HTP09).
+- A socket frame over the line cap was refused only after the object had replayed the events the socket had
+  missed to it, so a frame that was going to close the socket still cost it a replay and a decode. The size is
+  checked first (WSK17). The alarm's detached re-follow of the sockets that outlived an eviction now catches
+  what it throws, so a socket the platform cannot read no longer leaves an unhandled rejection on a good wake
+  (CFL27).
 
 ## [0.3.1] - 2026-11-22
 

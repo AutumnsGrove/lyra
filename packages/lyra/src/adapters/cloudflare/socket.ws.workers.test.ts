@@ -1,5 +1,5 @@
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 /**
  * The socket's first slice (docs/implementation/08-websocket.md, WSK01 to WSK06):
@@ -758,4 +758,71 @@ test("WSK09 the cursor the hello saves is where the replay reached, not where it
 	socket.close();
 	const replayed = after.filter((frame) => frame["type"] === "event");
 	expect(replayed).toEqual([]);
+});
+
+test("WSK17 a frame over the cap closes the socket before any replay is sent to it", async () => {
+	const session = await parked();
+	const socket = await upgraded(session);
+	const replay = drainUntil(socket, "run_end");
+	sayHello(socket);
+	await replay;
+
+	const listed = await stub(session).fetch(
+		new Request("https://lyra.test/v1/commands", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify({ type: "command", id: "lp", command: "list_pending", session }),
+		}),
+	);
+	const pending = (await listed.json()) as { data?: { requests?: { request?: string }[] } };
+	const request = pending.data?.requests?.[0]?.request;
+	expect(request).toBeDefined();
+
+	// The object goes away, and the run moves on through another door while nothing
+	// follows this socket: it now has events it was never sent.
+	await evictDurableObject(stub(session));
+	const answered = await stub(session).fetch(
+		new Request("https://lyra.test/v1/ui_response", {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: `Bearer ${TOKENS.acme}` },
+			body: JSON.stringify({ type: "ui_response", request, session, ok: true }),
+		}),
+	);
+	expect(answered.status).toBe(200);
+	await vi.waitFor(
+		async () => {
+			const state = await stub(session).fetch(
+				new Request(`https://lyra.test/v1/state?session=${session}`, {
+					headers: { authorization: `Bearer ${TOKENS.acme}` },
+				}),
+			);
+			const body = (await state.json()) as { data?: { state?: string } };
+			expect(body.data?.state).toBe("done");
+		},
+		{ timeout: 3_000, interval: 25 },
+	);
+
+	const events: Record<string, unknown>[] = [];
+	socket.addEventListener("message", (event) => {
+		const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+		if (frame["type"] === "event") {
+			events.push(frame);
+		}
+	});
+	const closed = new Promise<number>((resolve) => {
+		socket.addEventListener("close", (event) => resolve((event as CloseEvent).code));
+	});
+	socket.send(
+		JSON.stringify({
+			type: "command",
+			id: "big",
+			command: "prompt",
+			session,
+			text: "x".repeat(2 * 1024 * 1024 + 1),
+		}),
+	);
+	expect(await closed).toBe(1002);
+	// A frame that is going to be refused costs the socket nothing: the events it
+	// missed are for a client that is staying, and it asks for them with `since`.
+	expect(events).toEqual([]);
 });
