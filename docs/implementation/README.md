@@ -30,6 +30,10 @@ Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 | C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59, #73 and #74, all in review or merged | planned, not started |
 
+### Where the last session stopped (2026-11-24, later)
+
+- **Both of the playground's Lyra prerequisites are pull requests.** #74 adds `reasoning` to `message_end` (pull request #76, EVT08 to EVT10 and `scenarios/reasoning-trace.yaml`); #73 lets a scenario file describe a conversation (pull request #78, SCN07 to SCN09, `scenarios/conversation.yaml`, and decision 155). Both are green and waiting for review to finish, so C's Slice 1 is next and needs nothing from either beyond their merge: `docs/implementation/C-playground.md` names its prerequisites and they are now met.
+
 ### Where the last session stopped (2026-11-24)
 
 - **The parallel tool calls slice is merged**, pull request #69 and merge commit `b17f89a`, for issue #67
