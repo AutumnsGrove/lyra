@@ -121,8 +121,9 @@ their record; the slices cite it as the authority, so if they belong on the issu
    calls `runTask` exactly once and a `Scenario` has no follow-up, steer or answer field
    (`packages/lyra/src/testkit/scenario.ts`). #59's `recipes` map alone does not make a session assertable,
    so this is its own small change: a `runs:` list with the commands between them, and the assertions over
-   the session's whole record. Until it exists, the smoke job's second run in Slice 7 is the only
-   multi-run check, and it is one case rather than a file.
+   the session's whole record. Until it exists, no *scenario file* can carry more than one run: the
+   protocol suite already drives a second run in a session (CMD05), and the smoke job's second run in
+   Slice 7 is the other multi-run check, which is one case rather than a file.
 3. **The live trace.** `run.ts` saves `reasoning` on the assistant entry, but `message_end` carries only
    `text` and `toolCalls`, so a live client can only show a trace by re-reading the record. Add
    `reasoning?` to the `message_end` event and to the protocol's projection, with rows in `docs/core-loop.md`

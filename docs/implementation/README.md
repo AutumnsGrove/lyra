@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
