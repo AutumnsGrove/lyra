@@ -147,6 +147,76 @@ test("SCN06 a decoded file that names a host recipe runs that recipe", async () 
 	expect(outcome.record?.header.task).toBe("shelf");
 });
 
+test("SCN06 a recipe's approvals reach the run, so a scenario can see the park", async () => {
+	// One of the settings the runner used to drop. A recipe that asks parks, and a
+	// scenario file about an approval would otherwise run straight past it.
+	const host = defineRecipe({
+		name: "cautious",
+		version: 1,
+		instructions: "write, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "write it", state: {} }),
+		tools: [
+			toolReturning("write", "wrote the line", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		approvals: { policy: "ask" },
+	});
+	const decoded = decodeScenario({
+		name: "a file about an approval",
+		task: "cautious",
+		input: {},
+		recipe: "cautious",
+		model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }],
+		expect_events: [{ type: "run_end", reason: "parked", parked_reason: "waiting_for_person" }],
+		expect_record: [{ type: "request", kind: "approve", callId: "c1" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result).toMatchObject({
+		reason: "parked",
+		parkedReason: "waiting_for_person",
+	});
+});
+
+test("SCN06 a recipe's stuck settings reach the run", async () => {
+	// The second of the settings the runner used to drop, and one with an observable
+	// difference: the default nudges the model and asks again, and this recipe says not
+	// to, so the run fails with the reason it says.
+	const host = defineRecipe({
+		name: "quiet",
+		version: 1,
+		instructions: "say nothing, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "say something", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+		stuck: { enabled: false },
+	});
+	const decoded = decodeScenario({
+		name: "a file about the stuck safeguard",
+		task: "quiet",
+		input: {},
+		recipe: "quiet",
+		model: [{ text: "nothing to do" }],
+		expect_events: [{ type: "run_end", reason: "failed" }],
+		expect_record: [{ type: "status", state: "failed" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("failed");
+	expect(outcome.result.reason === "failed" ? outcome.result.error?.message : "").toContain(
+		"the stuck safeguard is off",
+	);
+});
+
 test("SCN06 a host's map wins over the testkit's when both have the name", async () => {
 	// The precedence the doc comment and the rows claim, which a map keyed on a name
 	// only the testkit has would never show.
