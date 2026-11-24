@@ -228,6 +228,9 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
 			...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
 			...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
+			...(definition.maxParallelCalls === undefined
+				? {}
+				: { maxParallelCalls: definition.maxParallelCalls }),
 			...(options.canAsk === true ? { canAsk: true } : {}),
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(extra.resume === undefined ? {} : { resume: extra.resume }),

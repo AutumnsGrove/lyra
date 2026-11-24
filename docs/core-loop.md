@@ -73,9 +73,10 @@ JSON and the loop hands that back as an error result (decision 21).
 ## The loop (step 1b)
 
 `runTask` asks the model, runs what it asked for, hands the results back, and
-repeats. A reply's tool calls run one after another in call order, each under a
-deadline (five minutes by default) measured on the injected `Clock`, and each
-result is saved the moment it is ready. The assistant message is saved before any
+repeats. A reply's tool calls run in call order, each under a deadline (five
+minutes by default) measured on the injected `Clock`, and each result is saved the
+moment it is ready. A run of consecutive calls may run beside each other when the
+recipe lets it and the tools ask for it, which is the section after this one. The assistant message is saved before any
 of its calls run, so an interruption never loses a step (decision 20).
 
 A run ends in exactly one of three ways: `done` when a tool answers with
@@ -104,3 +105,46 @@ The events use the protocol's names and carry the run, the clock's time, and the
 | LOOP14 | Happy: what every event carries | Every event names the run, carries the clock's time in order, and any event made from a record entry carries a `seq` that only increases and points at that entry |
 | LOOP15 | Sad: nothing left behind | After a run ends `done`, parked, or failed, the clock has no timer waiting, and a run with no listener at all still runs |
 | LOOP16 | Bad: a tool that ignores the stop | A tool that never settles and ignores its signal does not hold the run: its deadline answers for it and the run goes on |
+
+## Parallel tool calls (decision 154)
+
+A reply can carry several calls, and most providers send them by default. Running them one after
+another makes a run that reads five pages take the sum of five network calls, so a group of
+consecutive calls may run at the same time — but only when nothing about them can disagree.
+
+**Who may run beside another call.** A tool opts in with `parallel: true` on `defineTool`, and even
+then it is only eligible when its policy is `allow` and it has no `apply`: a group's calls all read
+one state, and `apply` is that state's only writer. `defineTool` refuses the flag on a tool with an
+`apply` (TOL13), and the scheduler refuses it for anything with `apply` or an asking policy even if a
+test or a host built the tool by hand. Everything else is a **barrier**: it runs alone, in call order,
+after the calls before it are saved and before the next one starts.
+
+**The cap.** `maxParallelCalls` on the recipe (run: `maxParallelCalls`), four by default: a Worker
+invocation may have six connections waiting for response headers, so four leaves room for a tool that
+fetches more than once. A group larger than the cap runs in chunks of that size, in call order, so the
+same script always saves the same record. A cap that is not a positive whole number is not a cap, and
+the default applies; a recipe that sets one badly is refused when it is defined (RCP08).
+
+**The record.** Results are awaited and saved in call order whatever order they finished in, and
+`apply` runs in call order, so a run of groups writes the record the same calls would have written one
+at a time, apart from the clock's timestamps. A kill can land with a group's first result saved and its
+last not; the resume answers the calls of the last reply that have no result, one at a time, and the
+conversation it rebuilds is the one the uninterrupted run ended with (RSM05).
+
+**A question inside a group.** A call whose result is a question (decision 34) parks the run where the
+question falls: the calls before it are saved, the request is saved in its place, and the calls after it
+in the same chunk have already run and are saved behind it. The calls the batch never started wait for
+the answer as they always did. One batch parks on one question, so a second one in the same chunk is
+answered with an error result rather than overwriting the first.
+
+| ID | Case | Expected |
+|---|---|---|
+| LOOP17 | Happy: a group finishes out of order | Three opted-in calls announced at one moment and saved and announced in call order, with the slowest first, and no deadline timer left waiting |
+| LOOP18 | Sad: one call in a group fails | A group of four where one returns an error and one throws: each failure is its own result in its own place, the two successes are unaffected, and the run goes on |
+| LOOP19 | Sad: a stop during a group | The stop parks the run `stopped`, every call of the group is answered, and no timer is left waiting |
+| LOOP20 | Sad: a deadline in a group | The call that outstays the deadline gets the deadline error, the calls beside it answer normally, and the run goes on |
+| LOOP21 | Sad: a question in a group | The calls either side of the question are saved around its request, the run parks once `waiting_for_person`, and the answer becomes the question's result on the resume |
+| LOOP22 | Bad: a tool that opts in but may not | A tool with an `apply`, and one whose policy asks, each stay a barrier: they start only after the call before them is saved, and nothing behind an ask runs |
+| LOOP23 | Bad: a group larger than the cap | Five calls with a cap of two start two at a time in chunks, in call order; a cap that is not a positive whole number falls back to the default |
+| LOOP24 | Property: the record does not depend on it | For any script of grouped calls, a run of groups saves the same record, timestamps aside, as the same calls run one at a time |
+
