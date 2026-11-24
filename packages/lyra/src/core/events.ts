@@ -30,8 +30,19 @@ interface EventBase {
 export type RunEvent =
 	| (EventBase & { type: "run_start"; task: string })
 	| (EventBase & { type: "turn_start"; turn: number })
-	/** The assistant message, saved. `seq` is that entry's position in the record. */
-	| (EventBase & { type: "message_end"; seq: number; text: string; toolCalls: ToolCall[] })
+	/**
+	 * The assistant message, saved. `seq` is that entry's position in the record.
+	 * `reasoning` is the model's thinking trace as the entry holds it, and it is
+	 * absent rather than empty when there was none, so a client hides the panel
+	 * instead of drawing an empty one (EVT09).
+	 */
+	| (EventBase & {
+			type: "message_end";
+			seq: number;
+			text: string;
+			toolCalls: ToolCall[];
+			reasoning?: string;
+	  })
 	/**
 	 * A call the model asked for, announced before anything runs. It carries no
 	 * `seq` because no record entry is a call: the assistant message it came from

@@ -307,3 +307,35 @@ test("EVT04 a request the clock decided also expires for the clients", () => {
 	]);
 	expect(projected.some((event) => event.type === "ui_resolved")).toBe(true);
 });
+
+test("EVT08 a replayed assistant message carries its reasoning, as the record saved it", async () => {
+	const thinking: Entry = { ...assistant, reasoning: "Read the file first, then answer." };
+	const projected = events(record(running, thinking, done));
+
+	expect(projected.find((event) => event.type === "message_end")).toMatchObject({
+		type: "message_end",
+		reasoning: "Read the file first, then answer.",
+	});
+});
+
+test("EVT09 a replayed message with no reasoning has no field, rather than an empty one", () => {
+	const projected = events(record(running, assistant, done));
+	const announced = projected.find((event) => event.type === "message_end");
+	expect(announced).toBeDefined();
+	expect(announced).not.toHaveProperty("reasoning");
+});
+
+test("EVT10 a reasoning the cap cut is replayed as the cut string, with the marker the record holds", () => {
+	// The projection reads the entry, so it cannot announce more than a reload shows.
+	const cut: Entry = {
+		...assistant,
+		reasoning: "thoughts…[4120 bytes dropped]",
+		truncated: { field: "reasoning", droppedBytes: 4_120 },
+	};
+	const projected = events(record(running, cut, done));
+	const announced = projected.find((event) => event.type === "message_end");
+
+	expect(announced).toMatchObject({ reasoning: "thoughts…[4120 bytes dropped]" });
+	// The marker itself stays on the entry: the event is the message, not the save.
+	expect(announced).not.toHaveProperty("truncated");
+});

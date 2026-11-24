@@ -35,7 +35,13 @@ interface EventBase {
 export type RecordEvent =
 	| (EventBase & { type: "run_start" })
 	| (EventBase & { type: "resumed" })
-	| (EventBase & { type: "message_end"; text: string; toolCalls: ToolCall[] })
+	| (EventBase & {
+			type: "message_end";
+			text: string;
+			toolCalls: ToolCall[];
+			/** The trace as the entry holds it; absent when there was none (EVT09). */
+			reasoning?: string;
+	  })
 	| (EventBase & { type: "tool_call"; call: ToolCall })
 	| (EventBase & {
 			type: "tool_end";
@@ -183,6 +189,9 @@ export function projectEvents(
 					type: "message_end",
 					text: entry.text,
 					toolCalls: entry.toolCalls,
+					// A reload shows the entry, so the replay announces the entry's own trace:
+					// the one the cap already cut, with no field at all when there was none.
+					...(entry.reasoning === undefined ? {} : { reasoning: entry.reasoning }),
 				});
 				for (const call of entry.toolCalls) {
 					events.push({ ...base, type: "tool_call", call });
