@@ -217,6 +217,45 @@ test("SCN06 a recipe's stuck settings reach the run", async () => {
 	);
 });
 
+test("SCN06 a recipe's fallback model reaches the run", async () => {
+	// The last of the forwarded settings, and the one that needs a model that fails: the
+	// recipe names a fallback, so a run whose first model exhausts its retries moves to
+	// it and the record says the move happened.
+	const host = defineRecipe({
+		name: "insured",
+		version: 1,
+		instructions: "finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "finish", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+		fallbackModel: "fallback/model",
+	});
+	const outcome = await runScenario(
+		scenario({
+			recipe: "insured",
+			input: {},
+			tools: [],
+			// The first model fails its first try and every retry, so the run moves on.
+			model: [
+				{
+					toolCalls: [{ id: "c1", name: "finish" }],
+					failures: Array.from({ length: 4 }, () => ({ retryable: true })),
+				},
+			],
+			expectEvents: [{ type: "run_end", reason: "done" }],
+			expectRecord: [{ type: "fallback", to: "fallback/model" }],
+		}),
+		{ recipes: new Map([[host.name, host]]) },
+	);
+
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	expect(outcome.record?.entries.find((entry) => entry.type === "fallback")).toMatchObject({
+		type: "fallback",
+		to: "fallback/model",
+	});
+});
+
 test("SCN06 the recipe's compaction wins over the file's", async () => {
 	// The file's compaction is one that cuts a short run; the recipe's never cuts. The
 	// file's settings are only a default for a scenario with no recipe, so the run must
