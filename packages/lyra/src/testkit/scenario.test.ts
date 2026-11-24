@@ -218,7 +218,7 @@ test("SCN06 a recipe's stuck settings reach the run", async () => {
 	);
 });
 
-test("SCN06 a recipe's parallel cap reaches the run, and the file's is only a fallback", async () => {
+test("SCN06 a recipe's parallel cap reaches the run, and wins over the file's", async () => {
 	// The one setting the runner still dropped. Two opted-in calls run together with the
 	// default cap and one after another with a recipe that says one, which is observable
 	// without a clock: both starts come before the first end, or they do not.
@@ -254,6 +254,8 @@ test("SCN06 a recipe's parallel cap reaches the run, and the file's is only a fa
 		recipe: "capped",
 		input: {},
 		tools: [],
+		// The file says four, so the recipe's one has to win for the run to be serial.
+		maxParallelCalls: 4,
 		model: [
 			{
 				toolCalls: [
@@ -267,6 +269,8 @@ test("SCN06 a recipe's parallel cap reaches the run, and the file's is only a fa
 		expectRecord: [{ type: "status", state: "done" }],
 	});
 
+	// The positive case first: the file's four does run the two together, so the serial
+	// order below is the recipe's doing and not the default's.
 	order.length = 0;
 	const together = await runScenario(file, { recipes: new Map([["capped", recipeWith()]]) });
 	expect(together.problems).toEqual([]);
