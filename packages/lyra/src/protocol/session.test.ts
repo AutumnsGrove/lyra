@@ -1599,3 +1599,121 @@ test("REQ05 a wake queued behind a resume is woken when the resume finishes", as
 	});
 	clock.advance(5_000);
 });
+
+test("REQ03 an answer too big for one record entry is bad_request, and writes nothing", async () => {
+	const { session, storage } = asking(ASK_TURNS);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	const request = await waitingRequest(storage);
+	const before = storage.saved().length;
+
+	// The line cap is twice the entry cap, so a note this long reaches the session.
+	// It is the client's mistake, and a 500 would tell the client to retry the same thing.
+	const refused = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+		note: "x".repeat(1.5 * 1024 * 1024),
+	});
+	expect(refused.ok ? "" : refused.error.code).toBe("bad_request");
+	expect(storage.saved()).toHaveLength(before);
+
+	// The request is still open, so the same person can answer again, shorter.
+	const again = await session.respond({
+		session: "s1",
+		request: String(request["request"]),
+		ok: true,
+	});
+	expect(again.ok).toBe(true);
+});
+
+test("CMD10 a decision that read the record before another one landed does not decide twice", async () => {
+	// The check for an earlier decision reads the record, so it must read it after the
+	// session holds the write claim: a read made before the claim can be a snapshot
+	// from before the other decision, and then both decisions are written (decision 53).
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	let hold: Promise<void> | undefined;
+	const storage: MemoryStorage = {
+		...inner,
+		append: (line) => inner.append(line),
+		read: async () => {
+			// The snapshot is taken now and handed back late, as a slow read would.
+			const snapshot = await inner.read();
+			const gate = hold;
+			hold = undefined;
+			if (gate !== undefined) {
+				await gate;
+			}
+			return snapshot;
+		},
+	};
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(
+			[
+				{
+					toolCalls: [
+						{
+							id: "c1",
+							name: "propose",
+							args: {
+								payload: { verdict: "deny", score: 0.9 },
+								evidence: ["post:1"],
+							},
+						},
+					],
+				},
+			],
+			{ clock },
+		),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: {
+									verdict: { type: "string" },
+									score: { type: "number" },
+								},
+								required: ["verdict", "score"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => inner.saved().some((line) => line.includes('"type":"proposal"')));
+	// Let the run finish writing before the decisions start.
+	await until(() => inner.saved().some((line) => line.includes('"state":"done"')));
+	const proposal = entriesOf(inner).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+
+	const decide = async (decision: "accept" | "reject") =>
+		send(session, { command: "decide_proposal", session: "s1", proposal: id, decision });
+
+	let release: () => void = () => undefined;
+	hold = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const late = decide("reject");
+	// The late one has its snapshot; the other decision now lands in full.
+	const early = await decide("accept");
+	expect(early.ok).toBe(true);
+	release();
+	const lateOutcome = await late;
+
+	expect(lateOutcome.ok ? "" : lateOutcome.error.code).toBe("conflict");
+	expect(entriesOf(inner).filter((entry) => entry.type === "proposal_decided")).toHaveLength(1);
+});
