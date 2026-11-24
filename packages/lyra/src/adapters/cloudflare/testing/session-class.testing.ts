@@ -119,6 +119,34 @@ function recipeFor(clock: FakeClock): RunDefinition {
 	};
 }
 
+/**
+ * The recipe a scenario file runs at this level: the testkit's one by name, or the
+ * file's inline tools.
+ *
+ * A file naming any other recipe is refused here rather than falling through to the
+ * inline branch, which would run the file's own `system` and `tools` under the host
+ * recipe's name and assert something the file never said (found in review). The
+ * host's recipes reach a scenario through `runScenario`'s `recipes` map; this
+ * harness has no way to import them.
+ */
+function definitionForScenario(scenario: Scenario, clock: FakeClock): RunDefinition {
+	if (scenario.recipe === "timeline-test") {
+		return timelineTestRecipe;
+	}
+	if (scenario.recipe !== undefined) {
+		throw new Error(
+			`the scenario ${scenario.name} names the recipe ${scenario.recipe}, and this workerd harness only has timeline-test`,
+		);
+	}
+	return {
+		name: scenario.task,
+		version: 1,
+		instructions: scenario.system,
+		tools: [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()],
+		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
+	};
+}
+
 export class TestSession extends DurableObject<Cloudflare.Env> {
 	#clock: FakeClock | undefined;
 	#session: CloudflareSession | undefined;
@@ -139,22 +167,7 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		const scenario = this.#scenario;
 		const taskName = scenario === undefined ? "test-task" : (scenario.recipe ?? scenario.task);
 		const definition: RunDefinition =
-			scenario === undefined
-				? recipeFor(clock)
-				: scenario.recipe === "timeline-test"
-					? timelineTestRecipe
-					: {
-							name: taskName,
-							version: 1,
-							instructions: scenario.system,
-							tools: [
-								...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
-								createFinishTool(),
-							],
-							...(scenario.compaction === undefined
-								? {}
-								: { compaction: scenario.compaction.settings }),
-						};
+			scenario === undefined ? recipeFor(clock) : definitionForScenario(scenario, clock);
 		const scripted =
 			scenario === undefined
 				? scriptedByInput()

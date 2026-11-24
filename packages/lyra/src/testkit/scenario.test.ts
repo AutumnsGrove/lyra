@@ -94,6 +94,105 @@ test("SCN06 a host runs its own recipe through a scenario file", async () => {
 	expect(outcome.record?.header.task).toBe("shelf");
 });
 
+test("SCN06 a decoded file that names a host recipe runs that recipe", async () => {
+	// The decode half of the change: the name is not checked in the decoder, so this is
+	// the path a host's own file takes from YAML to a run.
+	const host = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: { day: { type: "string" } }, required: ["day"] },
+		setup: (input) => ({ message: `read ${input.day}`, state: {} }),
+		tools: [
+			toolReturning("shelf_read", "the shelf", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		// A limit the run must honour, which the runner used to drop (found in review).
+		limits: { steps: 1 },
+	});
+	const decoded = decodeScenario({
+		name: "a file about the host's recipe",
+		task: "ignored-when-a-recipe-is-named",
+		system: "ignored-too",
+		recipe: "shelf",
+		input: { day: "2026-11-24" },
+		model: [
+			{ tool_calls: [{ id: "c1", name: "shelf_read", args: {} }] },
+			{ tool_calls: [{ id: "c2", name: "finish", args: {} }] },
+		],
+		expect_events: [{ type: "run_start" }],
+		expect_record: [{ type: "user_message", text: "read 2026-11-24" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+	expect(decoded.value.recipe).toBe("shelf");
+
+	// And a name the testkit has never heard of decodes, which is the other half.
+	const unknown = decodeScenario({
+		name: "an unknown name",
+		task: "t",
+		input: {},
+		recipe: "somewhere-else",
+		model: [{ tool_calls: [] }],
+	});
+	expect(unknown.ok).toBe(true);
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	// The recipe's limit is the run's: one step, so the second turn parks instead of
+	// finishing, which the runner's own `steps` would have let through.
+	expect(outcome.result).toMatchObject({ reason: "parked", parkedReason: "limit" });
+	expect(outcome.result.parkedDetail).toBe("steps");
+	expect(outcome.record?.header.task).toBe("shelf");
+});
+
+test("SCN06 a host's map wins over the testkit's when both have the name", async () => {
+	// The precedence the doc comment and the rows claim, which a map keyed on a name
+	// only the testkit has would never show.
+	const host = defineRecipe({
+		name: "timeline-test",
+		version: 1,
+		instructions: "the host's own timeline",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "build the host's page", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const decoded = decodeScenario({
+		name: "a file whose recipe the host shadows",
+		task: "shadowed",
+		input: {},
+		recipe: "timeline-test",
+		model: [{ tool_calls: [{ id: "c1", name: "finish", args: {} }] }],
+		expect_events: [{ type: "run_end", reason: "done" }],
+		expect_record: [{ type: "user_message", text: "build the host's page" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+	const outcome = await runScenario(decoded.value, {
+		recipes: new Map([[host.name, host]]),
+	});
+	expect(outcome.problems).toEqual([]);
+});
+
+test("SCN06 a file whose input the recipe refuses says so instead of running setup", async () => {
+	const host = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: { day: { type: "string" } }, required: ["day"] },
+		setup: () => ({ message: "read the day", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const refused = runScenario(
+		scenario({ recipe: "shelf", input: {}, tools: [], model: [{ toolCalls: [] }] }),
+		{ recipes: new Map([[host.name, host]]) },
+	);
+	await expect(refused).rejects.toThrow(/gives input the recipe refuses/);
+	await expect(refused).rejects.toThrow(/day/);
+});
+
 test("SCN06 a recipe nobody provided is named rather than reported as a failed run", async () => {
 	// A host's mistake, so it says so instead of reporting a mismatch nobody can act
 	// on. The message lists what was available, which is the proof that both the
@@ -164,6 +263,10 @@ test("SCN03 a malformed scenario is refused with the field named", () => {
 			field: /scenario\.model\[0\]\.tool_calls\[0\]\.id/,
 		},
 		{ value: { name: "x", input: "y", model: [{}], abort_after: 0 }, field: /abort_after/ },
+		// The recipe name may be anything a host provides, and an empty one names
+		// nothing (issue #59), so these two are the decoder's whole recipe rule.
+		{ value: { name: "x", input: "y", model: [{}], recipe: "" }, field: /scenario\.recipe/ },
+		{ value: { name: "x", input: "y", model: [{}], recipe: "  " }, field: /scenario\.recipe/ },
 		{ value: { name: "x", input: "y", model: [{}], abort_after: 1.5 }, field: /abort_after/ },
 		{ value: { name: 5, input: "y", model: [{}] }, field: /scenario\.name/ },
 		{ value: { name: "x", input: 5, model: [{}] }, field: /scenario\.input/ },

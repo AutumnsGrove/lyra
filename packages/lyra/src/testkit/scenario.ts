@@ -15,12 +15,13 @@
 import type { FakeClock } from "./clock.js";
 import type { ModelSlot } from "../core/model.js";
 import type { RunEvent } from "../core/events.js";
-import { isJsonValue, isPlainObject, type JsonValue } from "../core/json.js";
+import { isJsonValue, isPlainObject, type JsonObject, type JsonValue } from "../core/json.js";
 import type { CompactionSettings } from "../core/compaction.js";
 import { TOOL_POLICIES, isToolPolicy, type ToolPolicy } from "../core/approval.js";
 import { isFinishReason } from "../core/decode-reply.js";
 import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
+import { compileSchema, formatErrors, validateValue, type Validation } from "../core/schema.js";
 import { runTask, type RunResult } from "../core/run.js";
 import type { Recipe } from "../core/define-recipe.js";
 import type { Tool } from "../core/tool.js";
@@ -649,6 +650,32 @@ function modelFor(scenario: Scenario, clock: FakeClock, options: ScenarioRunOpti
 }
 
 /**
+ * The check a scenario's input gets, from the recipe's own schema. A file whose input
+ * the recipe refuses is a file mistake, so it says so instead of running `setup` with
+ * input the host's `start` would have refused with `bad_request`.
+ */
+function checkScenarioInput(
+	schema: JsonObject,
+	scenario: Scenario,
+): (value: JsonValue) => Validation<JsonValue> {
+	let compiled: ReturnType<typeof compileSchema>;
+	try {
+		compiled = compileSchema(schema, "input");
+	} catch (error) {
+		throw new Error(
+			`the scenario ${scenario.name} names a recipe whose input schema cannot be checked: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+	const checked = validateValue<JsonValue>(compiled, scenario.input, "input");
+	if (!checked.ok) {
+		throw new Error(
+			`the scenario ${scenario.name} gives input the recipe refuses: ${formatErrors(checked.errors, "invalid input")}`,
+		);
+	}
+	return (value) => validateValue<JsonValue>(compiled, value, "input");
+}
+
+/**
  * The recipe a scenario names: a host's own first, then the testkit's. A name nobody
  * provided is a host's mistake rather than a scenario that failed, so it throws with
  * the names that were available instead of reporting a run nobody made.
@@ -682,13 +709,25 @@ export async function runScenario(
 			: [...recipe.tools];
 
 	// A recipe brings its own first message, state and instructions; a plain scenario
-	// still sends its input text straight in.
+	// still sends its input text straight in. Everything the recipe declares goes with
+	// it, because a scenario that dropped its limits or its input check could go green
+	// where the host's own run parks or refuses (found in review).
+	const inputCheck =
+		recipe?.input === undefined ? undefined : checkScenarioInput(recipe.input, scenario);
 	const recipeParts =
 		recipe === undefined
 			? {}
 			: {
 					inputValue: scenario.input,
 					...(recipe.setup === undefined ? {} : { setup: recipe.setup }),
+					...(inputCheck === undefined ? {} : { inputCheck }),
+					...(recipe.limits === undefined ? {} : { limits: recipe.limits }),
+					...(recipe.fallbackModel === undefined
+						? {}
+						: { fallbackModel: recipe.fallbackModel }),
+					...(recipe.stuck === undefined ? {} : { stuck: recipe.stuck }),
+					...(recipe.compaction === undefined ? {} : { compaction: recipe.compaction }),
+					...(recipe.approvals === undefined ? {} : { approvals: recipe.approvals }),
 				};
 
 	const running = runTask({
@@ -696,6 +735,9 @@ export async function runScenario(
 		task: recipe?.name ?? scenario.task,
 		host: "scenario",
 		input: recipe === undefined && typeof scenario.input === "string" ? scenario.input : "",
+		// The file's own compaction first, so a recipe's settings win where it declares
+		// them: the file is a file about the host's run, and the host's run is the recipe.
+		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
 		...recipeParts,
 		system: recipe?.instructions ?? scenario.system,
 		tools,

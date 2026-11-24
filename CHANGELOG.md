@@ -11,8 +11,14 @@ new API and any breaking change, and a patch bump is fixes only.
 ### Added
 
 - `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
-  recipe instead of only the testkit's `timeline-test` (issue #59). `decodeScenario` now accepts any
-  recipe name, and a name nobody provided throws with the names that were available.
+  recipe instead of only the testkit's `timeline-test` (issue #59). A host's recipe reaches the run with
+  everything it declares — limits, approvals, stuck, compaction, the fallback model and its input schema —
+  so a scenario cannot go green where the host's own run would park or refuse.
+- **Upgrading:** `decodeScenario` used to refuse an unknown `recipe` name with `bad_request`. It now
+  accepts any name, because which recipes exist is the host's business, and an empty name is still
+  `bad_request`. The refusal for a name nobody provided moved to `runScenario`, which throws an `Error`
+  naming it and the recipes that were available. A caller that relied on the decoded `Result` to catch a
+  typo now gets an exception from the run instead.
 
 ### Fixed
 
