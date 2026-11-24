@@ -864,7 +864,10 @@ test("SCN09 a malformed runs list is refused with the field named", () => {
 	// guessed at. The rival cases above never reach these checks because their `runs:`
 	// list is refused first, which is why they are listed separately here.
 	refusals.push([
-		{ model: [{ tool_calls: [{ id: "c1", name: "finish" }] }], runs: [{ model: [{ text: "hi" }] }] },
+		{
+			model: [{ tool_calls: [{ id: "c1", name: "finish" }] }],
+			runs: [{ model: [{ text: "hi" }] }],
+		},
 		/scenario\.model and scenario\.runs/,
 	]);
 	refusals.push([
