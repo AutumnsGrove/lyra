@@ -491,6 +491,12 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 			model.push(turn.value);
 		}
 	}
+	if (runs !== undefined && value["abort_after"] !== undefined) {
+		// One controller is aborted once and stays aborted, so every segment after the
+		// stop would begin stopped. A stop belongs to one run rather than to a
+		// conversation, and a file cannot mean both.
+		return bad("scenario.abort_after cannot be combined with scenario.runs");
+	}
 	if (runs !== undefined && model.length > 0) {
 		// Two scripts for one file is ambiguous, and the silent winner would be whichever
 		// the runner happened to read, so the file says which it means.
@@ -1182,13 +1188,18 @@ async function answerRequest(
 	request: OutstandingRequest,
 	answer: ScenarioAnswer,
 ): Promise<string | undefined> {
+	if (answer.decision === undefined && answer.text === undefined) {
+		// The decoder refuses this, so only a hand-built Scenario reaches here, and a
+		// decision nobody asked for would be worse than saying the answer is empty.
+		return "the answer carries neither a decision nor a text";
+	}
 	const entry: Record<string, unknown> = {
 		type: "request_answered",
 		id: ids.next("e"),
 		parent: request.parent,
 		ts: clock.now(),
 		request: request.id,
-		decision: answer.decision ?? (answer.text === undefined ? "deny" : "approve"),
+		decision: answer.decision ?? "approve",
 	};
 	if (answer.note !== undefined) {
 		entry["note"] = answer.note;

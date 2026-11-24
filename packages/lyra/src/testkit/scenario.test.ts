@@ -880,6 +880,16 @@ test("SCN09 a malformed runs list is refused with the field named", () => {
 		},
 		/runs\[1\]\.answer/,
 	]);
+	// One controller is aborted once and stays aborted, so a stop and a conversation
+	// cannot both be meant.
+	refusals.push([
+		{
+			model: undefined,
+			abort_after: 3,
+			runs: [{ model: [{ text: "hi" }] }, { follow_up: "again", model: [{ text: "hi" }] }],
+		},
+		/abort_after/,
+	]);
 
 	for (const [overrides, pattern] of refusals) {
 		const decoded = decodeScenario(file(overrides));
@@ -912,4 +922,42 @@ test("SCN03 a single-run file still decodes, and a conversation needs no top-lev
 		expect(conversation.value.runs).toHaveLength(2);
 		expect(conversation.value.runs?.[1]?.followUp).toBe("again");
 	}
+});
+
+test("SCN07 a host can name the conversation types and find the open request from the entry point", async () => {
+	// The testkit is published so a host runs the files itself (decision 67), and a host
+	// that drives a conversation file needs the step types and the same scan the runner
+	// uses. Nothing else fails if these fall off the index, which is why they are named
+	// here (found in review on pull request #78).
+	const surface = await import("./index.js");
+	const steps: import("./index.js").ScenarioRun[] = [
+		{ model: [{ toolCalls: [{ id: "c1", name: "finish" }] }] },
+		{
+			answer: { text: "the second one" } satisfies import("./index.js").ScenarioAnswer,
+			model: [{ toolCalls: [{ id: "c2", name: "finish" }] }],
+		},
+	];
+	expect(surface.outstandingRequestOf).toBeTypeOf("function");
+	expect(surface.runScenario).toBeTypeOf("function");
+	expect(steps).toHaveLength(2);
+});
+
+test("SCN08 an answer built without the decoder is reported, not recorded as a deny", async () => {
+	// `Scenario` is public, so a host can build one in TypeScript and skip the decoder.
+	// A decision nobody asked for would then enter the record, so the runner says the
+	// answer is empty instead (found in review on pull request #78).
+	const hand: Scenario = scenario({
+		tools: [{ name: "write", behavior: "ok", policy: "ask", content: "wrote one line" }],
+		model: [],
+		runs: [
+			{ model: [{ toolCalls: [{ id: "c1", name: "write", args: {} }] }] },
+			{ answer: {}, model: [{ toolCalls: [{ id: "c2", name: "finish" }] }] },
+		],
+	});
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/neither a decision nor a text/);
+	expect(outcome.results).toHaveLength(1);
+	const answered = outcome.record?.entries.filter((entry) => entry.type === "request_answered");
+	expect(answered).toEqual([]);
 });

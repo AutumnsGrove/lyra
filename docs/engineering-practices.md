@@ -449,7 +449,8 @@ because turns are consumed per segment. The record is the session's, so the step
 are segments of one run and not rival runs: `runScenario` reports one result per
 step and asserts over the whole record. A single-run file is unchanged, and the
 model is scripted by position in the conversation, so a resumed segment's turns
-begin where the record left off.
+begin where the record left off. The step types and `outstandingRequestOf` are on the testkit's
+exported surface, because a host that drives a conversation file through its own adapter needs both.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -458,4 +459,4 @@ begin where the record left off.
 | SCN06 | Happy: a host's own recipe | `runScenario` is given a map of the host's recipes and a file naming one runs that recipe; a name nobody provided throws, naming it and the ones that were available (issue #59) |
 | SCN07 | Happy: a conversation | A file with `runs:` drives one session through a segment that parks on a request, the person's answer, and a follow-up, and its events and record match over the whole session rather than only the last segment. One session holds one run id, so the later steps are `resumed` segments of the same run (decision 44), at every level: in-process, the fake server, HTTP and the socket |
 | SCN08 | Sad: a step that cannot run | A follow-up while the run is `waiting_for_person` is the session's `busy` (CMD08), so the report names the step that is waiting and the step that could not start, and the refused step's model turns are never spent |
-| SCN09 | Bad: a malformed `runs:` list | An empty list, a first step that answers or follows up, a step with both commands, a step with no `model`, an `answer` with neither a decision nor a text, and a file with both `model` and `runs` are each `bad_request` naming the field |
+| SCN09 | Bad: a malformed `runs:` list | An empty list, a first step that answers or follows up, a step with both commands, a step with no `model`, an `answer` with neither a decision nor a text, an `answer` with both, a file with both `model` and `runs`, and a file with both `abort_after` and `runs` are each `bad_request` naming the field |

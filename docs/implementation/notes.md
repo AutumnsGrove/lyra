@@ -26,6 +26,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   conversation file proves the protocol carries a conversation rather than proving the testkit can. The open
   stream matters: a segment that ends quickly sent its live-only events before a per-segment stream had
   attached, which is how the missing turn first looked like a bare `failed` with no error on the wire.
+- **The step types are public on purpose.** `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are
+  on the testkit's surface rather than internal, because decision 67's whole point is that a host runs the
+  files through its own adapter: without them, Lattice would re-implement the request scan and the two
+  copies would drift (found in review on #78). `abort_after` with `runs:` is refused instead: one
+  controller is aborted once and stays aborted, so every later segment would begin stopped.
 - **`answer:` has no way to name a request id.** A file cannot guess a 128-bit id and does not need to: the
   step answers the request outstanding in the record, which `outstandingRequestOf` finds. The bad case is
   therefore a malformed answer (SCN09), while an answer with nothing outstanding is reported as a problem

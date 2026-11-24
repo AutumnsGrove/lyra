@@ -15,7 +15,9 @@ new API and any breaking change, and a patch bump is fixes only.
   with its own script (issues #60 and #73, SCN07 to SCN09). A single-run file is unchanged, and every level
   drives the steps as real commands — in-process, the fake server, HTTP and the socket. **Upgrading:**
   `ScenarioOutcome` gained `results`, and `Scenario` gained an optional `runs`; nothing that existed changed
-  shape.
+  shape. `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are exported from the testkit, so a host
+  that drives a conversation file through its own adapter can name the steps and find the open request
+  without re-implementing the scan.
 - `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
   recipe instead of only the testkit's `timeline-test` (issue #59). A host's recipe reaches the run with
   everything it declares — limits, approvals, stuck, compaction, the fallback model and its input schema —
