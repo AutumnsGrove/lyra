@@ -8,6 +8,33 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Slice B, parallel tool calls, 2026-11-24
+
+- **The grouping lives in `runBatch`, the concurrency in `executeTools`.** The policy check is in
+  `runBatch` (`deny` and `ask` need `canAsk` and `saveRequest`), so it is also where a run of eligible
+  calls has to be recognised; `executeTools` then only knows "run this many at once and save in order".
+  Splitting it the other way would have needed a policy callback inside the executor, which is the kind of
+  seam that drifts.
+- **A chunk, not a sliding window.** The cap splits a group into consecutive chunks, so the same script
+  always saves the same record. A window would start the next call the moment one finished, which is
+  faster and makes the save order depend on completion order.
+- **The second question in one chunk is answered, not dropped.** `runBatch`'s `waitingRequest` is a single
+  slot; asking twice in one chunk would leave the first request unanswered and unlisted. The second call
+  gets an error result saying a question is already open, so the record stays paired. Decision 141's "an
+  ask stops the batch" is unchanged: a policy that asks is a barrier.
+- **A killed group resumes one call at a time.** A resume answers the last reply's calls that have no
+  result individually, which is slower for one batch and keeps one resume path. It also means a call that
+  ran but was not saved is answered "outcome unknown" unless the tool says `safeToRepeat` — which is the
+  same rule decision 24 already had, and why a tool with any side effect stays out of a group.
+- **The scenario vocabulary needed `ask`, `parallel` and `max_parallel_calls`.** Two of issue #67's
+  scenario cases cannot be written without them. The one thing that bites: the protocol spells a request
+  `ui_request` and the core spells it `request`, so a scenario cannot name that event at both levels; the
+  question scenario pins the order in the record instead. The cap scenario asserts the record only, not
+  the start times, because the runner's `advance(1000)` step is a test detail rather than a promise.
+- **`starts` in an events assertion includes every `tool_start`, including the barrier after the group.**
+  Three of the new tests failed first on that, not on the behaviour, which is worth remembering when
+  writing the next one: slice to the group before comparing timestamps.
+
 ## Step 8, slices 1 to 3, 2026-11-21
 
 - **WebSockets under Durable Objects need their own vitest config**, as decision 101

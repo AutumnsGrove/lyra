@@ -26,7 +26,24 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
+| B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | in review ([issue #67](https://github.com/AutumnsGrove/lyra/issues/67)) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
+
+### Where the last session stopped (2026-11-24)
+
+- **The parallel tool calls slice is in review**, branch `feat/parallel-tool-calls`, for issue #67 and
+  decision 154. What is in the tree: a tool opts in with `parallel: true` and is only run beside another
+  call when its policy is `allow` and it has no `apply` (`defineTool` refuses the pair, TOL13; the
+  scheduler checks again, because a hand-built tool skips `defineTool`); groups of consecutive eligible
+  calls dispatched together and saved in call order (LOOP17 to LOOP21); barriers for everything else
+  (LOOP22); `maxParallelCalls` on the recipe with four as the default, chunks in call order, and a bad
+  value refused where the recipe is written (LOOP23, RCP08); the property that a run of groups writes
+  the record a serial run writes (LOOP24); the kill matrix's generator turned into groups (RSM05); and
+  five scenario files that run at all four levels. Two things are deliberately not done and are stated
+  in the slice document: the wall-clock measurement in the playground, because #60 does not exist yet,
+  and a scenario file for "an opted-in call between two barriers", because the record it would write is
+  the one a serial run writes and the in-process test asserts the thing that actually differs. The
+  earlier number for `main`'s gate is the step 8 entry below; this slice's figures are in its PR body.
 
 ### Where the last session stopped (2026-11-22)
 

@@ -19,7 +19,11 @@ WebSocket, is merged too (pull request #29, `243246f`): the upgrade and `hello`,
 hibernation through `acceptWebSocket`, the scenario files over a socket, and `pnpm lyra --transport ws`,
 with decision 143 putting the example's ceiling at 48 KiB. Its rows run WSK01 to WSK14, and WSK13 and WSK15
 are written down as hanging in the harness rather than done. Approvals are outside `first-slice.md`'s version one, so they have a letter
-rather than a step number. What is left of step 5 is its
+rather than a step number. A second lettered slice, B, is the parallel tool calls of
+issue #67 (decision 154): a tool opts in with `parallel: true` and is only run beside another call when
+its policy is `allow` and it has no `apply`, groups are saved in call order, and the cap is
+`maxParallelCalls` on the recipe. It is in review, and its own document is
+`docs/implementation/B-parallel-tool-calls.md`. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both
