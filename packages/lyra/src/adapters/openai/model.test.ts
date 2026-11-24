@@ -587,3 +587,62 @@ describe("through a whole run", () => {
 		);
 	});
 });
+
+describe("OAI22 a key the provider echoes is redacted before the message is cut", () => {
+	// Redacting after the cut leaves any key that straddles the cut as a prefix,
+	// which is most of the key and is not found by an exact match.
+	const echoed = (padding: number): string => `${"a".repeat(padding)}${KEY}${"b".repeat(100)}`;
+
+	async function failWith(response: () => Response): Promise<string> {
+		const model = createOpenAIChatModel({
+			baseUrl: "https://example.test/v1",
+			model: "test/model",
+			secrets: { get: async () => KEY },
+			keyName: KEY_NAME,
+			fetch: async () => response(),
+			clock: fakeClock(),
+		});
+		return errorOf(await model.complete(ask())).message;
+	}
+
+	// Every offset puts the key at a different place against the 300-character cut,
+	// including across it, so the check does not depend on one lucky alignment.
+	const offsets = [200, 235, 250, 255, 262, 267, 270, 280, 290, 300];
+
+	test.each(offsets)("OAI22 a failing status with the key at %i", async (offset) => {
+		const message = await failWith(
+			() =>
+				new Response(echoed(offset), {
+					status: 500,
+					headers: { "content-type": "text/plain" },
+				}),
+		);
+		expect(message).toContain("500");
+		expect(message).not.toContain(KEY.slice(0, 8));
+	});
+
+	test.each(offsets)("OAI22 an error chunk mid-stream with the key at %i", async (offset) => {
+		const chunk = JSON.stringify({ error: { code: 500, message: echoed(offset) } });
+		const message = await failWith(
+			() =>
+				new Response(`data: ${chunk}\n\n`, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				}),
+		);
+		expect(message.length).toBeGreaterThan(0);
+		expect(message).not.toContain(KEY.slice(0, 8));
+	});
+
+	test.each(offsets)("OAI22 a 200 that is not a stream with the key at %i", async (offset) => {
+		const message = await failWith(
+			() =>
+				new Response(echoed(offset), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		expect(message).toContain("without a stream");
+		expect(message).not.toContain(KEY.slice(0, 8));
+	});
+});
