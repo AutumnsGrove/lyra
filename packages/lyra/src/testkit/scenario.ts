@@ -790,6 +790,9 @@ export async function runScenario(
 					...(recipe.stuck === undefined ? {} : { stuck: recipe.stuck }),
 					...(recipe.compaction === undefined ? {} : { compaction: recipe.compaction }),
 					...(recipe.approvals === undefined ? {} : { approvals: recipe.approvals }),
+					...(recipe.maxParallelCalls === undefined
+						? {}
+						: { maxParallelCalls: recipe.maxParallelCalls }),
 				};
 
 	const running = runTask({
@@ -797,9 +800,13 @@ export async function runScenario(
 		task: recipe?.name ?? scenario.task,
 		host: "scenario",
 		input: recipe === undefined && typeof scenario.input === "string" ? scenario.input : "",
-		// The file's own compaction first, so a recipe's settings win where it declares
-		// them: the file is a file about the host's run, and the host's run is the recipe.
+		// The file's own compaction and cap first, so a recipe's settings win where it
+		// declares them: the file is a file about the host's run, and the host's run is
+		// the recipe.
 		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
+		...(scenario.maxParallelCalls === undefined
+			? {}
+			: { maxParallelCalls: scenario.maxParallelCalls }),
 		...recipeParts,
 		system: recipe?.instructions ?? scenario.system,
 		tools,
@@ -810,10 +817,6 @@ export async function runScenario(
 		// A scenario runs as a host where a person is reachable, so an `ask` policy
 		// parks the run rather than being denied (decision 35).
 		canAsk: true,
-		// The file's cap, which a recipe does not carry yet (decision 154).
-		...(scenario.maxParallelCalls === undefined
-			? {}
-			: { maxParallelCalls: scenario.maxParallelCalls }),
 		toolDeadlineMs: 60_000,
 		signal: controller.signal,
 		onEvent: (event) => {

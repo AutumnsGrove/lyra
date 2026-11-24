@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { defineRecipe } from "../core/define-recipe.js";
 import { createFinishTool as finishedTool } from "../core/finish.js";
+import { defineTool } from "../core/tool.js";
 import { createFinishTool, toolReturning, type ScriptedTurn } from "./index.js";
 import { decodeScenario, runScenario, type Scenario, type ScenarioTool } from "./scenario.js";
 
@@ -215,6 +216,66 @@ test("SCN06 a recipe's stuck settings reach the run", async () => {
 	expect(outcome.result.reason === "failed" ? outcome.result.error?.message : "").toContain(
 		"the stuck safeguard is off",
 	);
+});
+
+test("SCN06 a recipe's parallel cap reaches the run, and the file's is only a fallback", async () => {
+	// The one setting the runner still dropped. Two opted-in calls run together with the
+	// default cap and one after another with a recipe that says one, which is observable
+	// without a clock: both starts come before the first end, or they do not.
+	const order: string[] = [];
+	const reading = (name: string) =>
+		defineTool({
+			name,
+			description: name,
+			parameters: { type: "object", properties: {} },
+			parallel: true,
+			async execute() {
+				order.push(`${name}:start`);
+				await Promise.resolve();
+				order.push(`${name}:end`);
+				return { isError: false, content: name };
+			},
+		});
+	const recipeWith = (cap?: number) =>
+		defineRecipe({
+			name: "capped",
+			version: 1,
+			instructions: "read both",
+			input: { type: "object", properties: {} },
+			setup: () => ({ message: "read both", state: {} }),
+			tools: [
+				reading("first"),
+				reading("second"),
+				finishedTool({ check: () => ({ ok: true }) }),
+			],
+			...(cap === undefined ? {} : { maxParallelCalls: cap }),
+		});
+	const file = scenario({
+		recipe: "capped",
+		input: {},
+		tools: [],
+		model: [
+			{
+				toolCalls: [
+					{ id: "c1", name: "first", args: {} },
+					{ id: "c2", name: "second", args: {} },
+				],
+			},
+			{ toolCalls: [{ id: "c3", name: "finish" }] },
+		],
+		expectEvents: [{ type: "run_end", reason: "done" }],
+		expectRecord: [{ type: "status", state: "done" }],
+	});
+
+	order.length = 0;
+	const together = await runScenario(file, { recipes: new Map([["capped", recipeWith()]]) });
+	expect(together.problems).toEqual([]);
+	expect(order).toEqual(["first:start", "second:start", "first:end", "second:end"]);
+
+	order.length = 0;
+	const oneByOne = await runScenario(file, { recipes: new Map([["capped", recipeWith(1)]]) });
+	expect(oneByOne.problems).toEqual([]);
+	expect(order).toEqual(["first:start", "first:end", "second:start", "second:end"]);
 });
 
 test("SCN06 a recipe's fallback model reaches the run", async () => {

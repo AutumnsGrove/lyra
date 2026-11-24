@@ -75,7 +75,7 @@ test("every scenario file in the repository is picked up over HTTP", () => {
 	expect(Object.keys(files).length).toBeGreaterThanOrEqual(6);
 });
 
-test("SCN05 a scenario naming a recipe this harness does not have is refused, not run", async () => {
+test("a scenario naming a recipe this workerd harness does not have is refused, not run", async () => {
 	// The harness has the testkit's recipe and nothing else, so a file naming a host's
 	// recipe must fail where it is configured rather than quietly running the inline
 	// branch under that name (found in review).
