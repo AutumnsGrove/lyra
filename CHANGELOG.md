@@ -51,16 +51,15 @@ new API and any breaking change, and a patch bump is fixes only.
 - `decide_proposal`, `compact`, `prompt`, `follow_up` and `resume` read the record before taking the session's
   write claim, so a command that had read just before another one landed could write from a stale record: two
   decisions on one proposal, or an entry chained from a parent that had moved. They now claim first and read
-  under the claim (CMD10).
+  under the claim (CMD21).
 - An answer or a decision whose note, text or ids were too big for one record entry answered `internal`, which
-  reads as a host fault; it is `bad_request` now, and the request stays open for a shorter answer (REQ03).
+  reads as a host fault; it is `bad_request` now, and the request stays open for a shorter answer (REQ07).
 - A `prompt` or `follow_up` on a finished session whose text fit the command cap but not an entry once its
   quotes and newlines were escaped was accepted, and then failed the run it continued. It is refused with
-  `bad_request` before anything is written (CMD04).
+  `bad_request` before anything is written (CMD22). The size is measured against the record's own last entry as the parent.
 - A keyed `start` named its Durable Object `<tenant>:<key>`, so a tenant whose name held a colon could share
   an object name with another tenant's key. `%` and `:` are now escaped in the tenant; a tenant with neither,
   which is every tenant so far, keeps the name it always had, so a retried key still reaches its first run.
-  A socket frame over the line cap is now refused before the socket is replayed or the frame decoded.
 
 ## [0.3.1] - 2026-11-22
 

@@ -619,6 +619,7 @@ describe("OAI22 a key the provider echoes is redacted before the message is cut"
 		);
 		expect(message).toContain("500");
 		expect(message).not.toContain(KEY.slice(0, 8));
+		expect(message).not.toContain(KEY.slice(-8));
 	});
 
 	test.each(offsets)("OAI22 an error chunk mid-stream with the key at %i", async (offset) => {
@@ -632,6 +633,7 @@ describe("OAI22 a key the provider echoes is redacted before the message is cut"
 		);
 		expect(message.length).toBeGreaterThan(0);
 		expect(message).not.toContain(KEY.slice(0, 8));
+		expect(message).not.toContain(KEY.slice(-8));
 	});
 
 	test.each(offsets)("OAI22 a 200 that is not a stream with the key at %i", async (offset) => {
@@ -644,5 +646,6 @@ describe("OAI22 a key the provider echoes is redacted before the message is cut"
 		);
 		expect(message).toContain("without a stream");
 		expect(message).not.toContain(KEY.slice(0, 8));
+		expect(message).not.toContain(KEY.slice(-8));
 	});
 });

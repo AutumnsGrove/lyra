@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import { counterIds, memoryStorage } from "../adapters/memory/index.js";
+import { encodeEntry } from "../record/entries.js";
 import { loadRecord } from "../record/load.js";
 import type { RecordEntry } from "../record/entries.js";
 import {
@@ -374,4 +375,77 @@ test("RSM06 a person resumes a limit park with new limits and a stuck park", asy
 	if (continued.ok) {
 		expect((await continued.value.outcome).reason).toBe("done");
 	}
+});
+
+test("CMD22 a follow-up whose real entry fits the cap is accepted, and one that does not is refused", async () => {
+	// The size is measured with the record's own last id as the parent, so a text
+	// that fits by a few bytes is not turned away on a guess about id length.
+	const cap = 4096;
+	const clock = fakeClock();
+	const storage = memoryStorage({ maxLineBytes: cap });
+	const model = scriptedModel(
+		[
+			{ toolCalls: [{ id: "c1", name: "finish" }] },
+			{ toolCalls: [{ id: "c2", name: "finish" }] },
+		],
+		{ clock },
+	);
+	const definition: RunDefinition = {
+		name: "test-task",
+		version: 1,
+		instructions: "you are a test",
+		tools: [createFinishTool()],
+	};
+	const runtime = createRuntime({ storage, clock, ids: counterIds(), model, host: "h" });
+	const first = started(
+		runtime.start({ runId: "run-1", task: "test-task", input: "go", definition }),
+	);
+	await first.outcome;
+	const last = (await entriesOf(storage)).at(-1);
+
+	// The most text a 39-byte id and the real parent leave room for, which is the
+	// largest an id may be (decision 85): anything real is at most this size.
+	const withText = (text: string): string =>
+		encodeEntry({
+			type: "user_message",
+			id: "e".repeat(39),
+			parent: last?.id ?? null,
+			ts: clock.now(),
+			label: "follow_up",
+			text,
+		});
+	const room = cap - withText("").length;
+
+	const fits = await runtime.resume({
+		runId: "run-1",
+		task: "test-task",
+		definition,
+		by: "person",
+		followUp: "y".repeat(room),
+	});
+	expect(fits.ok).toBe(true);
+	if (fits.ok) {
+		await fits.value.outcome;
+	}
+
+	const tooBig = await runtime.resume({
+		runId: "run-1",
+		task: "test-task",
+		definition,
+		by: "person",
+		followUp: "y".repeat(cap),
+	});
+	expect(tooBig.ok ? "" : tooBig.error.code).toBe("bad_request");
+});
+
+test("CMD22 an oversized follow-up for a run with no record is still not_found", async () => {
+	const harness = runtimeHarness([], () => [createFinishTool()]);
+	const refused = await harness.runtime.resume({
+		runId: "nope",
+		task: "test-task",
+		definition: harness.definition,
+		by: "person",
+		followUp: "y".repeat(2 * 1024 * 1024),
+	});
+	expect(refused.ok ? "" : refused.error.code).toBe("not_found");
 });

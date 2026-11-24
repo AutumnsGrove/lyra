@@ -422,10 +422,13 @@ export function createCloudflareSession(
 			// (WSK12). Before the exchange there is nothing to follow: the events start
 			// with the client's hello, not with whatever arrives first (WSK02).
 
+			if (attachment.greeted) {
+				await watch(socket);
+			}
+			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			// A frame over the line cap closes the socket rather than being read, which is
 			// FRM01's rule and step 8's close code 1002. Messages are already delimited,
-			// so this is the one size check the socket needs, and it comes first so a
-			// frame that is going to be refused costs no replay and no decoding.
+			// so this is the one size check the socket needs.
 			const bytes =
 				typeof message === "string"
 					? new TextEncoder().encode(message).byteLength
@@ -434,10 +437,6 @@ export function createCloudflareSession(
 				socket.close(1002, "a frame is over the line cap");
 				return;
 			}
-			if (attachment.greeted) {
-				await watch(socket);
-			}
-			const text = typeof message === "string" ? message : new TextDecoder().decode(message);
 			const decoded = decodeFrame(text);
 			if (!decoded.ok) {
 				// A frame that is not one still names what it claimed, so a client on a
@@ -595,7 +594,7 @@ export function createCloudflareSession(
 				// sockets that outlived it are followed again. It is not awaited: the
 				// wake must not wait on a watcher's replay, and a listener that cannot
 				// be reached is the platform's business, not the run's.
-				void resumeWatching().catch(() => undefined);
+				void resumeWatching();
 				const wake = await scheduledWake(state.storage);
 				if (wake === undefined) {
 					return;

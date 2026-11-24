@@ -252,7 +252,7 @@ is not a failure: the loop reads the signal and parks the run `stopped`.
 |---|---|---|
 | OAI20 | Sad: the HTTP statuses | 400, 401, 403, 404 and any other permanent status are not retryable and name the status; 408, 429, 500, 502, 503 and 504 are retryable |
 | OAI21 | Sad: `Retry-After` | Seconds and an HTTP date both become a wait, a date in the past and a missing header give none, and an absurd value is capped |
-| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key |
+| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key; the key is taken out of the provider's words before they are cut, because a key that straddles the cut is no longer found by an exact match and most of it would stay |
 | OAI23 | Sad: the network | A `fetch` that rejects, and a body that fails while it is being read, are retryable `provider_error`s |
 | OAI24 | Sad: a stall | A call that never answers is abandoned at the deadline as a retryable `timeout`, on the fake clock |
 | OAI25 | Bad: a stop | Stopped before the request, during connect, mid-stream and after the last chunk, the call is an error the loop reads as a stop, and the stream is not left open |

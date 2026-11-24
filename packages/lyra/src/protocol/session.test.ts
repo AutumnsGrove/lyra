@@ -1600,7 +1600,7 @@ test("REQ05 a wake queued behind a resume is woken when the resume finishes", as
 	clock.advance(5_000);
 });
 
-test("REQ03 an answer too big for one record entry is bad_request, and writes nothing", async () => {
+test("REQ07 an answer too big for one record entry is bad_request, and writes nothing", async () => {
 	const { session, storage } = asking(ASK_TURNS);
 	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
 	const request = await waitingRequest(storage);
@@ -1626,7 +1626,7 @@ test("REQ03 an answer too big for one record entry is bad_request, and writes no
 	expect(again.ok).toBe(true);
 });
 
-test("CMD10 a decision that read the record before another one landed does not decide twice", async () => {
+test("CMD21 a decision that read the record before another one landed does not decide twice", async () => {
 	// The check for an earlier decision reads the record, so it must read it after the
 	// session holds the write claim: a read made before the claim can be a snapshot
 	// from before the other decision, and then both decisions are written (decision 53).
@@ -1718,7 +1718,7 @@ test("CMD10 a decision that read the record before another one landed does not d
 	expect(entriesOf(inner).filter((entry) => entry.type === "proposal_decided")).toHaveLength(1);
 });
 
-test("CMD04 a follow-up that fits the command cap but not the entry is bad_request, and the finished run stays done", async () => {
+test("CMD22 a follow-up that fits the command cap but not the entry is bad_request, and the finished run stays done", async () => {
 	const { session, storage } = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }]);
 	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
 	await until(() => finished(storage));

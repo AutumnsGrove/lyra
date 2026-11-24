@@ -271,14 +271,25 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	};
 
 	const beginResume = async (request: ResumeRequest): Promise<Result<RunHandle>> => {
+		const read = await options.storage.read();
+		if (!read.ok) {
+			return read;
+		}
+		if (read.value.length === 0) {
+			return fail("not_found", `there is no record for run ${request.runId}`);
+		}
+		const loaded = loadRecord(read.value);
 		if (request.followUp !== undefined) {
 			// Measured as the entry it becomes, which is bigger than the text once its
 			// quotes and newlines are escaped. Left to the run, an entry that does not fit
-			// would fail a run that had already finished, after its `resumed` status.
+			// would fail a run that had already finished, after its `resumed` status. The
+			// parent is the record's own last entry, and the id is the longest one an id
+			// may be (decision 85), so the answer errs by at most the few bytes a shorter
+			// real id would save, and never toward writing something that does not fit.
 			const message: UserMessageEntry = {
 				type: "user_message",
-				id: "x".repeat(64),
-				parent: "x".repeat(64),
+				id: "x".repeat(39),
+				parent: loaded.ok ? (loaded.value.entries.at(-1)?.id ?? null) : null,
 				ts: options.clock.now(),
 				label: "follow_up",
 				text: request.followUp,
@@ -291,14 +302,6 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				);
 			}
 		}
-		const read = await options.storage.read();
-		if (!read.ok) {
-			return read;
-		}
-		if (read.value.length === 0) {
-			return fail("not_found", `there is no record for run ${request.runId}`);
-		}
-		const loaded = loadRecord(read.value);
 		// A record with no readable header has no task message to offer, and the run
 		// then fails through the same path as any other unusable record.
 		const input = loaded.ok ? (firstUserText(loaded.value) ?? "") : "";

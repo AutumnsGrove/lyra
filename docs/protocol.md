@@ -176,6 +176,8 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | CMD18 | `get_state` in a session | The run id, its state, any parked reason, usage so far, turns, and the queued steers and follow-ups |
 | CMD19 | `steer` in a session | Read at the run's next gap; with nothing running it is `conflict` and nothing is queued |
 | CMD20 | `compact` in a session | With a run mid-step it is `busy` and nothing is written; otherwise it summarizes the record now, saving a `compaction` entry with trigger `manual` (and the person's own instructions hashed with it), and answers `{session, run, compacted: true}`; a history with nothing to cut answers `compacted: false` and writes nothing; a session with no record is `not_found` |
+| CMD21 | A command that writes the record, arriving just after another has | It claims the session first and reads the record under the claim, so a read from before the other command landed cannot be written from: a second decision on the same proposal is `conflict`, and nothing chains from a parent that has moved |
+| CMD22 | A `prompt` or `follow_up` whose text is small enough for a command but not for an entry once its quotes and newlines are escaped | `bad_request` before anything is written, so a finished run is not failed by the message that continued it; measured against the record's own last entry as the parent and the longest id an id may be, so it errs only by the few bytes a shorter real id would save |
 | FRM01 | A line over the 2 MiB cap | Protocol error that closes the connection, as in Nova |
 | FRM02 | Bad lines, unknown frames and unknown fields | A line that is not JSON, JSON that is not an object, and a frame with no `type` are each `bad_request`; an unknown `type` is `unsupported`; an unknown field is kept and ignored; none of them is fatal |
 | FRM03 | Bytes arriving in pieces | Several lines in one chunk, one line across many chunks, `\r\n`, empty lines, a multi-byte character split across chunks and a U+2028 inside a string all come out as the lines that were sent |
@@ -199,6 +201,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | REQ04 | An answer to an unknown id | `not_found` |
 | REQ05 | A request with `timeout_ms` that passes | Resolves to deny, and emits `ui_expired` |
 | REQ06 | Another wake-up arrives while a request is pending | Queued, not delivered, until it is answered |
+| REQ07 | An answer or a decision whose note, text or ids are too big for one record entry | `bad_request`, nothing is written, and the request stays open for a shorter answer; it is the caller's mistake, not the host's |
 | ACC01 | A command naming another tenant's session | `not_found` |
 | HTP01 | `POST /v1/commands` with a command | The response frame, status 200, and `x-lyra-version` |
 | HTP02 | A refused command, and each error code | The frame, and the status from its code: 400 `bad_request`, 403 `permission_denied`, 404 `not_found`, 409 `busy` and `conflict`, 501 `unsupported`, 504 `timeout`, 502 `provider_error`, 500 `internal` |
@@ -224,7 +227,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | WSK12 | An evicted object with a socket open | The socket outlives the eviction; the first frame after it wakes a fresh object, which follows that socket again, and the run it releases reaches it |
 | WSK14 | The attachment | It carries the session, the tenant, whether the exchange happened and the `seq` a wake resumes from, and stays far inside the platform's 16,384-byte cap |
 
-The framing, command, event, HTTP and access rows above are built as far as step 8, and `scripts/unbuilt-rows.json` is empty. The socket rows (`WSK01` to `WSK14`, `WSK16` in prose) are its own. `CMD08` to `CMD10`, `EVT04` and `REQ01` to `REQ06` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as step 8, and `scripts/unbuilt-rows.json` is empty. The socket rows (`WSK01` to `WSK14`, `WSK16` in prose) are its own. `CMD08` to `CMD10`, `CMD21`, `CMD22`, `EVT04` and `REQ01` to `REQ07` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 
