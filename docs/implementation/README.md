@@ -32,8 +32,8 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 
 ### Where the last session stopped (2026-11-24)
 
-- **The parallel tool calls slice is in review**, branch `feat/parallel-tool-calls`, for issue #67 and
-  decision 154. What is in the tree: a tool opts in with `parallel: true` and is only run beside another
+- **The parallel tool calls slice is merged**, pull request #69 and merge commit `b17f89a`, for issue #67
+  and decision 154. What is in the tree: a tool opts in with `parallel: true` and is only run beside another
   call when its policy is `allow` and it has no `apply` (`defineTool` refuses the pair, TOL13; the
   scheduler checks again, because a hand-built tool skips `defineTool`); groups of consecutive eligible
   calls dispatched together and saved in call order (LOOP17 to LOOP21); barriers for everything else
