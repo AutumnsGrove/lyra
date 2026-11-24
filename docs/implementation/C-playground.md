@@ -57,6 +57,9 @@ Concretely:
 
 Each of these becomes a numbered entry in `docs/decisions.md` in the slice that lands it.
 
+Autumn gave these five answers in a session on 2026-11-24 rather than on #60's thread, and this section is
+their record; the slices cite it as the authority, so if they belong on the issue, paste this list there.
+
 - **SvelteKit, as a static SPA served by the same Worker.** `adapter-static` with a SPA fallback, built into
   the Worker's assets; the Durable Object class stays in the hand-written Worker entry. Server-side rendering
   would force the DO class out of a custom Worker entry and buy nothing for a chat page.
@@ -145,7 +148,8 @@ front door that answers the asset route and hands `/v1/*` to `createSessionWorke
 placeholder line. It deploys and `pnpm lyra start` works against it. Rows: the package builds, dry-run
 bundles, budget holds.
 
-**Slice 2: the token, the model, and one real run.** The token box, `localStorage`, the 401 path, the model
+**Slice 2: the token, the model, and one real run.** The token box, `localStorage`, the token-reset path
+(403 `permission_denied` on HTTP, the socket upgrade's 401), the model
 allow-list and `MODEL_SOURCE=openrouter` through the existing adapter with the key from a binding; a
 `tool-table` recipe with `now` and `calculator`. The page starts a run, follows the SSE stream, and prints
 the transcript. This is the first time Lyra does real work on a real deployment.
