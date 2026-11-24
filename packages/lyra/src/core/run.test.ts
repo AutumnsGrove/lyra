@@ -1179,6 +1179,9 @@ test("EVT10 a reasoning over the entry cap is announced as saved, not as the mod
 		"reasoning",
 	);
 	const savedReasoning = saved?.type === "assistant_message" ? (saved.reasoning ?? "") : "";
+	// The point is that the trace survived, cut: without this, a `fitEntry` that dropped
+	// the reasoning altogether would leave both sides "" and the test would pass.
+	expect(savedReasoning).not.toBe("");
 	expect(savedReasoning.length).toBeLessThan(long.length);
 
 	const announced = rambling.events.find((event) => event.type === "message_end");
