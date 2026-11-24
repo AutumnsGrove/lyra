@@ -70,6 +70,12 @@ export interface ResumeSeed {
 	 * more to do, and a resume that stopped there would silently drop it.
 	 */
 	finished: boolean;
+	/**
+	 * Whether any result of the last assistant turn passed the done-check. A group may
+	 * save that result behind a question in the same reply, so the loop cannot read
+	 * "the record's last entry" for this any more (decision 154).
+	 */
+	doneInLastReply: boolean;
 	/** The pin the run was last held to: the header's, or the latest `recipe_updated`'s. */
 	pin: RecipeStamp | undefined;
 	/**
@@ -243,6 +249,32 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		assistant === undefined
 			? []
 			: assistant.entry.toolCalls.filter((call) => !answeredAfter.has(call.id));
+	// A `done` result may sit behind a question of the same reply, because a group
+	// saves what ran either side of the question. So "did this reply finish" is asked
+	// of its results rather than of the record's last line, and a reply with a call
+	// still waiting for a person is not finished whatever its results say.
+	// The last `done` result of that reply, if a message a person wrote did not come
+	// after it: a follow-up saved behind an accepted finish means the run has more to
+	// do, which is what RSM01 is about.
+	let doneAt = -1;
+	if (assistant !== undefined) {
+		for (let index = path.length - 1; index > assistant.index; index -= 1) {
+			const entry = path[index];
+			if (entry?.type === "tool_message" && entry.done === true) {
+				doneAt = index;
+				break;
+			}
+		}
+		if (doneAt !== -1) {
+			for (let index = doneAt + 1; index < path.length; index += 1) {
+				if (path[index]?.type === "user_message") {
+					doneAt = -1;
+					break;
+				}
+			}
+		}
+	}
+	const doneInLastReply = doneAt !== -1;
 
 	return ok({
 		record: loaded.value,
@@ -260,7 +292,8 @@ export function readResumeSeed(lines: readonly string[]): Result<ResumeSeed> {
 		last,
 		usedTools,
 		unansweredCalls,
-		finished: last?.type === "tool_message" && last.done === true,
+		finished: doneInLastReply && unansweredCalls.length === 0,
+		doneInLastReply,
 		pin,
 		pendingRequest,
 		answer,

@@ -77,6 +77,7 @@ unchanged.
 | TOL04 | Bad: a schema this build cannot compile | `defineTool` refuses it at definition time, naming the keyword, rather than accepting a tool that can never validate anything |
 | TOL05 | Happy: the tool-set hash follows the schema | A changed schema changes the pin, and a reworded description does not |
 | TOL06 | Happy: typed arguments without a cast | The inferred type has required properties required and optional ones optional, and an `enum` as a union of its values |
+| TOL13 | Bad: a tool that changes state opts in to parallel | `defineTool` refuses `parallel: true` on a tool with an `apply`, because a group's calls read one state, and accepts the same flag on a tool without one |
 
 ## State, and how it comes back
 
@@ -139,7 +140,8 @@ reason. The message reads `not covered yet: 4 issues (i3, i7, i9, i12)`.
 
 A recipe is a task: `{ name, version, instructions, input, setup, tools, limits?, fallbackModel?, stuck? }`.
 `defineRecipe` checks the whole thing when it is defined, so a recipe that could never run is refused at
-module load rather than on a person's first day.
+module load rather than on a person's first day. `maxParallelCalls` says how many of one reply's calls may
+run at once (decision 154); it is four by default, and a tool still has to opt in before it joins a group.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -150,6 +152,7 @@ module load rather than on a person's first day.
 | RCP05 | Sad: invalid input at start | `start` returns `bad_request` naming the field, and no run begins |
 | RCP06 | Happy: input that is exactly right | `start` accepts it, `setup` turns it into the first message and the state, and the input is saved on the task message |
 | RCP07 | Bad: a record resumed under a changed input schema | The saved input is checked against the recipe's schema before `setup` runs, and a mismatch fails with a message saying the input no longer matches, rather than a `TypeError` out of typed recipe code or a state built from the wrong shape |
+| RCP08 | Bad: a parallel cap that cannot be honoured | A `maxParallelCalls` that is not a positive whole number is refused when the recipe is defined, and one that can be is kept on the recipe |
 
 ## The test recipe, and the scenarios
 

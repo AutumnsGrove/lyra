@@ -49,6 +49,8 @@ export interface ScriptedToolOptions {
 	truncationHint?: string;
 	/** Allow, ask or deny this tool without a person (docs/approvals.md). */
 	policy?: ToolPolicy;
+	/** Whether this tool may run beside another call of the same reply (decision 154). */
+	parallel?: boolean;
 	/** What this tool does to the world, which sets the default policy. */
 	risk?: ToolRisk;
 }
@@ -79,6 +81,9 @@ function tool(name: string, execute: Tool["execute"], options: ScriptedToolOptio
 	}
 	if (options.policy !== undefined) {
 		made.policy = options.policy;
+	}
+	if (options.parallel === true) {
+		made.parallel = true;
 	}
 	if (options.risk !== undefined) {
 		made.risk = options.risk;

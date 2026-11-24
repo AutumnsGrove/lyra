@@ -15,7 +15,7 @@ import { pinRecipe } from "./recipe.js";
 import { createRuntime, type RunDefinition } from "./runtime.js";
 import type { Tool } from "./tool.js";
 
-/** The rows are in `docs/recipes-and-tools.md`, RCP01 to RCP06. */
+/** The rows are in `docs/recipes-and-tools.md`, RCP01 to RCP08. */
 
 const daySchema = {
 	type: "object",
@@ -64,6 +64,25 @@ test("RCP01 a valid recipe keeps its instructions, tools, limits and pin", async
 		message: "build the page for Monday",
 		state: { day: "Monday" },
 	});
+});
+
+test("RCP08 a parallel cap that is not a positive whole number is refused when the recipe is defined", () => {
+	const recipe = (maxParallelCalls: number) =>
+		defineRecipe({
+			name: "timeline-test",
+			version: 1,
+			instructions: "build the page",
+			input: daySchema,
+			setup: (input) => ({ message: `build the page for ${input.day}`, state: {} }),
+			tools: [createFinishTool<Record<string, never>>({ check: () => ({ ok: true }) })],
+			maxParallelCalls,
+		});
+
+	for (const bad of [0, -1, 1.5]) {
+		expect(() => recipe(bad)).toThrow(/maxParallelCalls/);
+	}
+	// The positive case: a cap that can be honoured is kept on the recipe.
+	expect(recipe(2).maxParallelCalls).toBe(2);
 });
 
 test("RCP02 two tools with one name are refused when the recipe is defined", () => {
