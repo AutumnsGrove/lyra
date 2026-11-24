@@ -28,7 +28,7 @@ Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69 (merged), #59, a conversation scenario, and a live `message_end.reasoning` | planned, not started |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69 and #59 (merged), #74 (pull request #76), #73 | planned, not started |
 
 ### Where the last session stopped (2026-11-24)
 

@@ -393,13 +393,23 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		return saved.value.seq;
 	};
 
-	const append = async (entry: RecordEntry): Promise<number> => {
+	/**
+	 * Save an entry and hand back what the record holds. The fitted entry is what a
+	 * reader will see after a reload, so an event announced from the same moment is
+	 * announced from this, never from the unfitted one (EVT10).
+	 */
+	const fitAndAppend = async (
+		entry: RecordEntry,
+	): Promise<{ seq: number; saved: RecordEntry }> => {
 		const fitted = fitEntry(entry, entryCap);
 		if (fitted.refused !== undefined) {
 			throw new SaveFailed({ code: "internal", message: fitted.refused });
 		}
-		return appendLine(entry, fitted.line);
+		const seq = await appendLine(entry, fitted.line);
+		return { seq, saved: fitted.entry };
 	};
+
+	const append = async (entry: RecordEntry): Promise<number> => (await fitAndAppend(entry)).seq;
 
 	const appendLine = async (entry: RecordEntry, line: string): Promise<number> => {
 		if (!recordStarted) {
@@ -1362,10 +1372,19 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			if (answered.retries > 0) {
 				entry.retries = answered.retries;
 			}
-			if (reply.reasoning !== undefined) {
+			// An adapter that reports an empty trace reported no trace, so it is not saved:
+			// a stored `""` makes `get_messages` claim an empty trace at a client that
+			// decides on presence (EVT09).
+			if (reply.reasoning !== undefined && reply.reasoning !== "") {
 				entry.reasoning = reply.reasoning;
 			}
-			const seq = await append(entry);
+			const { seq, saved: savedMessage } = await fitAndAppend(entry);
+			// The trace is announced as the record holds it, because it is cut to fit the
+			// entry cap: announcing the raw string would put more on the wire than a reload
+			// can show (EVT10, REC02). It is absent when there was none, and `fitAndAppend`
+			// is what guarantees the field is either a trace or absent (EVT09).
+			const reasoning =
+				savedMessage.type === "assistant_message" ? savedMessage.reasoning : undefined;
 			emit({
 				type: "message_end",
 				run: runId,
@@ -1373,6 +1392,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				seq,
 				text: reply.text,
 				toolCalls: calls,
+				...(reasoning === undefined ? {} : { reasoning }),
 			});
 
 			// A cost limit it cannot measure is not a limit, so the run says so once

@@ -8,6 +8,37 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Playground prerequisite 3, `message_end.reasoning`, 2026-11-24
+
+- **The live event is announced from the fitted entry, not from the reply.** `message_end` used to carry
+  `text` and `toolCalls` exactly as the adapter reported them, while the entry saved beside it had been
+  through `fitEntry`. For `reasoning` that difference is the whole point of EVT10: the trace is cut to fit
+  the entry cap, and announcing the raw string would put more on the wire than a reload can show. `append`
+  became `fitAndAppend`, handing back what was saved; `append` keeps its signature so the other seven
+  callers do not change. This is recorded in the event's own comment rather than as a decision, because it
+  is the rule EVT10 states and not a choice a later slice may revisit.
+- **`text` and a call's `arguments` have the same hole and are left alone, on purpose.** Both can be cut by
+  `fitEntry` before the same event announces them, so the live event can still show text or arguments the
+  record does not hold. The fix is not one line: the run also *executes* the raw calls, so making the event
+  match the save decides which arguments run and what a resume replays, and that is a choice rather than a
+  correction. Written up as issue #75 with the rows it needs.
+- **The rows are in `docs/protocol.md`, not `docs/core-loop.md`.** The plan named both; an event's rows live
+  with the other events (EVT08 to EVT10), and the plan now says so. The client-visible half is
+  `scenarios/reasoning-trace.yaml`, which runs at all four levels rather than being asserted only against
+  the core's `RunEvent`.
+- **`pi-review` found that `""` still reached the wire, and the fix went into the record.** With a text and a
+  reasoning both over the cap on their own, `fitEntry` emptied the reasoning whole and left `reasoning: ""`
+  with the marker naming `text`, so the live event, the replay and `get_messages` all claimed an empty trace
+  (EVT09). The first fix would have been to skip `""` in the two event spreads, but `get_messages` is a
+  client surface too, so the record stops claiming it: a field the record does not require is removed when
+  it loses everything, which is what `fitEntry` already did for a tool result's `details` (RECTRUNC, REC02).
+  The event spreads also treat `""` as absent, because a record written before this rule can still hold one.
+- **An empty trace is not saved at all, so the live spread has no `""` branch.** The second review round noted
+  the live guard could not fail: with `fitEntry` removing a whole-dropped field, the only source of `""` on
+  that path was an adapter reporting one, and `run.ts` was saving it. It now skips an empty `reasoning`
+  instead, so the record never claims an empty trace, and the live event needs no empty check at all — only
+  the projection keeps one, for records written before this rule (EVT09).
+
 ## Slice B, parallel tool calls, 2026-11-24
 
 - **The grouping lives in `runBatch`, the concurrency in `executeTools`.** The policy check is in

@@ -1116,3 +1116,124 @@ test("RCD10 a run records whose session it is", async () => {
 	const record = await readRecord(owned.storage);
 	expect(record.header.tenant).toBe("acme");
 });
+
+test("EVT08 a reply's reasoning is announced live, and it is the string the record saved", async () => {
+	const thinking = harness(
+		[
+			{
+				text: "The file is short.",
+				reasoning:
+					"I should read it before answering, because the task asks what is in it.",
+				toolCalls: [{ id: "c1", name: "finish" }],
+			},
+		],
+		() => [createFinishTool()],
+	);
+
+	const result = await thinking.run();
+	expect(result.reason).toBe("done");
+
+	const announced = thinking.events.flatMap((event) =>
+		event.type === "message_end" ? [event] : [],
+	);
+	expect(announced).toHaveLength(1);
+	expect(announced[0]).toMatchObject({
+		reasoning: "I should read it before answering, because the task asks what is in it.",
+	});
+
+	// A client that reconnects reads the record instead of the stream, so the two
+	// have to say the same thing.
+	const record = await readRecord(thinking.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved?.type === "assistant_message" ? saved.reasoning : undefined).toBe(
+		announced[0]?.type === "message_end" ? announced[0].reasoning : undefined,
+	);
+});
+
+test("EVT09 a reply with no reasoning announces none, rather than an empty string", async () => {
+	const quiet = harness([{ text: "Done.", toolCalls: [{ id: "c1", name: "finish" }] }], () => [
+		createFinishTool(),
+	]);
+
+	await quiet.run();
+	const announced = quiet.events.find((event) => event.type === "message_end");
+	expect(announced).toBeDefined();
+	// Absent, not empty: a client shows a trace for one and hides the panel for the
+	// other, so "" would draw an empty thinking box.
+	expect(announced).not.toHaveProperty("reasoning");
+});
+
+test("EVT10 a reasoning over the entry cap is announced as saved, not as the model sent it", async () => {
+	const long = "because the record has to hold what the client was shown. ".repeat(80);
+	const rambling = harness(
+		[{ text: "Done.", reasoning: long, toolCalls: [{ id: "c1", name: "finish" }] }],
+		() => [createFinishTool()],
+	);
+
+	const result = await rambling.run({ entryCapBytes: 1_024 });
+	expect(result.reason).toBe("done");
+
+	const record = await readRecord(rambling.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved?.type === "assistant_message" ? saved.truncated?.field : undefined).toBe(
+		"reasoning",
+	);
+	const savedReasoning = saved?.type === "assistant_message" ? (saved.reasoning ?? "") : "";
+	// The point is that the trace survived, cut: without this, a `fitEntry` that dropped
+	// the reasoning altogether would leave both sides "" and the test would pass.
+	expect(savedReasoning).not.toBe("");
+	expect(savedReasoning.length).toBeLessThan(long.length);
+
+	const announced = rambling.events.find((event) => event.type === "message_end");
+	const announcedReasoning = announced?.type === "message_end" ? (announced.reasoning ?? "") : "";
+	// Announcing the whole string would put more on the wire than the record holds,
+	// and a reload would then show a shorter trace than the live one did.
+	expect(announcedReasoning).toBe(savedReasoning);
+});
+
+test("EVT09 a trace the cap dropped whole is announced absent, and the record does not claim an empty one", async () => {
+	// Found in review on pull request #76: with both fields over the cap on their own,
+	// `fitEntry` emptied the reasoning whole, so the record held `reasoning: ""` and
+	// both the live event and a replay announced an empty trace (EVT09, REC02).
+	const both = harness(
+		[
+			{
+				text: "t".repeat(2_000),
+				reasoning: "r".repeat(2_000),
+				toolCalls: [{ id: "c1", name: "finish" }],
+			},
+		],
+		() => [createFinishTool()],
+	);
+
+	const result = await both.run({ entryCapBytes: 1_024 });
+	expect(result.reason).toBe("done");
+
+	const announced = both.events.find((event) => event.type === "message_end");
+	expect(announced).not.toHaveProperty("reasoning");
+
+	const record = await readRecord(both.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved).not.toHaveProperty("reasoning");
+	expect(saved?.type === "assistant_message" ? saved.truncated?.field : undefined).toBe("text");
+});
+
+test("EVT09 a reply whose reasoning is an empty string saves no trace and announces none", async () => {
+	// An adapter can report `reasoning: ""`, and the model did not think "nothing": it
+	// reported no trace. Saving "" would make `get_messages` claim an empty trace at a
+	// client that decides on presence, which is the rule EVT09 states.
+	const blank = harness(
+		[{ text: "Done.", reasoning: "", toolCalls: [{ id: "c1", name: "finish" }] }],
+		() => [createFinishTool()],
+	);
+
+	const result = await blank.run();
+	expect(result.reason).toBe("done");
+
+	const announced = blank.events.find((event) => event.type === "message_end");
+	expect(announced).not.toHaveProperty("reasoning");
+
+	const record = await readRecord(blank.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved).not.toHaveProperty("reasoning");
+});
