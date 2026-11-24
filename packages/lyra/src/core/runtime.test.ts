@@ -428,14 +428,16 @@ test("CMD22 a follow-up whose real entry fits the cap is accepted, and one that 
 		await fits.value.outcome;
 	}
 
-	const tooBig = await runtime.resume({
+	// One byte past the room is the smallest text that no longer fits, so the refusal
+	// is at the bound itself and not only well beyond it.
+	const justOver = await runtime.resume({
 		runId: "run-1",
 		task: "test-task",
 		definition,
 		by: "person",
-		followUp: "y".repeat(cap),
+		followUp: "y".repeat(room + 1),
 	});
-	expect(tooBig.ok ? "" : tooBig.error.code).toBe("bad_request");
+	expect(justOver.ok ? "" : justOver.error.code).toBe("bad_request");
 });
 
 test("CMD22 an oversized follow-up for a run with no record is still not_found", async () => {

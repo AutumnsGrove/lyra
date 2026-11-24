@@ -1734,3 +1734,68 @@ test("CMD22 a follow-up that fits the command cap but not the entry is bad_reque
 	expect(storage.saved()).toHaveLength(before);
 	expect(storage.saved().some((line) => line.includes('"state":"failed"'))).toBe(false);
 });
+
+test("REQ07 a decision whose note is too big for one record entry is bad_request, and the proposal stays open", async () => {
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const session = createSession({
+		id: "s1",
+		storage,
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(
+			[
+				{
+					toolCalls: [
+						{
+							id: "c1",
+							name: "propose",
+							args: { payload: { verdict: "deny" }, evidence: ["post:1"] },
+						},
+					],
+				},
+			],
+			{ clock },
+		),
+		host: "test-host",
+		recipes: new Map([
+			[
+				"test-task",
+				{
+					name: "test-task",
+					version: 1,
+					instructions: "you are a test",
+					tools: [
+						createProposeTool({
+							payload: {
+								type: "object",
+								properties: { verdict: { type: "string" } },
+								required: ["verdict"],
+							},
+						}),
+					],
+				},
+			],
+		]),
+	});
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => storage.saved().some((line) => line.includes('"state":"done"')));
+	const proposal = entriesOf(storage).find((entry) => entry.type === "proposal");
+	const id = String((proposal as { proposal?: string } | undefined)?.proposal ?? "");
+	const before = storage.saved().length;
+
+	const refused = errorOf(
+		await send(session, {
+			command: "decide_proposal",
+			session: "s1",
+			proposal: id,
+			decision: "accept",
+			note: "x".repeat(1.5 * 1024 * 1024),
+		}),
+	);
+	expect(refused.code).toBe("bad_request");
+	expect(storage.saved()).toHaveLength(before);
+	expect(valueOf(await send(session, { command: "list_pending", session: "s1" }))).toMatchObject({
+		proposals: [{ proposal: id, state: "open" }],
+	});
+});
