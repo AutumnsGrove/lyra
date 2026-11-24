@@ -760,6 +760,46 @@ test("SCN07 a scenario carries a conversation: two runs with an approval answere
 	expect(new Set(outcome.events.map((event) => event.run))).toEqual(new Set(["scenario"]));
 });
 
+test("SCN07 a question is answered with text, and the run carries on from it", async () => {
+	// The other half of `answer:`: a decision answers an approval, and this is what a
+	// person types into a question. `scenarios/conversation.yaml` drives the same shape
+	// at all four levels, so this is the in-process case beside it.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			tools: [
+				{
+					name: "choose",
+					behavior: "ask",
+					question: { title: "which note", message: "which note should I read?" },
+				},
+			],
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "choose", args: {} }] }] },
+				{
+					answer: { text: "the second one" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish", args: {} }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+			expect_record: [
+				{ type: "request", kind: "question" },
+				{ type: "request_answered", text: "the second one", decision: "approve" },
+				{ type: "tool_message", toolCallId: "c1", isError: false },
+				{ type: "status", state: "done" },
+			],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done"]);
+});
+
 test("SCN08 a run that parks with nobody to answer it is named in the report", async () => {
 	// A follow-up while the run is still waiting for a person is the session's `busy`
 	// (CMD08), so the scenario must say which run is waiting rather than let a second
@@ -819,6 +859,24 @@ test("SCN09 a malformed runs list is refused with the field named", () => {
 			/runs\[1\]\.answer/,
 		],
 	];
+
+	// Two scripts, or two answers, in one place: neither has a winner, so neither is
+	// guessed at. The rival cases above never reach these checks because their `runs:`
+	// list is refused first, which is why they are listed separately here.
+	refusals.push([
+		{ model: [{ tool_calls: [{ id: "c1", name: "finish" }] }], runs: [{ model: [{ text: "hi" }] }] },
+		/scenario\.model and scenario\.runs/,
+	]);
+	refusals.push([
+		{
+			model: undefined,
+			runs: [
+				{ model: [{ text: "hi" }] },
+				{ answer: { decision: "approve", text: "x" }, model: [{ text: "hi" }] },
+			],
+		},
+		/runs\[1\]\.answer/,
+	]);
 
 	for (const [overrides, pattern] of refusals) {
 		const decoded = decodeScenario(file(overrides));
