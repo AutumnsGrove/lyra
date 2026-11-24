@@ -51,7 +51,7 @@ Concretely:
 | Thinking traces | `core/model.ts`, `adapters/openai/sse.ts`, `record/entries.ts` | the adapter already collects `reasoning`/`reasoning_content`, and `run.ts` already saves it on the assistant entry. **Only the live event lacks it** (below) |
 | The front door | `createSessionWorker` | authenticates, routes `/v1/*` to the object, 404s everything else, which leaves the asset route to this Worker |
 | A protocol client | `scripts/lyra.mjs` | `start`, `tail`, `steer`, `follow-up`, `abort`, `resume`, `messages`, HTTP and WS |
-| Parallel tool calls | decision 154 | so the fan-out tools below are fast; and the page can show several calls in flight at once |
+| Parallel tool calls | decision 154, **pull request #69** | not on `main` when this plan was written, so it is a prerequisite rather than a fact about the tree; the fan-out tools below want it, and the page shows several calls in flight at once |
 
 ## Settled here (Autumn, 2026-11-24)
 
@@ -78,14 +78,27 @@ Each of these becomes a numbered entry in `docs/decisions.md` in the slice that 
   the live path (below) rather than a new store.
 - **The day cap is hard, per tenant, per UTC day.** A small budget object counts the cost each reply
   reports; a new run over the cap is refused with `limit`/`cost`, and a run already going finishes. The
-  number is a binding (`PLAYGROUND_DAY_CAP_USD`), and the page shows spend against it.
-- **The smoke job runs a scripted model on the deployment.** The deployed Worker accepts a script behind a
-  secret header (`x-lyra-script` + `PLAYGROUND_SCRIPT_TOKEN`), so a scenario file can be replayed over the
-  network with exact call ids and record assertions instead of a real model's improvisation. The header is
-  refused unless the token matches, and scripts are limited to the smoke token's tenant.
+  number is a binding (`PLAYGROUND_DAY_CAP_USD`), and the page shows spend against it. **A reply that
+  reports no cost (LIM05) marks the day unpriced**, and from then on a new run is refused until the day
+  rolls over, because a "hard" cap that silently undercounted would be worse than no cap. A token count is
+  not used as a fallback: it is not money, so it would put a precise-looking number on a guess.
+- **The smoke job runs a scripted model on the deployment, behind a boundary that is named.** A `start`
+  carrying `x-lyra-script` is accepted only when `PLAYGROUND_SCRIPT_TOKEN` is set **and** the header matches
+  it exactly (a constant-time compare); otherwise the request is refused `permission_denied` (401) and
+  nothing runs. **The tenant is never taken from the header**: it is the one the bearer token resolved to
+  through the existing door, and scripts are allowed only for the smoke token's tenant
+  (`PLAYGROUND_SMOKE_TENANT`), so a script cannot reach a person's session. The script is held on the
+  session object for the run it starts and dropped when the object is rebuilt. A script that is not JSON, is
+  not a list of turns, or is larger than the cap is refused `bad_request` before the command runs. With the
+  secret unset, a request carrying the header is refused rather than quietly falling back to the real model,
+  so a smoke job against a deployment that cannot be scripted fails loudly instead of testing the wrong
+  thing.
 
 ## Prerequisites
 
+0. **Decision 154 and `Tool.parallel`, which is pull request #69.** The fan-out tools in Slice 5 and the
+   page's several-calls-in-flight view both assume it. It is in review, not merged, so it is listed here
+   rather than in the table above. If #69 is not on `main` when Slice 1 starts, it merges first.
 1. **#59: a host runs its own recipe through a scenario file.** `runScenario` only knows `timeline-test`, so
    the playground's recipes cannot be asserted by scenario files at all — the acceptance table below would
    have to be re-implemented in TypeScript, which is the copy that drifts. One `ScenarioRunOptions.recipes`
@@ -147,10 +160,14 @@ choice), the proposal card, and `list_pending` on load so a card raised while th
 when it comes back. An approval answered after an eviction is the row that proves parking works on a real
 object.
 
-**Slice 7: the cap and the deploy.** The budget object and the day cap; `deploy.yml` on push to `main` behind
-the gate, deploying with `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` and the model, token and script keys
-as Worker secrets; and the smoke job, which starts a run with `x-lyra-script`, drives it over the real
-protocol, and asserts the record — including a second run that answers an approval after an eviction.
+**Slice 7: the cap and the deploy.** The budget object and the day cap, with rows for a run under the cap, a
+new run refused at it, and a day marked unpriced by a reply that reported nothing; `deploy.yml` on push to
+`main` behind the gate, deploying with `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` and the model, token
+and script keys as Worker secrets; and the smoke job, which starts a run with `x-lyra-script`, drives it over
+the real protocol, and asserts the record — including a second run that answers an approval after an
+eviction. The script boundary gets its own happy, sad and bad rows: a matching token starts the script, a
+wrong one is `permission_denied` and starts nothing, an unset secret refuses the header, and a malformed or
+oversized script is `bad_request`.
 
 **Slice 8: the wrap-up.** `docs/playground.md` with the row tables, the decisions, the README's status,
 `AGENTS.md`, `CHANGELOG.md`, and `notes.md`. The Lumen path (`MODEL_SOURCE=lumen`, the Lattice Worker) is
