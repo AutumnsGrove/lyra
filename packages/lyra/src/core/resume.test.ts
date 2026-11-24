@@ -142,7 +142,7 @@ function entriesOf(lines: string[]): RecordEntry[] {
 }
 
 const readTool = (name: string): Tool =>
-	toolReturning(name, `${name} done`, { safeToRepeat: true });
+	toolReturning(name, `${name} done`, { safeToRepeat: true, parallel: true });
 const safeFinish = (): Tool => ({ ...createFinishTool(), safeToRepeat: true });
 
 test("RSM01 killed at every append, both ways, the resumed record matches the uninterrupted one", async () => {
@@ -269,13 +269,21 @@ test("RSM04 a broken record fails the resume with a reason and never throws", as
 	expect(afterDamage.reason).toBe("done");
 });
 
-/** A short script of safe calls ending in a finish, which is what a resume may repeat. */
-const resumableScript = fc.array(fc.constantFrom("read", "look"), { maxLength: 3 }).map((names) => [
-	...names.map((name, index) => ({
-		toolCalls: [{ id: `c${index}`, name, args: {} }],
-	})),
-	{ toolCalls: [{ id: `c${names.length}`, name: "finish" }] },
-]);
+/**
+ * A short script of safe calls ending in a finish, which is what a resume may
+ * repeat. A reply carries one to three calls, so a kill can land inside a group of
+ * calls that ran together rather than between two single calls (decision 154).
+ */
+const resumableScript = fc
+	.array(fc.array(fc.constantFrom("read", "look"), { minLength: 1, maxLength: 3 }), {
+		maxLength: 2,
+	})
+	.map((turns) => [
+		...turns.map((names, turn) => ({
+			toolCalls: names.map((name, index) => ({ id: `c${turn}_${index}`, name, args: {} })),
+		})),
+		{ toolCalls: [{ id: "cfinish", name: "finish" }] },
+	]);
 
 test("RSM05 property: killed anywhere, any script, the resume matches the whole run", async () => {
 	await fc.assert(

@@ -37,22 +37,28 @@ import {
 } from "./model.js";
 import {
 	createFinishTool,
+	toolAsking,
 	toolReturning,
 	toolReturningError,
 	toolTakingTime,
 	toolThatThrows,
+	type ScriptedToolOptions,
 } from "./tools.js";
 
-export type ScenarioToolBehavior = "ok" | "error" | "throw" | "slow";
+export type ScenarioToolBehavior = "ok" | "error" | "throw" | "slow" | "ask";
 
 export interface ScenarioTool {
 	name: string;
 	behavior: ScenarioToolBehavior;
 	/** Allow, ask or deny, which is what an approval needs to exercise (decision 35). */
 	policy?: ToolPolicy;
+	/** Whether this tool may run beside the other calls of its reply (decision 154). */
+	parallel?: boolean;
 	content?: string;
 	/** For a `slow` tool: how long it takes on the fake clock. */
 	ms?: number;
+	/** For an `ask` tool: the question it needs a person to answer (decision 34). */
+	question?: { title: string; message: string };
 }
 
 /** An expectation is matched as a subset, so extra fields on the actual value are fine. */
@@ -80,6 +86,8 @@ export interface Scenario {
 	abortAfter?: number;
 	/** How the run compacts, and how its summaries are answered. */
 	compaction?: ScenarioCompaction;
+	/** How many calls may run at once, when the file sets a cap (decision 154). */
+	maxParallelCalls?: number;
 }
 
 export interface ScenarioOutcome {
@@ -91,7 +99,7 @@ export interface ScenarioOutcome {
 	problems: string[];
 }
 
-const BEHAVIORS: readonly ScenarioToolBehavior[] = ["ok", "error", "throw", "slow"];
+const BEHAVIORS: readonly ScenarioToolBehavior[] = ["ok", "error", "throw", "slow", "ask"];
 const FINISH_REASONS: readonly FinishReason[] = [
 	"stop",
 	"length",
@@ -374,6 +382,13 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 				}
 				tool.policy = policy;
 			}
+			const parallel = raw["parallel"];
+			if (parallel !== undefined) {
+				if (typeof parallel !== "boolean") {
+					return bad(`${where}.parallel must be true or false`);
+				}
+				tool.parallel = parallel;
+			}
 			const content = optionalString(raw, "content", where);
 			if (!content.ok) {
 				return content;
@@ -387,6 +402,24 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 					return bad(`${where}.ms must be a number of milliseconds`);
 				}
 				tool.ms = ms;
+			}
+			const question = raw["question"];
+			if (question !== undefined) {
+				if (!isPlainObject(question)) {
+					return bad(`${where}.question must be an object`);
+				}
+				const title = stringField(question, "title", `${where}.question`);
+				if (!title.ok) {
+					return title;
+				}
+				const message = stringField(question, "message", `${where}.question`);
+				if (!message.ok) {
+					return message;
+				}
+				tool.question = { title: title.value, message: message.value };
+			}
+			if (behavior === "ask" && tool.question === undefined) {
+				return bad(`${where} asks a question, so it needs a question`);
 			}
 			tools.push(tool);
 		}
@@ -437,6 +470,18 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 		scenario.compaction = compaction.value;
 	}
 
+	const maxParallelCalls = value["max_parallel_calls"];
+	if (maxParallelCalls !== undefined) {
+		if (
+			typeof maxParallelCalls !== "number" ||
+			!Number.isSafeInteger(maxParallelCalls) ||
+			maxParallelCalls < 1
+		) {
+			return bad("scenario.max_parallel_calls must be a positive whole number");
+		}
+		scenario.maxParallelCalls = maxParallelCalls;
+	}
+
 	const abortAfter = value["abort_after"];
 	if (abortAfter !== undefined) {
 		if (typeof abortAfter !== "number" || !Number.isInteger(abortAfter) || abortAfter < 1) {
@@ -449,7 +494,13 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 }
 
 export function makeScenarioTool(tool: ScenarioTool, clock: ReturnType<typeof fakeClock>): Tool {
-	const options = tool.policy === undefined ? {} : { policy: tool.policy };
+	const options: ScriptedToolOptions = {};
+	if (tool.policy !== undefined) {
+		options.policy = tool.policy;
+	}
+	if (tool.parallel === true) {
+		options.parallel = true;
+	}
 	switch (tool.behavior) {
 		case "error":
 			return toolReturningError(tool.name, tool.content ?? `${tool.name} says no`, options);
@@ -457,6 +508,17 @@ export function makeScenarioTool(tool: ScenarioTool, clock: ReturnType<typeof fa
 			return toolThatThrows(tool.name, tool.content ?? `${tool.name} broke`, options);
 		case "slow":
 			return toolTakingTime(tool.name, tool.ms ?? 100, clock, options);
+		case "ask":
+			// The question is the call's result once a person answers it (decision 34).
+			return toolAsking(
+				tool.name,
+				{
+					kind: "question",
+					title: tool.question?.title ?? `About ${tool.name}`,
+					message: tool.question?.message ?? `What should ${tool.name} do?`,
+				},
+				options,
+			);
 		case "ok":
 			return toolReturning(tool.name, tool.content ?? `${tool.name} says yes`, options);
 	}
@@ -677,6 +739,9 @@ export async function runScenario(
 		// parks the run rather than being denied (decision 35).
 		canAsk: true,
 		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
+		...(scenario.maxParallelCalls === undefined
+			? {}
+			: { maxParallelCalls: scenario.maxParallelCalls }),
 		toolDeadlineMs: 60_000,
 		signal: controller.signal,
 		onEvent: (event) => {

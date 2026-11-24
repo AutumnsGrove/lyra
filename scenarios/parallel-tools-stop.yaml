@@ -1,0 +1,22 @@
+name: a run stopped inside a group answers every call of it
+task: scenario-parallel-stop
+input: read three slow pages
+tools:
+  - { name: read, behavior: slow, ms: 5000, parallel: true }
+  - { name: look, behavior: slow, ms: 6000, parallel: true }
+  - { name: scan, behavior: slow, ms: 7000, parallel: true }
+model:
+  - tool_calls:
+      - { id: c1, name: read, args: {} }
+      - { id: c2, name: look, args: {} }
+      - { id: c3, name: scan, args: {} }
+    # run_start, turn_start, usage, message_end, then three calls and the first
+    # of their three starts is where the stop lands.
+abort_after: 8
+expect_events:
+  - { type: run_end, reason: parked, parked_reason: stopped }
+expect_record:
+  - { type: tool_message, toolCallId: c1, isError: true }
+  - { type: tool_message, toolCallId: c2, isError: true }
+  - { type: tool_message, toolCallId: c3, isError: true }
+  - { type: status, state: parked, reason: stopped }

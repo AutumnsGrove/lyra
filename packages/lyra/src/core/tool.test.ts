@@ -169,3 +169,36 @@ test("TOL06 the inferred type has what the schema requires", () => {
 	expect(requiredOnly.kind).toBeUndefined();
 	expect([missing, fraction, otherKind].length).toBe(3);
 });
+
+test("TOL13 a tool that changes the recipe's state cannot opt in to running in parallel", () => {
+	// A group of calls reads one state, and `apply` is the only writer, so a tool
+	// that opted in with an `apply` is a tool author's mistake rather than a slower
+	// recipe (decision 154).
+	expect(() =>
+		defineTool({
+			name: "add_line",
+			description: "Add a line and remember it.",
+			parameters: addLineSchema,
+			parallel: true,
+			async execute() {
+				return { isError: false, content: "added a line" };
+			},
+			apply(state: unknown) {
+				return state;
+			},
+		}),
+	).toThrow(/parallel/);
+
+	// The positive case: the same tool with no `apply` is accepted, so the refusal
+	// above is about the combination rather than about the flag.
+	const readOnly = defineTool({
+		name: "read_page",
+		description: "Read a page.",
+		parameters: addLineSchema,
+		parallel: true,
+		async execute() {
+			return { isError: false, content: "the page" };
+		},
+	});
+	expect(readOnly.parallel).toBe(true);
+});

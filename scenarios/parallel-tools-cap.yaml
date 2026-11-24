@@ -1,0 +1,25 @@
+name: a group larger than the cap runs in chunks
+task: scenario-parallel-cap
+input: read four pages
+max_parallel_calls: 2
+tools:
+  - { name: read, behavior: slow, ms: 100, parallel: true }
+model:
+  - tool_calls:
+      - { id: c1, name: read, args: {} }
+      - { id: c2, name: read, args: {} }
+      - { id: c3, name: read, args: {} }
+      - { id: c4, name: read, args: {} }
+  - tool_calls: [{ id: c5, name: finish, args: {} }]
+expect_events:
+  - { type: tool_end, call_id: c1 }
+  - { type: tool_end, call_id: c2 }
+  - { type: tool_end, call_id: c3 }
+  - { type: tool_end, call_id: c4 }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: tool_message, toolCallId: c1, isError: false }
+  - { type: tool_message, toolCallId: c2, isError: false }
+  - { type: tool_message, toolCallId: c3, isError: false }
+  - { type: tool_message, toolCallId: c4, isError: false }
+  - { type: status, state: done }

@@ -46,7 +46,13 @@ export interface LimitProgress {
 	activeMs: number;
 }
 
-function isPositiveInteger(value: unknown): value is number {
+/**
+ * A positive whole number, which is what a limit and a cap both have to be. It is
+ * exported because the parallel cap is checked in three places (a recipe when it is
+ * defined, a hand-built run's fallback, and the executor's chunk size), and three
+ * copies of the rule is two chances for them to disagree.
+ */
+export function isPositiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 

@@ -1,0 +1,26 @@
+name: a question inside a group parks the run with the calls around it saved
+task: scenario-parallel-question
+input: read a page, ask which one, read another
+tools:
+  - { name: read, behavior: ok, content: the first page, parallel: true }
+  - name: ask
+    behavior: ask
+    parallel: true
+    question: { title: "Which one?", message: "Pick a shelf." }
+  - { name: later, behavior: ok, content: the second page, parallel: true }
+model:
+  - tool_calls:
+      - { id: c1, name: read, args: {} }
+      - { id: c2, name: ask, args: {} }
+      - { id: c3, name: later, args: {} }
+# The question is an event the protocol spells `ui_request` and the core spells
+# `request`, so this file leaves the event out and pins the order in the record.
+expect_events:
+  - { type: tool_end, call_id: c1, is_error: false }
+  - { type: tool_end, call_id: c3, is_error: false }
+  - { type: run_end, reason: parked, parked_reason: waiting_for_person }
+expect_record:
+  - { type: tool_message, toolCallId: c1, content: the first page }
+  - { type: request, callId: c2, kind: question, title: "Which one?" }
+  - { type: tool_message, toolCallId: c3, content: the second page }
+  - { type: status, state: parked, reason: waiting_for_person }
