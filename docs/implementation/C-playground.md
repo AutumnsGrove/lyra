@@ -74,7 +74,7 @@ Each of these becomes a numbered entry in `docs/decisions.md` in the slice that 
   surprise bill.
 - **A sidebar of conversations**, each a session, listed from an index the playground owns. The index
   holds each conversation's id, its label, when it was last used, and **the recipe it runs**, so the page
-  can start a conversation on \`tool-table\` and later on \`fireside\` without a second deployment (#60's
+  can start a conversation on `tool-table` and later on `fireside` without a second deployment (#60's
   Decided comment). The pick is at "new conversation", and a conversation keeps its recipe for its life,
   because the recipe is what the run is pinned to (decision 91). Lyra's
   `list_sessions` answers `unsupported` on purpose ("listing every session needs an index of its own"), so
@@ -89,8 +89,8 @@ Each of these becomes a numbered entry in `docs/decisions.md` in the slice that 
   reports no cost (LIM05) marks the day unpriced**, and from then on a new run is refused until the day
   rolls over, because a "hard" cap that silently undercounted would be worse than no cap. A token count is
   not used as a fallback: it is not money, so it would put a precise-looking number on a guess. The budget
-  object learns it from the run's own record — the \`limit_unenforceable\` note LIM05 already writes, or a
-  \`usage\` event with no \`cost\` — so nothing new is added to the core for it. That rule is a host policy
+  object learns it from the run's own record — the `limit_unenforceable` note LIM05 already writes, or a
+  `usage` event with no `cost` — so nothing new is added to the core for it. That rule is a host policy
   on top of a core row, so it gets its own decision when the slice is built.
 - **The smoke job runs a scripted model on the deployment, behind a boundary that is named.** A `start`
   carrying `x-lyra-script` is accepted only when `PLAYGROUND_SCRIPT_TOKEN` is set **and** the header matches
