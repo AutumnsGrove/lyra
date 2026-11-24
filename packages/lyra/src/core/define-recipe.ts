@@ -10,7 +10,7 @@
  */
 
 import { isJsonValue, type JsonObject, type JsonValue } from "./json.js";
-import { validateLimits, type Limits } from "./limits.js";
+import { isPositiveInteger, validateLimits, type Limits } from "./limits.js";
 import { compileSchema, SchemaDefinitionError, type InferSchema } from "./schema.js";
 import type { CompactionSettings } from "./compaction.js";
 import { validateCompactionSettings } from "./compaction.js";
@@ -42,6 +42,12 @@ export interface Recipe<S = unknown> {
 	compaction?: CompactionSettings;
 	/** How the run asks a person: its default policy and a timeout (decisions 35, 37). */
 	approvals?: ApprovalSettings;
+	/**
+	 * How many of one reply's calls may run at the same time (decision 154). Absent
+	 * means the core's default, and a tool still has to opt in before it joins a
+	 * group.
+	 */
+	maxParallelCalls?: number;
 }
 
 function refuse(message: string): never {
@@ -67,6 +73,7 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	stuck?: StuckSettings;
 	compaction?: CompactionSettings;
 	approvals?: ApprovalSettings;
+	maxParallelCalls?: number;
 }): Recipe<S> {
 	const name = checkText(options.name, "name");
 	checkText(options.instructions, "instructions");
@@ -128,6 +135,11 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 			refuse(`a recipe's compaction settings cannot be used: ${compaction.error.message}`);
 		}
 	}
+	// A cap nobody can honour is a recipe's mistake, and it is refused where it is
+	// written rather than quietly replaced by the default (decision 154).
+	if (options.maxParallelCalls !== undefined && !isPositiveInteger(options.maxParallelCalls)) {
+		refuse("a recipe's maxParallelCalls must be a positive whole number");
+	}
 
 	const recipe: Recipe<S> = {
 		name,
@@ -153,6 +165,9 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	}
 	if (options.approvals !== undefined) {
 		recipe.approvals = options.approvals;
+	}
+	if (options.maxParallelCalls !== undefined) {
+		recipe.maxParallelCalls = options.maxParallelCalls;
 	}
 	return recipe;
 }

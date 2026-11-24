@@ -19,6 +19,13 @@ new API and any breaking change, and a patch bump is fixes only.
   `bad_request`. The refusal for a name nobody provided moved to `runScenario`, which throws an `Error`
   naming it and the recipes that were available. A caller that relied on the decoded `Result` to catch a
   typo now gets an exception from the run instead.
+- Tool calls from one reply can run at the same time. A tool opts in with `parallel: true` on `defineTool`,
+  and is only ever run beside another call when its policy is `allow` and it has no `apply`
+  (`defineTool` refuses the flag when it does). `maxParallelCalls` on a recipe caps how many run at once
+  (four by default, which is under a Worker invocation's six connections). Results are still saved and
+  announced in call order, and `apply` still runs in call order, so the record is the one a serial run
+  would have saved. Everything that changes state, asks a person or never opted in is a barrier and runs
+  alone. An existing recipe behaves exactly as before, because the flag is off by default.
 
 ### Fixed
 

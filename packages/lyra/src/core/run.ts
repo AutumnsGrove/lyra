@@ -38,7 +38,7 @@ import {
 	validateCompactionSettings,
 	type CompactionSettings,
 } from "./compaction.js";
-import { executeTools, usableArguments } from "./execute-tools.js";
+import { canRunTogether, executeTools, usableArguments } from "./execute-tools.js";
 import {
 	parkedReasonOf,
 	type ParkedReason,
@@ -46,7 +46,7 @@ import {
 	type RunEventListener,
 	type RunEvent,
 } from "./events.js";
-import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { isPositiveInteger, reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { createUsageTotal } from "./usage.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import { hashText } from "./hash.js";
@@ -83,6 +83,14 @@ import {
 
 /** Five minutes, per docs/implementation/01-core-with-fakes.md, "Judgment calls already made". */
 export const DEFAULT_TOOL_DEADLINE_MS = 300_000;
+
+/**
+ * How many of one reply's calls run at once when the recipe says nothing
+ * (decision 154). It is under a Worker invocation's six connections, which is the
+ * number the host queues above, so four leaves room for a tool that fetches more
+ * than once without the runtime having to hold a connection back.
+ */
+export const DEFAULT_MAX_PARALLEL_CALLS = 4;
 
 /** One record entry is capped at 1 MiB (decision 90), because a row is 2 MB. */
 export const DEFAULT_ENTRY_CAP_BYTES = 1_048_576;
@@ -189,6 +197,12 @@ export interface RunConfig {
 	/** How the recipe shapes compaction, when it says anything (decision 41). */
 	compaction?: CompactionSettings;
 	/**
+	 * How many of one reply's calls may run at the same time (decision 154). Absent
+	 * means `DEFAULT_MAX_PARALLEL_CALLS`, and a value that is not a positive whole
+	 * number is not a cap, so the default applies.
+	 */
+	maxParallelCalls?: number;
+	/**
 	 * Whether anyone can answer a request this run makes (decision 35). A headless
 	 * runner leaves it false, and a call that would ask is then denied.
 	 */
@@ -290,6 +304,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const clock = config.clock;
 	const runId = config.runId;
 	const deadlineMs = config.toolDeadlineMs ?? DEFAULT_TOOL_DEADLINE_MS;
+	/**
+	 * How many of one reply's calls may run at once (decision 154). A cap that is not
+	 * a positive whole number is not a cap, so the default applies rather than the
+	 * run refusing to start over a setting it can read.
+	 */
+	const maxParallelCalls = isPositiveInteger(config.maxParallelCalls)
+		? config.maxParallelCalls
+		: DEFAULT_MAX_PARALLEL_CALLS;
 	const entryCap = entryCapBytes(config.storage, config.entryCapBytes);
 	const signal = config.signal ?? new AbortController().signal;
 	const control = config.control;
@@ -790,10 +812,14 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	/** Set when a tool's answer says the done-check passed (decision 25). */
 	let finishedRun = false;
 
-	/** Run one call through the executor, which is what every allowed call gets. */
-	const runOne = async (calls: readonly ToolCall[]): Promise<void> => {
+	/**
+	 * Run a call, or a group of calls that may run beside each other, through the
+	 * executor, which is what every allowed call gets (decision 154).
+	 */
+	const runOne = async (calls: readonly ToolCall[], concurrency = 1): Promise<void> => {
 		await executeTools({
 			calls,
+			concurrency,
 			tools: config.tools,
 			clock,
 			signal,
@@ -856,9 +882,19 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	 * refusing where it says no (decisions 34, 35). A call that needs an answer stops
 	 * the batch: it has not run, so the calls after it have no result yet either, and
 	 * a resume answers them from the person's decision rather than guessing.
+	 *
+	 * Consecutive calls whose tools may run beside each other go to the executor as
+	 * one group (decision 154); everything else is a barrier that runs alone before
+	 * the next call starts.
 	 */
 	const runBatch = async (calls: readonly ToolCall[]): Promise<void> => {
-		for (const call of calls) {
+		let index = 0;
+		while (index < calls.length) {
+			const call = calls[index];
+			if (call === undefined) {
+				index += 1;
+				continue;
+			}
 			const tool = tools.get(call.name);
 			const policy = tool === undefined ? "allow" : policyOf(tool, approvalDefault);
 			if (policy === "deny") {
@@ -866,6 +902,7 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					call,
 					tool === undefined ? "no tool by that name" : deniedByRecipe(tool),
 				);
+				index += 1;
 				continue;
 			}
 			if (policy === "ask") {
@@ -876,17 +913,48 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 						call,
 						tool === undefined ? "no tool by that name" : deniedWithoutAPerson(tool),
 					);
+					index += 1;
 					continue;
 				}
 				waitingRequest = await saveRequest(call, tool);
 				return;
 			}
-			await runOne([call]);
+			// A barrier: the tool changes something, or asks, or never said it is safe
+			// beside another call. It runs alone, after everything before it is saved.
+			if (tool === undefined || !canRunTogether(tool, approvalDefault)) {
+				await runOne([call]);
+				if (waitingRequest !== undefined) {
+					return;
+				}
+				index += 1;
+				continue;
+			}
+			const group: ToolCall[] = [call];
+			let next = index + 1;
+			while (next < calls.length) {
+				const candidate = calls[next];
+				if (candidate === undefined) {
+					break;
+				}
+				const candidateTool = tools.get(candidate.name);
+				// A call whose policy asks or denies ends the group here, so the person is
+				// asked in call order rather than after the calls beside it ran.
+				if (
+					candidateTool === undefined ||
+					!canRunTogether(candidateTool, approvalDefault)
+				) {
+					break;
+				}
+				group.push(candidate);
+				next += 1;
+			}
+			await runOne(group, maxParallelCalls);
 			if (waitingRequest !== undefined) {
-				// The call itself asked a person, so the ones behind it have to wait for
-				// the answer rather than run while someone is deciding (decision 34).
+				// A call in the group asked a person, so the ones behind the group have to
+				// wait for the answer rather than run while someone is deciding (decision 34).
 				return;
 			}
+			index = next;
 		}
 	};
 
@@ -900,9 +968,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		seed: ResumeSeed,
 		decided: RequestAnsweredEntry | undefined,
 	): Promise<void> => {
-		// The call a request named, and every call after it, never ran: the batch
-		// stopped there rather than guessing. A person's decision settles them, and an
-		// approval covers only the call it named, so the rest meet their own policy.
+		// The call a request named, and every call after it with no result, waited for
+		// the answer: a serial batch stopped there rather than guessing. Inside a group
+		// the calls behind a question have already run and are saved, so the seed leaves
+		// them out (decision 154) and only the ones with no result reach here. A person's
+		// decision settles them, and an approval covers only the call it named, so the
+		// rest meet their own policy.
 		const asked = seed.pendingRequest?.callId;
 		const heldFrom =
 			asked === undefined ? -1 : seed.unansweredCalls.findIndex((call) => call.id === asked);
@@ -1689,9 +1760,13 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							usage: usageTotal.total(),
 							turns,
 						};
-					} else if (finishedRun) {
+					} else if (
+						finishedRun ||
+						(seed.doneInLastReply && config.resume.followUp === undefined)
+					) {
 						// A repeated safe call may itself have passed the done-check (a finish
-						// is safe to repeat for exactly this reason).
+						// is safe to repeat for exactly this reason), and so may a result the
+						// group saved behind the question this resume just answered.
 						result = { reason: "done", usage: usageTotal.total(), turns };
 					} else {
 						result = await loop();
