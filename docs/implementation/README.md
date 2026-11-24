@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
@@ -26,13 +26,14 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
-| B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | in review ([issue #67](https://github.com/AutumnsGrove/lyra/issues/67)) |
+| B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69 (merged), #59, a conversation scenario, and a live `message_end.reasoning` | planned, not started |
 
 ### Where the last session stopped (2026-11-24)
 
-- **The parallel tool calls slice is in review**, branch `feat/parallel-tool-calls`, for issue #67 and
-  decision 154. What is in the tree: a tool opts in with `parallel: true` and is only run beside another
+- **The parallel tool calls slice is merged**, pull request #69 and merge commit `b17f89a`, for issue #67
+  and decision 154. What is in the tree: a tool opts in with `parallel: true` and is only run beside another
   call when its policy is `allow` and it has no `apply` (`defineTool` refuses the pair, TOL13; the
   scheduler checks again, because a hand-built tool skips `defineTool`); groups of consecutive eligible
   calls dispatched together and saved in call order (LOOP17 to LOOP21); barriers for everything else
