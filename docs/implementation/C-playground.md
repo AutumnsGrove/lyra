@@ -123,7 +123,8 @@ their record; the slices cite it as the authority, so if they belong on the issu
    so this is its own small change: a `runs:` list with the commands between them, and the assertions over
    the session's whole record. Until it exists, no *scenario file* can carry more than one run: the
    protocol suite already drives a second run in a session (CMD05), and the smoke job's second run in
-   Slice 7 is the other multi-run check, which is one case rather than a file. **Issue #73, not started.**
+   Slice 7 is the other multi-run check, which is one case rather than a file. **Issue #73, pull request
+   #78:** a `runs:` list, with the wire levels driving the steps as real commands.
 3. **The live trace.** `run.ts` saves `reasoning` on the assistant entry, but `message_end` carries only
    `text` and `toolCalls`, so a live client can only show a trace by re-reading the record. Add
    `reasoning?` to the `message_end` event and to the protocol's projection, with rows in

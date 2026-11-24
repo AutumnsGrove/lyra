@@ -166,17 +166,25 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		const scripted =
 			scenario === undefined
 				? scriptedByInput()
-				: scriptedModel(scenario.model, {
-						clock,
-						// A scenario that compacts is scripted by request order: the
-						// conversation's length stops counting the turns a summary folded away.
-						...(scenario.compaction === undefined
-							? {}
-							: {
-									summaries: scenario.compaction.summaries,
-									position: "sequence" as const,
-								}),
-					});
+				: scriptedModel(
+						// A conversation's script is its segments laid end to end: the
+						// scripted model answers by position in the conversation, and each
+						// segment continues where the one before it stopped.
+						scenario.runs === undefined
+							? scenario.model
+							: scenario.runs.flatMap((run) => run.model),
+						{
+							clock,
+							// A scenario that compacts is scripted by request order: the
+							// conversation's length stops counting the turns a summary folded away.
+							...(scenario.compaction === undefined
+								? {}
+								: {
+										summaries: scenario.compaction.summaries,
+										position: "sequence" as const,
+									}),
+						},
+					);
 		this.#session = createCloudflareSession(this.ctx, {
 			recipes: new Map([[taskName, definition]]),
 			// Counted here, so a test can wait for the run to reach the model without

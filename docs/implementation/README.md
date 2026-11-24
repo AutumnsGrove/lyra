@@ -28,7 +28,11 @@ Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69 and #59 (merged), #74 (pull request #76), #73 | planned, not started |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | planned, not started |
+
+### Where the last session stopped (2026-11-24, later)
+
+- **#74 is merged** (`9842710`): `message_end` carries `reasoning` (EVT08 to EVT10, `scenarios/reasoning-trace.yaml`). **#73 is pull request #78**, green and reviewed: a scenario file can describe a conversation (SCN07 to SCN09, `scenarios/conversation.yaml`, decision 155). With #69 and #59 already in, C's prerequisites are done and **Slice 1, the shell that deploys, is next**.
 
 ### Where the last session stopped (2026-11-24)
 

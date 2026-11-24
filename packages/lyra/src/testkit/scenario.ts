@@ -23,11 +23,14 @@ import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
 import { compileSchema, formatErrors, validateValue, type Validation } from "../core/schema.js";
 import { runTask, type RunResult } from "../core/run.js";
+import type { Ids } from "../core/clock.js";
 import type { Recipe } from "../core/define-recipe.js";
 import type { Tool } from "../core/tool.js";
 import { counterIds } from "../adapters/memory/ids.js";
-import { memoryStorage } from "../adapters/memory/storage.js";
+import { memoryStorage, type MemoryStorage } from "../adapters/memory/storage.js";
+import type { RecordEntry } from "../record/entries.js";
 import { loadRecord, type LoadedRecord } from "../record/load.js";
+import { replayConversation } from "../record/replay.js";
 import { fakeClock } from "./clock.js";
 import { timelineTestRecipe } from "./timeline-recipe.js";
 import {
@@ -66,6 +69,35 @@ export interface ScenarioTool {
 /** An expectation is matched as a subset, so extra fields on the actual value are fine. */
 export type Expectation = Record<string, unknown>;
 
+/**
+ * A person's answer to the request a run parked on, as a scenario names it. The
+ * request is the one outstanding in the record; a scenario cannot name an id it
+ * would have to guess, and it does not need to: it is talking about its own run.
+ */
+export interface ScenarioAnswer {
+	/** Approve or deny an approval, or what a question is answered with. */
+	decision?: "approve" | "deny";
+	/** The note a deny carries, which the model reads (decision 34). */
+	note?: string;
+	/** The text a question is answered with. */
+	text?: string;
+}
+
+/**
+ * One run of a scenario's conversation, in the order the person drove it. A step
+ * either starts (or continues after an answer) the run that is going, or begins
+ * the next one with a follow-up. Every step carries its own script, because turns
+ * are consumed per run.
+ */
+export interface ScenarioRun {
+	/** The fake model's turns for this run. */
+	model: ScriptedTurn[];
+	/** This step begins the next run in the session, with the person's words. */
+	followUp?: string;
+	/** This step answers the request the run parked on, then continues that run. */
+	answer?: ScenarioAnswer;
+}
+
 /** A scenario that compacts: the recipe's settings, and the answers to its summary. */
 export interface ScenarioCompaction {
 	settings: CompactionSettings;
@@ -81,7 +113,13 @@ export interface Scenario {
 	/** A testkit recipe to run instead of the inline tools. */
 	recipe?: string;
 	tools: ScenarioTool[];
+	/** The single run's script. Empty when the file drives a conversation instead. */
 	model: ScriptedTurn[];
+	/**
+	 * The runs of one session, in order, when a file describes a conversation rather
+	 * than one run (SCN07). Absent for the single-run shape, which is unchanged.
+	 */
+	runs?: ScenarioRun[];
 	expectEvents: Expectation[];
 	expectRecord: Expectation[];
 	/** Stop the run when the nth event arrives, for the stop scenarios. */
@@ -93,7 +131,10 @@ export interface Scenario {
 }
 
 export interface ScenarioOutcome {
+	/** The last run's result, so a single-run file reads as it always did. */
 	result: RunResult;
+	/** One result per run, in order, with a resumed run's result replaced by its end. */
+	results: RunResult[];
 	events: RunEvent[];
 	/** Absent when the record could not be read or did not load. */
 	record?: LoadedRecord;
@@ -431,17 +472,35 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 		}
 	}
 
-	const rawModel = value["model"];
-	if (!Array.isArray(rawModel) || rawModel.length === 0) {
-		return bad("scenario.model must be a non-empty list of turns");
+	const rawRuns = value["runs"];
+	const runs = rawRuns === undefined ? undefined : decodeRuns(rawRuns);
+	if (runs !== undefined && !runs.ok) {
+		return runs;
 	}
+	const rawModel = value["model"];
 	const model: ScriptedTurn[] = [];
-	for (const [index, raw] of rawModel.entries()) {
-		const turn = decodeTurn(raw, `scenario.model[${index}]`);
-		if (!turn.ok) {
-			return turn;
+	if (rawModel !== undefined || runs === undefined) {
+		if (!Array.isArray(rawModel) || rawModel.length === 0) {
+			return bad("scenario.model must be a non-empty list of turns");
 		}
-		model.push(turn.value);
+		for (const [index, raw] of rawModel.entries()) {
+			const turn = decodeTurn(raw, `scenario.model[${index}]`);
+			if (!turn.ok) {
+				return turn;
+			}
+			model.push(turn.value);
+		}
+	}
+	if (runs !== undefined && value["abort_after"] !== undefined) {
+		// One controller is aborted once and stays aborted, so every segment after the
+		// stop would begin stopped. A stop belongs to one run rather than to a
+		// conversation, and a file cannot mean both.
+		return bad("scenario.abort_after cannot be combined with scenario.runs");
+	}
+	if (runs !== undefined && model.length > 0) {
+		// Two scripts for one file is ambiguous, and the silent winner would be whichever
+		// the runner happened to read, so the file says which it means.
+		return bad("scenario.model and scenario.runs cannot both be set");
 	}
 
 	const expectEvents = decodeExpectations(value["expect_events"], "scenario.expect_events");
@@ -465,6 +524,9 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	};
 	if (recipe.value !== undefined) {
 		scenario.recipe = recipe.value;
+	}
+	if (runs !== undefined && runs.ok) {
+		scenario.runs = runs.value;
 	}
 
 	const rawCompaction = value["compaction"];
@@ -671,6 +733,101 @@ export function matchScenarioRecord(
 	}
 }
 
+/**
+ * A file's `runs:` list, the shape that describes a conversation rather than one run
+ * (SCN07). The first step starts the run; every later step says how it continues,
+ * either by answering the request the run parked on or by beginning the next run
+ * with a follow-up. Two commands in one step are refused rather than guessed at.
+ */
+function decodeRuns(value: unknown): Result<ScenarioRun[]> {
+	if (!Array.isArray(value) || value.length === 0) {
+		return bad("scenario.runs must be a non-empty list of runs");
+	}
+	const runs: ScenarioRun[] = [];
+	for (const [index, raw] of value.entries()) {
+		const where = `scenario.runs[${index}]`;
+		if (!isPlainObject(raw)) {
+			return bad(`${where} must be an object`);
+		}
+		const followUp = optionalString(raw, "follow_up", where);
+		if (!followUp.ok) {
+			return followUp;
+		}
+		const hasAnswer = raw["answer"] !== undefined;
+		if (index === 0 && (followUp.value !== undefined || hasAnswer)) {
+			return bad(`${where} starts the run, so it cannot answer or follow up`);
+		}
+		if (followUp.value !== undefined && hasAnswer) {
+			return bad(`${where} cannot both answer and follow up`);
+		}
+
+		const rawModel = raw["model"];
+		if (!Array.isArray(rawModel) || rawModel.length === 0) {
+			return bad(`${where}.model must be a non-empty list of turns`);
+		}
+		const turns: ScriptedTurn[] = [];
+		for (const [turnIndex, rawTurn] of rawModel.entries()) {
+			const turn = decodeTurn(rawTurn, `${where}.model[${turnIndex}]`);
+			if (!turn.ok) {
+				return turn;
+			}
+			turns.push(turn.value);
+		}
+
+		const step: ScenarioRun = { model: turns };
+		if (followUp.value !== undefined) {
+			step.followUp = followUp.value;
+		}
+		if (hasAnswer) {
+			const answer = decodeAnswer(raw["answer"], `${where}.answer`);
+			if (!answer.ok) {
+				return answer;
+			}
+			step.answer = answer.value;
+		}
+		runs.push(step);
+	}
+	return ok(runs);
+}
+
+/** A person's answer, as a file spells it. One of a decision or a text is required. */
+function decodeAnswer(value: unknown, where: string): Result<ScenarioAnswer> {
+	if (!isPlainObject(value)) {
+		return bad(`${where} must be an object`);
+	}
+	const answer: ScenarioAnswer = {};
+	const text = optionalString(value, "text", where);
+	if (!text.ok) {
+		return text;
+	}
+	if (text.value !== undefined) {
+		answer.text = text.value;
+	}
+	const note = optionalString(value, "note", where);
+	if (!note.ok) {
+		return note;
+	}
+	if (note.value !== undefined) {
+		answer.note = note.value;
+	}
+	const decision = value["decision"];
+	if (decision !== undefined) {
+		if (decision !== "approve" && decision !== "deny") {
+			return bad(`${where}.decision must be approve or deny`);
+		}
+		answer.decision = decision;
+	}
+	if (answer.decision === undefined && answer.text === undefined) {
+		// An answer with neither decides nothing, and the run it was meant to continue
+		// would park again with no explanation.
+		return bad(`${where} must carry a decision or a text`);
+	}
+	if (answer.decision !== undefined && answer.text !== undefined) {
+		return bad(`${where} answers with both a decision and a text`);
+	}
+	return ok(answer);
+}
+
 /** The testkit recipes a scenario may name, by name. */
 const RECIPES = new Map([[timelineTestRecipe.name, timelineTestRecipe]]);
 
@@ -698,17 +855,59 @@ export interface ScenarioRunOptions {
  * request order, because a compaction folds older turns into a summary and the
  * conversation's length stops counting the turns that were taken.
  */
-function modelFor(scenario: Scenario, clock: FakeClock, options: ScenarioRunOptions): ModelSlot {
-	const compaction = scenario.compaction;
+function modelFor(
+	turns: readonly ScriptedTurn[],
+	compaction: ScenarioCompaction | undefined,
+	clock: FakeClock,
+	options: ScenarioRunOptions,
+): ModelSlot {
 	const settings: ScriptedModelOptions = { clock };
 	if (compaction !== undefined) {
 		settings.summaries = compaction.summaries;
 		settings.position = "sequence";
 	}
 	if (options.makeModel === undefined) {
-		return scriptedModel(scenario.model, settings);
+		return scriptedModel(turns, settings);
 	}
-	return options.makeModel(scenario.model, clock, settings);
+	return options.makeModel(turns, clock, settings);
+}
+
+/**
+ * The request a record is waiting for, or `undefined` when nothing is outstanding.
+ * A conversation file is driven at the wire levels by a harness that has only the
+ * record and the protocol, so this is how it finds the request to answer.
+ */
+export function outstandingRequestOf(record: LoadedRecord): string | undefined {
+	// One scan, so the runner and the wire harnesses cannot drift: a rule that grows
+	// in one of them would silently not hold in the other.
+	return outstandingRequest(record)?.id;
+}
+
+/** The request a run parked on, when the record has one still waiting for a person. */
+interface OutstandingRequest {
+	id: string;
+	parent: string | null;
+}
+
+function outstandingRequest(record: LoadedRecord): OutstandingRequest | undefined {
+	const answered = new Set(
+		record.entries.flatMap((entry) =>
+			entry.type === "request_answered" ? [entry.request] : [],
+		),
+	);
+	const open = record.entries.filter(
+		(entry): entry is Extract<RecordEntry, { type: "request" }> =>
+			entry.type === "request" && !answered.has(entry.request),
+	);
+	const last = open.at(-1);
+	if (last === undefined) {
+		return undefined;
+	}
+	// The answer hangs off the end of the record, not off the request: a resume reads
+	// the active path, and an entry branching from an older node would leave the
+	// park behind (the same rule the session's own answer writer follows).
+	const tail = record.entries.at(-1);
+	return { id: last.request, parent: tail?.id ?? last.id };
 }
 
 /**
@@ -762,6 +961,7 @@ export async function runScenario(
 ): Promise<ScenarioOutcome> {
 	const clock = fakeClock();
 	const storage = memoryStorage();
+	const ids = counterIds();
 	const events: RunEvent[] = [];
 	const controller = new AbortController();
 	const recipe = recipeFor(scenario, options);
@@ -795,69 +995,219 @@ export async function runScenario(
 						: { maxParallelCalls: recipe.maxParallelCalls }),
 				};
 
-	const running = runTask({
-		runId: "scenario",
-		task: recipe?.name ?? scenario.task,
-		host: "scenario",
-		input: recipe === undefined && typeof scenario.input === "string" ? scenario.input : "",
-		// The file's own compaction and cap first, so a recipe's settings win where it
-		// declares them: the file is a file about the host's run, and the host's run is
-		// the recipe.
-		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
-		...(scenario.maxParallelCalls === undefined
-			? {}
-			: { maxParallelCalls: scenario.maxParallelCalls }),
-		...recipeParts,
-		system: recipe?.instructions ?? scenario.system,
-		tools,
-		model: modelFor(scenario, clock, options),
-		storage,
-		clock,
-		ids: counterIds(),
-		// A scenario runs as a host where a person is reachable, so an `ask` policy
-		// parks the run rather than being denied (decision 35).
-		canAsk: true,
-		toolDeadlineMs: 60_000,
-		signal: controller.signal,
-		onEvent: (event) => {
-			events.push(event);
-			if (scenario.abortAfter !== undefined && events.length === scenario.abortAfter) {
-				controller.abort();
-			}
-		},
-	});
+	/**
+	 * One run, driven to its end on the fake clock. A scenario may use a slow tool or a
+	 * delay, so time is moved rather than waited.
+	 */
+	const runOnce = async (
+		runId: string,
+		turns: readonly ScriptedTurn[],
+		resume: { lines: readonly string[]; by: "person"; followUp?: string } | undefined,
+	): Promise<RunResult> => {
+		const running = runTask({
+			runId,
+			task: recipe?.name ?? scenario.task,
+			host: "scenario",
+			input: recipe === undefined && typeof scenario.input === "string" ? scenario.input : "",
+			// The file's own compaction and cap first, so a recipe's settings win where it
+			// declares them: the file is a file about the host's run, and the host's run is
+			// the recipe.
+			...(scenario.compaction === undefined
+				? {}
+				: { compaction: scenario.compaction.settings }),
+			...(scenario.maxParallelCalls === undefined
+				? {}
+				: { maxParallelCalls: scenario.maxParallelCalls }),
+			...recipeParts,
+			...(resume === undefined ? {} : { resume }),
+			system: recipe?.instructions ?? scenario.system,
+			tools,
+			model: modelFor(turns, scenario.compaction, clock, options),
+			storage,
+			clock,
+			ids,
+			// A scenario runs as a host where a person is reachable, so an `ask` policy
+			// parks the run rather than being denied (decision 35).
+			canAsk: true,
+			toolDeadlineMs: 60_000,
+			signal: controller.signal,
+			onEvent: (event) => {
+				events.push(event);
+				if (scenario.abortAfter !== undefined && events.length === scenario.abortAfter) {
+					controller.abort();
+				}
+			},
+		});
 
-	// A scenario may use a slow tool or a delay, so time is moved rather than waited.
-	let settled = false;
-	void running.then(
-		() => {
-			settled = true;
-		},
-		() => {
-			settled = true;
-		},
-	);
-	for (let tick = 0; tick < 200 && !settled; tick += 1) {
-		await Promise.resolve();
-		clock.advance(1_000);
-		await Promise.resolve();
+		let settled = false;
+		void running.then(
+			() => {
+				settled = true;
+			},
+			() => {
+				settled = true;
+			},
+		);
+		for (let tick = 0; tick < 200 && !settled; tick += 1) {
+			await Promise.resolve();
+			clock.advance(1_000);
+			await Promise.resolve();
+		}
+		return running;
+	};
+
+	const problems: string[] = [];
+	const results: RunResult[] = [];
+	// The decoder refuses this combination, but `Scenario` is public and a host can build
+	// one by hand, so the runner refuses it too: one controller is aborted once and stays
+	// aborted, and every segment after the stop would begin stopped (found in review on
+	// pull request #78, and the same reasoning as the empty-answer guard below).
+	if (scenario.runs !== undefined && scenario.abortAfter !== undefined) {
+		const error = {
+			code: "bad_request" as const,
+			message:
+				"scenario.abort_after and scenario.runs cannot both be set: a stop belongs to one run",
+		};
+		return {
+			result: {
+				reason: "failed",
+				error,
+				usage: { inputTokens: 0, outputTokens: 0 },
+				turns: 0,
+			},
+			results,
+			events,
+			problems: [error.message],
+		};
 	}
-	const result = await running;
+	/** How many assistant messages the conversation already holds, which is the position the scripted model reads. */
+	const answeredSoFar = async (): Promise<{ count: number } | { problem: string }> => {
+		// A record that cannot be read would make the padding wrong, and the next step
+		// would then consume the wrong turns: a model-script mismatch rather than the
+		// cause, so it is reported as the cause.
+		const saved = await storage.read();
+		if (!saved.ok) {
+			return { problem: `the record could not be read: ${saved.error.message}` };
+		}
+		const record = loadRecord(saved.value);
+		if (!record.ok) {
+			return { problem: `the record did not load: ${record.error.message}` };
+		}
+		return {
+			count: replayConversation(record.value.entries).filter(
+				(message) => message.role === "assistant",
+			).length,
+		};
+	};
+	// A file with no `runs:` is one run, exactly as it always was.
+	const steps: readonly ScenarioRun[] = scenario.runs ?? [{ model: scenario.model }];
+	// One session owns one record and therefore one run id: a follow-up continues that
+	// run as a new segment, which is what the record's header and the runtime's resume
+	// check allow (decision 44). A step is a segment, not a run of its own.
+	const runId = "scenario";
+
+	for (const [index, step] of steps.entries()) {
+		const first = index === 0;
+		if (!first) {
+			const previous = results.at(-1);
+			// A run waiting for a person is the session's `busy` rather than a run that
+			// can be followed up (CMD08), so the scenario stops with the run named instead
+			// of spending the step's turns on a run nobody started.
+			if (step.answer === undefined && previous?.parkedReason === "waiting_for_person") {
+				problems.push(
+					`the run is waiting_for_person after scenario.runs[${index - 1}], so scenario.runs[${index}] cannot start a new segment: answer it first`,
+				);
+				break;
+			}
+			if (step.answer !== undefined) {
+				const saved = await storage.read();
+				const record = saved.ok ? loadRecord(saved.value) : undefined;
+				if (record === undefined || !record.ok) {
+					problems.push(`scenario.runs[${index}].answer: the record could not be read`);
+					break;
+				}
+				const request = outstandingRequest(record.value);
+				if (request === undefined) {
+					problems.push(
+						`scenario.runs[${index}].answer answers a request, but no run is waiting for one`,
+					);
+					break;
+				}
+				const answered = await answerRequest(storage, ids, clock, request, step.answer);
+				if (answered !== undefined) {
+					problems.push(`scenario.runs[${index}].answer: ${answered}`);
+					break;
+				}
+			}
+		}
+
+		const resume = first
+			? undefined
+			: {
+					lines: storage.saved(),
+					by: "person" as const,
+					...(step.followUp === undefined ? {} : { followUp: step.followUp }),
+				};
+		// The scripted model answers by the position the turn would have in the
+		// conversation, so a resumed run's script starts after the turns the record
+		// already holds: a file says what happens next, not what happened before.
+		// The padding exists for the conversation-position model, which picks its reply by
+		// how much of the conversation is already written. A file that declares
+		// compaction is scripted by sequence instead, and each segment's model starts at
+		// its own turn 0, so padding there would be served as the segment's replies and
+		// the step would have to be nudged before it read its own script (found in review
+		// on pull request #78).
+		const positioned = scenario.compaction === undefined;
+		const alreadyAnswered = first || !positioned ? { count: 0 } : await answeredSoFar();
+		if ("problem" in alreadyAnswered) {
+			problems.push(`scenario.runs[${index}]: ${alreadyAnswered.problem}`);
+			break;
+		}
+		const turns = [...Array<ScriptedTurn>(alreadyAnswered.count).fill({}), ...step.model];
+		results.push(await runOnce(runId, turns, resume));
+	}
+
+	const last = results.at(-1);
+	if (last === undefined) {
+		// A file cannot reach this, because the decoder refuses an empty `runs:`; a host
+		// building a `Scenario` by hand can. Errors are data here, so it is a problem
+		// rather than an exception (found in review on pull request #78).
+		const error = {
+			code: "bad_request" as const,
+			message: "the scenario carries no run to make",
+		};
+		return {
+			result: {
+				reason: "failed",
+				error,
+				usage: { inputTokens: 0, outputTokens: 0 },
+				turns: 0,
+			},
+			results,
+			events,
+			problems: [error.message],
+		};
+	}
 
 	const saved = await storage.read();
 	if (!saved.ok) {
 		return {
-			result,
+			result: last,
+			results,
 			events,
 			problems: [`the record could not be read: ${saved.error.message}`],
 		};
 	}
 	const loaded = loadRecord(saved.value);
 	if (!loaded.ok) {
-		return { result, events, problems: [`the record did not load: ${loaded.error.message}`] };
+		return {
+			result: last,
+			results,
+			events,
+			problems: [`the record did not load: ${loaded.error.message}`],
+		};
 	}
 
-	const problems: string[] = [];
 	for (const note of loaded.value.notes) {
 		problems.push(`the record needed a note at line ${note.line}: ${note.problem}`);
 	}
@@ -867,8 +1217,39 @@ export async function runScenario(
 	// the run's own ending is worth stating when it is unexpected.
 	if (problems.length > 0) {
 		problems.push(
-			`the run ended ${result.reason}${result.parkedReason === undefined ? "" : ` (${result.parkedReason})`} after ${result.turns} turn(s); last event: ${describeEvent(events.at(-1))}`,
+			`the run ended ${last.reason}${last.parkedReason === undefined ? "" : ` (${last.parkedReason})`} after ${last.turns} turn(s); last event: ${describeEvent(events.at(-1))}`,
 		);
 	}
-	return { result, events, record: loaded.value, problems };
+	return { result: last, results, events, record: loaded.value, problems };
+}
+
+/** Write the person's answer into the record, the way a session writes one. */
+async function answerRequest(
+	storage: MemoryStorage,
+	ids: Ids,
+	clock: FakeClock,
+	request: OutstandingRequest,
+	answer: ScenarioAnswer,
+): Promise<string | undefined> {
+	if (answer.decision === undefined && answer.text === undefined) {
+		// The decoder refuses this, so only a hand-built Scenario reaches here, and a
+		// decision nobody asked for would be worse than saying the answer is empty.
+		return "the answer carries neither a decision nor a text";
+	}
+	const entry: Record<string, unknown> = {
+		type: "request_answered",
+		id: ids.next("e"),
+		parent: request.parent,
+		ts: clock.now(),
+		request: request.id,
+		decision: answer.decision ?? "approve",
+	};
+	if (answer.note !== undefined) {
+		entry["note"] = answer.note;
+	}
+	if (answer.text !== undefined) {
+		entry["text"] = answer.text;
+	}
+	const saved = await storage.append(JSON.stringify(entry));
+	return saved.ok ? undefined : `the answer could not be saved: ${saved.error.message}`;
 }

@@ -10,6 +10,14 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- A scenario file can describe a conversation rather than one run: a `runs:` list whose first step starts
+  the run and whose later steps answer the request the run parked on or carry the person's follow-up, each
+  with its own script (issues #60 and #73, SCN07 to SCN09). A single-run file is unchanged, and every level
+  drives the steps as real commands — in-process, the fake server, HTTP and the socket. **Upgrading:**
+  `ScenarioOutcome` gained `results`, and `Scenario` gained an optional `runs`; nothing that existed changed
+  shape. `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are exported from the testkit, so a host
+  that drives a conversation file through its own adapter can name the steps and find the open request
+  without re-implementing the scan.
 - `message_end` carries the model's thinking trace as `reasoning` when a reply has one, so a connected client
   can show it while the run happens instead of only after a reload. The field is the string the record's
   assistant entry holds: absent when there was none, and the cut string when the entry cap cut it, so the

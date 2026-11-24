@@ -8,6 +8,40 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+## Playground prerequisite 2, a conversation scenario (#73), 2026-11-24
+
+- **A "second run" is a segment of the first.** Issue #73 and the playground plan both say two runs in one
+  session, and the domain says otherwise: a session owns one record and one run id, so a follow-up continues
+  that run as a new segment (decision 44; the runtime refuses a record from another run with `the record
+  belongs to another run`). The file keeps that vocabulary — `follow_up:` and `answer:` steps — and the row
+  says `resumed` segments rather than rival runs, because that is what a client sees. It also means
+  `ScenarioOutcome.results` is one entry per step, not per new run.
+- **The scripted model answers by position in the conversation, not by call count.** A resumed segment's
+  script has to begin where the record left off, so `runScenario` pads each step's turns by the assistant
+  messages already saved, and the workerd harness lays the segments end to end. The first version of the
+  scenario file gave a segment one turn where it needed two (a tool call and the reply after its result),
+  which only the HTTP and socket levels caught: in-process padding hid it.
+- **The wire levels drive the steps as commands, not as a shortcut.** HTTP sends `ui_response` and
+  `follow_up` on one open event stream, and the socket sends the same frames on the open socket, so a
+  conversation file proves the protocol carries a conversation rather than proving the testkit can. The open
+  stream matters: a segment that ends quickly sent its live-only events before a per-segment stream had
+  attached, which is how the missing turn first looked like a bare `failed` with no error on the wire.
+- **Padding is for the conversation-position model only.** `pi-review` found that a file declaring
+  `compaction:` is scripted by sequence position, and each segment's model starts at its own turn 0, so
+  the padding a resumed segment needs in position mode was served as that segment's replies: the run had
+  to be nudged with a reminder before it read its own script. The padding is now skipped when a file
+  declares compaction, which is the one place the two modes differ. The first test for it passed either
+  way, because a nudge still ends `done`; the assertion that catches it is that the record holds no
+  `reminder` entry.
+- **The step types are public on purpose.** `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are
+  on the testkit's surface rather than internal, because decision 67's whole point is that a host runs the
+  files through its own adapter: without them, Lattice would re-implement the request scan and the two
+  copies would drift (found in review on #78). `abort_after` with `runs:` is refused instead: one
+  controller is aborted once and stays aborted, so every later segment would begin stopped.
+- **`answer:` has no way to name a request id.** A file cannot guess a 128-bit id and does not need to: the
+  step answers the request outstanding in the record, which `outstandingRequestOf` finds. The bad case is
+  therefore a malformed answer (SCN09), while an answer with nothing outstanding is reported as a problem
+  naming the step.
 ## Playground prerequisite 3, `message_end.reasoning`, 2026-11-24
 
 - **The live event is announced from the fitted entry, not from the reply.** `message_end` used to carry

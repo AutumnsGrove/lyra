@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
+import type { DurableObjectStub } from "@cloudflare/workers-types";
 import { expect, test } from "vitest";
 import { parse } from "yaml";
 
@@ -8,6 +9,9 @@ import {
 	decodeScenario,
 	matchScenarioEvents,
 	matchScenarioRecord,
+	outstandingRequestOf,
+	type ScenarioAnswer,
+	type ScenarioRun,
 } from "../../testkit/scenario.js";
 import fixture from "./testing/fixture-worker.testing.js";
 import type { TestSession } from "./testing/session-class.testing.js";
@@ -138,7 +142,20 @@ for (const [path, raw] of Object.entries(files)) {
 					})()
 				: Promise.resolve();
 
-		const frames = await readEvents(session, scenario.abortAfter);
+		// A conversation file is several segments of one run, so each later step is a
+		// real command on the wire, sent when the segment before it ends: the same door
+		// a browser uses, not a shortcut through the object.
+		const steps: readonly ScenarioRun[] = scenario.runs ?? [];
+		let segment = 1;
+		const frames = await readEvents(session, scenario.abortAfter, async () => {
+			const next = steps[segment];
+			segment += 1;
+			if (next === undefined) {
+				return false;
+			}
+			await sendStep(next, session, stub);
+			return true;
+		});
 		ended = true;
 		await drive;
 
@@ -160,12 +177,63 @@ for (const [path, raw] of Object.entries(files)) {
 	});
 }
 
+/** Send one conversation step as the person would: an answer, or a follow-up. */
+async function sendStep(
+	step: ScenarioRun,
+	session: string,
+	stub: DurableObjectStub,
+): Promise<void> {
+	if (step.answer !== undefined) {
+		const lines = await runInDurableObject(stub, (instance: TestSession) => instance.lines());
+		const loaded = loadRecord(lines);
+		if (!loaded.ok) {
+			throw new Error(`the record did not load: ${loaded.error.message}`);
+		}
+		const request = outstandingRequestOf(loaded.value);
+		if (request === undefined) {
+			throw new Error("the step answers a request, and the record holds none");
+		}
+		const answered = await post("/v1/ui_response", uiResponse(session, request, step.answer));
+		expect(answered.status).toBe(200);
+	}
+	if (step.followUp !== undefined) {
+		const followed = await post("/v1/commands", {
+			type: "command",
+			id: `follow-${session}`,
+			command: "follow_up",
+			session,
+			text: step.followUp,
+		});
+		expect(followed.status).toBe(200);
+	}
+}
+
+function uiResponse(
+	session: string,
+	request: string,
+	answer: ScenarioAnswer,
+): Record<string, unknown> {
+	return {
+		type: "ui_response",
+		id: `answer-${request}`,
+		session,
+		request,
+		ok: answer.decision !== "deny",
+		...(answer.note === undefined ? {} : { note: answer.note }),
+		...(answer.text === undefined ? {} : { text: answer.text }),
+	};
+}
+
 /**
  * The events of a run as they arrive, aborting when a file says so, until one
  * segment ends. The abort lands on the same event the in-process runner stops at,
  * because the protocol keeps the same order for the events a file names.
  */
-async function readEvents(session: string, abortAfter: number | undefined): Promise<Frame[]> {
+async function readEvents(
+	session: string,
+	abortAfter: number | undefined,
+	onSegmentEnd?: () => Promise<boolean>,
+): Promise<Frame[]> {
 	const response = await get(`/v1/events?session=${session}`, "0");
 	expect(response.status).toBe(200);
 	const body = response.body;
@@ -203,6 +271,12 @@ async function readEvents(session: string, abortAfter: number | undefined): Prom
 				expect(aborted.status).toBe(200);
 			}
 			if (frame.event.type === "run_end") {
+				// A conversation file is several segments of one run, and the stream stays
+				// open across them the way a browser's does: the next command goes out
+				// here, and the events of the next segment arrive on the same stream.
+				if (onSegmentEnd !== undefined && (await onSegmentEnd())) {
+					continue;
+				}
 				await reader.cancel();
 				return frames;
 			}

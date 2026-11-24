@@ -701,3 +701,330 @@ describe("the scenario runner's clock", () => {
 		expect(outcome.result.reason).toBe("done");
 	});
 });
+
+/** A raw file, the way a YAML file reaches `decodeScenario`. */
+function file(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		name: "a conversation",
+		task: "scenario-conversation",
+		input: "write a line, then read it back",
+		tools: [{ name: "write", behavior: "ok", policy: "ask", content: "wrote one line" }],
+		model: [{ tool_calls: [{ id: "c1", name: "finish" }] }],
+		...overrides,
+	};
+}
+
+test("SCN07 a scenario carries a conversation: two runs with an approval answered between them", async () => {
+	// The shape #60's acceptance list asks for, and the one a chat page has: a run, a
+	// person answering it, and the person's next word starting another run, all
+	// asserted over the session's record rather than only the last run's.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					answer: { decision: "approve" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+				{
+					follow_up: "read it back",
+					model: [{ tool_calls: [{ id: "c3", name: "finish" }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+			expect_record: [
+				{ type: "user_message", label: "task" },
+				{ type: "request", kind: "approve" },
+				{ type: "request_answered", decision: "approve" },
+				{ type: "tool_message", toolCallId: "c1", content: "wrote one line" },
+				{ type: "user_message", label: "follow_up", text: "read it back" },
+			],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done", "done"]);
+	// A session owns one record and one run id, so the answer and the follow-up are
+	// new segments of the same run rather than rival runs (decision 44). The record
+	// says so: two `resumed` statuses, and every event names the one run.
+	const resumed = outcome.record?.entries.filter(
+		(entry) => entry.type === "status" && entry.state === "resumed",
+	);
+	expect(resumed).toHaveLength(2);
+	expect(new Set(outcome.events.map((event) => event.run))).toEqual(new Set(["scenario"]));
+});
+
+test("SCN07 a question is answered with text, and the run carries on from it", async () => {
+	// The other half of `answer:`: a decision answers an approval, and this is what a
+	// person types into a question. `scenarios/conversation.yaml` drives the same shape
+	// at all four levels, so this is the in-process case beside it.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			tools: [
+				{
+					name: "choose",
+					behavior: "ask",
+					question: { title: "which note", message: "which note should I read?" },
+				},
+			],
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "choose", args: {} }] }] },
+				{
+					answer: { text: "the second one" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish", args: {} }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+			expect_record: [
+				{ type: "request", kind: "question" },
+				{ type: "request_answered", text: "the second one", decision: "approve" },
+				{ type: "tool_message", toolCallId: "c1", isError: false },
+				{ type: "status", state: "done" },
+			],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done"]);
+});
+
+test("SCN07 a conversation that also declares compaction still scripts each segment", async () => {
+	// Declaring `compaction:` alone switches the scripted model to sequence position, where
+	// a fresh model per segment starts at its own turn 0. The padding that a resumed
+	// segment needs in position mode would then be served as that segment's replies, and
+	// the step would end stuck (found in review on pull request #78).
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			// A summary script is required by the decoder even though no cut happens here.
+			compaction: { settings: {}, summaries: [{ text: "a summary nobody asks for" }] },
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					answer: { decision: "approve" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done"]);
+	// Served an empty padding turn, the run nudges the model with a reminder instead of
+	// reading the segment's own script first, and this is what catches that.
+	const reminders = outcome.record?.entries.filter(
+		(entry) => entry.type === "user_message" && entry.label === "reminder",
+	);
+	expect(reminders).toEqual([]);
+});
+
+test("SCN08 a run that parks with nobody to answer it is named in the report", async () => {
+	// A follow-up while the run is still waiting for a person is the session's `busy`
+	// (CMD08), so the scenario must say which run is waiting rather than let a second
+	// run go on top of it.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					follow_up: "never mind",
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+			],
+			expect_events: [
+				{ type: "run_end", reason: "parked", parked_reason: "waiting_for_person" },
+			],
+			expect_record: [{ type: "request", kind: "approve" }],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems.join(" ")).toMatch(/scenario\.runs\[0\]/);
+	expect(outcome.problems.join(" ")).toMatch(/waiting_for_person/);
+	// The follow-up never ran: its model turns were not spent.
+	expect(outcome.results).toHaveLength(1);
+});
+
+test("SCN09 a malformed runs list is refused with the field named", () => {
+	const refusals: Array<[Record<string, unknown>, RegExp]> = [
+		[{ runs: [] }, /runs/],
+		// The first step starts the run; there is nothing for it to continue.
+		[{ runs: [{ follow_up: "hello", model: [{ text: "hi" }] }] }, /runs\[0\]/],
+		// Two commands in one step is ambiguous: does it answer, or start a new run?
+		[
+			{
+				runs: [
+					{ model: [{ text: "hi" }] },
+					{
+						answer: { decision: "approve" },
+						follow_up: "and again",
+						model: [{ text: "hi" }],
+					},
+				],
+			},
+			/runs\[1\]/,
+		],
+		// A step with no script has nothing to say when it resumes.
+		[{ runs: [{ model: [{ text: "hi" }] }, { follow_up: "again" }] }, /model/],
+		// An answer that carries neither a decision nor a text answers nothing.
+		[
+			{ runs: [{ model: [{ text: "hi" }] }, { answer: {}, model: [{ text: "hi" }] }] },
+			/runs\[1\]\.answer/,
+		],
+	];
+
+	// Two scripts, or two answers, in one place: neither has a winner, so neither is
+	// guessed at. The rival cases above never reach these checks because their `runs:`
+	// list is refused first, which is why they are listed separately here.
+	refusals.push([
+		{
+			model: [{ tool_calls: [{ id: "c1", name: "finish" }] }],
+			runs: [{ model: [{ text: "hi" }] }],
+		},
+		/scenario\.model and scenario\.runs/,
+	]);
+	refusals.push([
+		{
+			model: undefined,
+			runs: [
+				{ model: [{ text: "hi" }] },
+				{ answer: { decision: "approve", text: "x" }, model: [{ text: "hi" }] },
+			],
+		},
+		/runs\[1\]\.answer/,
+	]);
+	// One controller is aborted once and stays aborted, so a stop and a conversation
+	// cannot both be meant.
+	refusals.push([
+		{
+			model: undefined,
+			abort_after: 3,
+			runs: [{ model: [{ text: "hi" }] }, { follow_up: "again", model: [{ text: "hi" }] }],
+		},
+		/abort_after/,
+	]);
+
+	for (const [overrides, pattern] of refusals) {
+		const decoded = decodeScenario(file(overrides));
+		expect(decoded.ok, JSON.stringify(overrides)).toBe(false);
+		if (!decoded.ok) {
+			expect(decoded.error.code).toBe("bad_request");
+			expect(decoded.error.message).toMatch(pattern);
+		}
+	}
+});
+
+test("SCN03 a single-run file still decodes, and a conversation needs no top-level model", () => {
+	const single = decodeScenario(file());
+	expect(single.ok).toBe(true);
+	if (single.ok) {
+		expect(single.value.runs).toBeUndefined();
+	}
+
+	const conversation = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ text: "first" }] },
+				{ follow_up: "again", model: [{ text: "second" }] },
+			],
+		}),
+	);
+	expect(conversation.ok).toBe(true);
+	if (conversation.ok) {
+		expect(conversation.value.runs).toHaveLength(2);
+		expect(conversation.value.runs?.[1]?.followUp).toBe("again");
+	}
+});
+
+test("SCN07 a host can name the conversation types and find the open request from the entry point", async () => {
+	// The testkit is published so a host runs the files itself (decision 67), and a host
+	// that drives a conversation file needs the step types and the same scan the runner
+	// uses. Nothing else fails if these fall off the index, which is why they are named
+	// here (found in review on pull request #78).
+	const surface = await import("./index.js");
+	const steps: import("./index.js").ScenarioRun[] = [
+		{ model: [{ toolCalls: [{ id: "c1", name: "finish" }] }] },
+		{
+			answer: { text: "the second one" } satisfies import("./index.js").ScenarioAnswer,
+			model: [{ toolCalls: [{ id: "c2", name: "finish" }] }],
+		},
+	];
+	expect(surface.outstandingRequestOf).toBeTypeOf("function");
+	expect(surface.runScenario).toBeTypeOf("function");
+	expect(steps).toHaveLength(2);
+});
+
+test("SCN08 an answer built without the decoder is reported, not recorded as a deny", async () => {
+	// `Scenario` is public, so a host can build one in TypeScript and skip the decoder.
+	// A decision nobody asked for would then enter the record, so the runner says the
+	// answer is empty instead (found in review on pull request #78).
+	const hand: Scenario = scenario({
+		tools: [{ name: "write", behavior: "ok", policy: "ask", content: "wrote one line" }],
+		model: [],
+		runs: [
+			{ model: [{ toolCalls: [{ id: "c1", name: "write", args: {} }] }] },
+			{ answer: {}, model: [{ toolCalls: [{ id: "c2", name: "finish" }] }] },
+		],
+	});
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/neither a decision nor a text/);
+	expect(outcome.results).toHaveLength(1);
+	const answered = outcome.record?.entries.filter((entry) => entry.type === "request_answered");
+	expect(answered).toEqual([]);
+});
+
+test("SCN08 a hand-built Scenario cannot stop and converse at once", async () => {
+	// The decoder refuses the combination, so only a host building a `Scenario` in
+	// TypeScript reaches this, and one controller aborted in the first segment would
+	// leave every later one stopped before it began (found in review on pull request #78).
+	const hand: Scenario = scenario({
+		model: [{ toolCalls: [{ id: "c1", name: "finish" }] }],
+		runs: [
+			{ model: [{ toolCalls: [{ id: "c1", name: "finish" }] }] },
+			{ followUp: "again", model: [{ toolCalls: [{ id: "c2", name: "finish" }] }] },
+		],
+		abortAfter: 2,
+	});
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/abort_after and scenario\.runs/);
+	expect(outcome.results).toEqual([]);
+	expect(outcome.events).toEqual([]);
+});
+
+test("SCN08 a hand-built Scenario with no runs is a problem, not an exception", async () => {
+	// The decoder refuses an empty list, so only a host building the type can reach this,
+	// and the rest of the module reports rather than throws (found in review on pull
+	// request #78).
+	const hand: Scenario = scenario({ runs: [] });
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/no run to make/);
+	expect(outcome.results).toEqual([]);
+	expect(outcome.result.reason).toBe("failed");
+});
