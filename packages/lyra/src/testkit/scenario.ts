@@ -1058,6 +1058,28 @@ export async function runScenario(
 
 	const problems: string[] = [];
 	const results: RunResult[] = [];
+	// The decoder refuses this combination, but `Scenario` is public and a host can build
+	// one by hand, so the runner refuses it too: one controller is aborted once and stays
+	// aborted, and every segment after the stop would begin stopped (found in review on
+	// pull request #78, and the same reasoning as the empty-answer guard below).
+	if (scenario.runs !== undefined && scenario.abortAfter !== undefined) {
+		const error = {
+			code: "bad_request" as const,
+			message:
+				"scenario.abort_after and scenario.runs cannot both be set: a stop belongs to one run",
+		};
+		return {
+			result: {
+				reason: "failed",
+				error,
+				usage: { inputTokens: 0, outputTokens: 0 },
+				turns: 0,
+			},
+			results,
+			events,
+			problems: [error.message],
+		};
+	}
 	/** How many assistant messages the conversation already holds, which is the position the scripted model reads. */
 	const answeredSoFar = async (): Promise<{ count: number } | { problem: string }> => {
 		// A record that cannot be read would make the padding wrong, and the next step

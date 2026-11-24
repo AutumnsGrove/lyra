@@ -997,3 +997,22 @@ test("SCN08 an answer built without the decoder is reported, not recorded as a d
 	const answered = outcome.record?.entries.filter((entry) => entry.type === "request_answered");
 	expect(answered).toEqual([]);
 });
+
+test("SCN08 a hand-built Scenario cannot stop and converse at once", async () => {
+	// The decoder refuses the combination, so only a host building a `Scenario` in
+	// TypeScript reaches this, and one controller aborted in the first segment would
+	// leave every later one stopped before it began (found in review on pull request #78).
+	const hand: Scenario = scenario({
+		model: [{ toolCalls: [{ id: "c1", name: "finish" }] }],
+		runs: [
+			{ model: [{ toolCalls: [{ id: "c1", name: "finish" }] }] },
+			{ followUp: "again", model: [{ toolCalls: [{ id: "c2", name: "finish" }] }] },
+		],
+		abortAfter: 2,
+	});
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/abort_after and scenario\.runs/);
+	expect(outcome.results).toEqual([]);
+	expect(outcome.events).toEqual([]);
+});
