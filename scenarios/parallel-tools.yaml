@@ -1,0 +1,26 @@
+name: a group of calls that finish out of order is saved in call order
+task: scenario-parallel-tools
+input: read three pages, then finish
+tools:
+  - { name: slow, behavior: slow, ms: 300, parallel: true }
+  - { name: quick, behavior: ok, content: the quick page, parallel: true }
+  - { name: medium, behavior: slow, ms: 200, parallel: true }
+model:
+  - tool_calls:
+      - { id: c1, name: slow, args: {} }
+      - { id: c2, name: quick, args: {} }
+      - { id: c3, name: medium, args: {} }
+  - tool_calls: [{ id: c4, name: finish, args: {} }]
+expect_events:
+  - { type: run_start }
+  - { type: tool_end, call_id: c1, is_error: false }
+  - { type: tool_end, call_id: c2, is_error: false }
+  - { type: tool_end, call_id: c3, is_error: false }
+  - { type: tool_end, call_id: c4, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: user_message, label: task }
+  - { type: tool_message, toolCallId: c1, isError: false, content: slow finished after 300ms }
+  - { type: tool_message, toolCallId: c2, isError: false, content: the quick page }
+  - { type: tool_message, toolCallId: c3, isError: false, content: medium finished after 200ms }
+  - { type: status, state: done }

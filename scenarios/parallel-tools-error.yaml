@@ -1,0 +1,23 @@
+name: one call in a group fails and the calls beside it still answer
+task: scenario-parallel-error
+input: read what you can, then finish
+tools:
+  - { name: slow, behavior: slow, ms: 200, parallel: true }
+  - { name: refuse, behavior: error, content: the provider said no, parallel: true }
+  - { name: quick, behavior: ok, content: the quick page, parallel: true }
+model:
+  - tool_calls:
+      - { id: c1, name: slow, args: {} }
+      - { id: c2, name: refuse, args: {} }
+      - { id: c3, name: quick, args: {} }
+  - tool_calls: [{ id: c4, name: finish, args: {} }]
+expect_events:
+  - { type: tool_end, call_id: c1, is_error: false }
+  - { type: tool_end, call_id: c2, is_error: true }
+  - { type: tool_end, call_id: c3, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: tool_message, toolCallId: c1, isError: false }
+  - { type: tool_message, toolCallId: c2, isError: true, content: the provider said no }
+  - { type: tool_message, toolCallId: c3, isError: false, content: the quick page }
+  - { type: status, state: done }
