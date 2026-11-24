@@ -278,3 +278,32 @@ test("REC04 an entry whose marker-only line fits is cut, not refused", () => {
 	expect(fitted.refused).toBeUndefined();
 	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(201);
 });
+
+test("REC02 a field that loses everything it held is removed, not left as an empty string", () => {
+	// Both fields are over the cap on their own, so the reason reasoning goes whole:
+	// emptying it cannot make room, and its bytes join the total. What it must not do
+	// is leave `reasoning: ""`, because a client reading the record then cannot tell
+	// an empty trace from no trace at all (EVT09, found in review on pull request #76).
+	const entry: RecordEntry = {
+		type: "assistant_message",
+		id: "e2",
+		parent: "e1",
+		ts: START,
+		text: "t".repeat(2_000),
+		reasoning: "r".repeat(2_000),
+		toolCalls: [{ id: "c1", name: "finish", arguments: "{}" }],
+		model: "fake/model",
+		usage: { inputTokens: 1, outputTokens: 1 },
+		finishReason: "tool_calls",
+	};
+
+	const fitted = fitEntry(entry, 1_024);
+	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(1_024);
+	if (fitted.entry.type !== "assistant_message") {
+		throw new Error("the fitted entry is not an assistant message");
+	}
+	expect(fitted.entry).not.toHaveProperty("reasoning");
+	// The bytes it lost are still counted, and the marker names the field that was cut.
+	expect(fitted.entry.truncated?.droppedBytes).toBeGreaterThan(2_000);
+	expect(fitted.entry.text).toMatch(/truncated/);
+});

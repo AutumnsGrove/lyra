@@ -119,7 +119,7 @@ the format (decision 30).
 | ID | Case | Expected |
 |---|---|---|
 | REC01 | A tool result larger than the entry cap | Saved truncated, with a marker giving the bytes dropped |
-| REC02 | Reasoning text or proposal evidence larger than the cap | Saved truncated, with a marker |
+| REC02 | Reasoning text or proposal evidence larger than the cap | Saved truncated, with a marker. A field the record does not require — the reasoning trace — is **removed** when it loses everything it held and cannot make room by emptying, rather than left as `""`, so a reader can tell an empty trace from no trace at all (EVT09) |
 | REC03 | A user message larger than the cap | `bad_request`, nothing saved |
 | REC04 | Any oversized input | The save never fails and the run does not fail for size: content is cut to fit, and only an entry whose *structure* alone is over the cap — counting the truncation marker it would need — is refused, with the reason said out loud |
 | REC05 | Resume with the same tool-set hash, version and instructions hash | Continues, with no extra entry |

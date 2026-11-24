@@ -1,0 +1,25 @@
+# EVT08, at every level: this file runs in-process, through the fake model server, over HTTP and
+# over the socket, so a trace a client can see is asserted on the wire and not only in the core.
+name: a reply's thinking trace reaches the client
+task: scenario-reasoning
+input: read the issue, then say what it says
+tools:
+  - { name: read, behavior: ok, content: the issue body }
+model:
+  - reasoning: The task asks what is in the issue, so read it before answering.
+    tool_calls: [{ id: c1, name: read, args: { number: 1 } }]
+  - reasoning: The body says one thing, and that is the answer.
+    tool_calls: [{ id: c2, name: finish, args: {} }]
+expect_events:
+  - { type: run_start }
+  - {
+      type: message_end,
+      reasoning: "The task asks what is in the issue, so read it before answering.",
+    }
+  - { type: tool_end, call_id: c2, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - type: assistant_message
+    finish_reason: tool_calls
+    reasoning: The task asks what is in the issue, so read it before answering.
+  - { type: status, state: done }

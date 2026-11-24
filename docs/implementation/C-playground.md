@@ -115,7 +115,7 @@ their record; the slices cite it as the authority, so if they belong on the issu
 1. **#59: a host runs its own recipe through a scenario file.** `runScenario` only knows `timeline-test`, so
    the playground's recipes cannot be asserted by scenario files at all — the acceptance table below would
    have to be re-implemented in TypeScript, which is the copy that drifts. One `ScenarioRunOptions.recipes`
-   map, as #59 proposes. **This is the first thing to build.**
+   map, as #59 proposes. **Landed as pull request #71 on 2026-11-24.**
 2. **A scenario that drives one session through several runs.** #60's Decided comment asks for a
    conversation scenario in the acceptance list, and the runner cannot express one today: `runScenario`
    calls `runTask` exactly once and a `Scenario` has no follow-up, steer or answer field
@@ -123,12 +123,14 @@ their record; the slices cite it as the authority, so if they belong on the issu
    so this is its own small change: a `runs:` list with the commands between them, and the assertions over
    the session's whole record. Until it exists, no *scenario file* can carry more than one run: the
    protocol suite already drives a second run in a session (CMD05), and the smoke job's second run in
-   Slice 7 is the other multi-run check, which is one case rather than a file. **Issue #73, in review:**
-   a `runs:` list, with the wire levels driving the steps as real commands.
+   Slice 7 is the other multi-run check, which is one case rather than a file. **Issue #73, pull request
+   #78:** a `runs:` list, with the wire levels driving the steps as real commands.
 3. **The live trace.** `run.ts` saves `reasoning` on the assistant entry, but `message_end` carries only
    `text` and `toolCalls`, so a live client can only show a trace by re-reading the record. Add
-   `reasoning?` to the `message_end` event and to the protocol's projection, with rows in `docs/core-loop.md`
-   and `docs/protocol.md`. Small, and it is Lyra's, not the playground's.
+   `reasoning?` to the `message_end` event and to the protocol's projection, with rows in
+   `docs/protocol.md` (an event's rows live with the other events, not in `docs/core-loop.md`) and a
+   scenario file so a client sees it at every level. Small, and it is Lyra's, not the playground's.
+   **Issue #74, pull request #76: EVT08 to EVT10 and `scenarios/reasoning-trace.yaml`.**
 
 ## The package
 
