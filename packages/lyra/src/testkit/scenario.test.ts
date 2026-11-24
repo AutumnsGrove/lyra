@@ -217,6 +217,69 @@ test("SCN06 a recipe's stuck settings reach the run", async () => {
 	);
 });
 
+test("SCN06 the recipe's compaction wins over the file's", async () => {
+	// The file's compaction is one that cuts a short run; the recipe's never cuts. The
+	// file's settings are only a default for a scenario with no recipe, so the run must
+	// end without a single compaction (found in review: the file's spread came later
+	// and silently reversed the order).
+	const host = defineRecipe({
+		name: "long-memory",
+		version: 1,
+		instructions: "read the file, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read it", state: {} }),
+		tools: [
+			toolReturning("read", "the file, all of it", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		compaction: { contextWindow: 1_000_000, reserveTokens: 1_000, keepTokens: 20_000 },
+	});
+	const decoded = decodeScenario({
+		name: "a file whose compaction should not be used",
+		task: "long-memory",
+		input: {},
+		recipe: "long-memory",
+		compaction: {
+			context_window: 600,
+			reserve_tokens: 100,
+			keep_tokens: 2,
+			summaries: [{ text: "a summary the run must never ask for" }],
+		},
+		model: [
+			{
+				tool_calls: [{ id: "c1", name: "read", args: {} }],
+				usage: { input_tokens: 400, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c2", name: "read", args: {} }],
+				usage: { input_tokens: 450, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c3", name: "read", args: {} }],
+				usage: { input_tokens: 500, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c4", name: "read", args: {} }],
+				usage: { input_tokens: 550, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c5", name: "finish", args: {} }],
+				usage: { input_tokens: 600, output_tokens: 10 },
+			},
+		],
+		expect_events: [{ type: "run_end", reason: "done" }],
+		expect_record: [{ type: "status", state: "done" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	expect(outcome.record?.entries.some((entry) => entry.type === "compaction")).toBe(false);
+});
+
 test("SCN06 a host's map wins over the testkit's when both have the name", async () => {
 	// The precedence the doc comment and the rows claim, which a map keyed on a name
 	// only the testkit has would never show.

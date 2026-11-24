@@ -748,7 +748,6 @@ export async function runScenario(
 		// A scenario runs as a host where a person is reachable, so an `ask` policy
 		// parks the run rather than being denied (decision 35).
 		canAsk: true,
-		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
 		toolDeadlineMs: 60_000,
 		signal: controller.signal,
 		onEvent: (event) => {
