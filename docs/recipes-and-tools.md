@@ -164,6 +164,11 @@ scenario without a `recipe` keeps step 1's shape: inline `tools:` and a text `in
 loop's own scenarios still use. A `recipe` and `tools` together are refused, so a file cannot say two
 things about what runs.
 
+A host brings its own recipe rather than re-implementing the cases in TypeScript against it: `runScenario`
+takes a `recipes` map that is consulted before the testkit's own, and `decodeScenario` accepts any recipe
+name, because what a file looks like is the file's business and which recipes exist is the host's (issue
+#59, SCN06). A name nobody provided throws, naming it and the recipes that were available.
+
 The scenario files are in `scenarios/`: the bad repo from `engineering-practices.md`, a refused then
 accepted `finish`, a vine on a missing line, a citation of another repo's commit, and an argument of the
 wrong type. The resume row is `RSM07` in [`limits-and-interruptions.md`](limits-and-interruptions.md).

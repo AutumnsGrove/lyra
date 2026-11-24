@@ -22,6 +22,7 @@ import { isFinishReason } from "../core/decode-reply.js";
 import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
 import { runTask, type RunResult } from "../core/run.js";
+import type { Recipe } from "../core/define-recipe.js";
 import type { Tool } from "../core/tool.js";
 import { counterIds } from "../adapters/memory/ids.js";
 import { memoryStorage } from "../adapters/memory/storage.js";
@@ -329,8 +330,12 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	if (!recipe.ok) {
 		return recipe;
 	}
-	if (recipe.value !== undefined && !RECIPES.has(recipe.value)) {
-		return bad(`scenario.recipe must be one of ${[...RECIPES.keys()].join(", ")}`);
+	// The name is not checked here: a host brings its own recipe to `runScenario`,
+	// and the decoder only knows what a file looks like (issue #59). An empty name is
+	// still a malformed file, and a name nobody provided is the host's mistake, which
+	// `runScenario` says out loud rather than reporting as a scenario that failed.
+	if (recipe.value !== undefined && recipe.value.trim() === "") {
+		return bad("scenario.recipe must be a recipe's name");
 	}
 	if (recipe.value === undefined && typeof rawInput !== "string") {
 		return bad("scenario.input must be a string when no recipe is named");
@@ -608,6 +613,12 @@ const RECIPES = new Map([[timelineTestRecipe.name, timelineTestRecipe]]);
 
 export interface ScenarioRunOptions {
 	/**
+	 * A host's own recipes, by name, consulted before the testkit's own (SCN06). A
+	 * scenario file names a recipe by name, so a host passes the same map its runtime
+	 * uses and the files stay the source of truth (issue #59).
+	 */
+	recipes?: ReadonlyMap<string, Recipe>;
+	/**
 	 * How a run gets its model. The default is the in-process scripted model; a test
 	 * that wants a real adapter and a fake server passes one here, so a scenario runs
 	 * through the wire as well (SCN04).
@@ -637,6 +648,25 @@ function modelFor(scenario: Scenario, clock: FakeClock, options: ScenarioRunOpti
 	return options.makeModel(scenario.model, clock, settings);
 }
 
+/**
+ * The recipe a scenario names: a host's own first, then the testkit's. A name nobody
+ * provided is a host's mistake rather than a scenario that failed, so it throws with
+ * the names that were available instead of reporting a run nobody made.
+ */
+function recipeFor(scenario: Scenario, options: ScenarioRunOptions): Recipe | undefined {
+	if (scenario.recipe === undefined) {
+		return undefined;
+	}
+	const found = options.recipes?.get(scenario.recipe) ?? RECIPES.get(scenario.recipe);
+	if (found === undefined) {
+		const available = [...(options.recipes?.keys() ?? []), ...RECIPES.keys()].join(", ");
+		throw new Error(
+			`the scenario ${scenario.name} names the recipe "${scenario.recipe}", and this runner was given ${available === "" ? "none" : available}`,
+		);
+	}
+	return found;
+}
+
 export async function runScenario(
 	scenario: Scenario,
 	options: ScenarioRunOptions = {},
@@ -645,7 +675,7 @@ export async function runScenario(
 	const storage = memoryStorage();
 	const events: RunEvent[] = [];
 	const controller = new AbortController();
-	const recipe = scenario.recipe === undefined ? undefined : RECIPES.get(scenario.recipe);
+	const recipe = recipeFor(scenario, options);
 	const tools: Tool[] =
 		recipe === undefined
 			? [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()]

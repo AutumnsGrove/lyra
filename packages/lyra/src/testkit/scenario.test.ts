@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import { createFinishTool, type ScriptedTurn } from "./index.js";
+import { defineRecipe } from "../core/define-recipe.js";
+import { createFinishTool as finishedTool } from "../core/finish.js";
+import { createFinishTool, toolReturning, type ScriptedTurn } from "./index.js";
 import { decodeScenario, runScenario, type Scenario, type ScenarioTool } from "./scenario.js";
 
 /** The rows are in `docs/engineering-practices.md`, "Spec rows: the scenario runner". */
@@ -48,6 +50,67 @@ test("SCN01 a scenario prompt with no tools still runs against finish", async ()
 		}),
 	);
 	expect(outcome.problems).toEqual([]);
+});
+
+test("SCN06 a host runs its own recipe through a scenario file", async () => {
+	// The case #59 exists for: a recipe that lives in the host, named by the file, so
+	// the file stays the source of truth rather than a TypeScript copy of it.
+	const shelf = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read the shelf", state: {} }),
+		tools: [
+			toolReturning("read", "the shelf", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+	});
+	const outcome = await runScenario(
+		scenario({
+			recipe: "shelf",
+			input: {},
+			tools: [],
+			model: [
+				{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+				{ toolCalls: [{ id: "c2", name: "finish" }] },
+			],
+			expectEvents: [
+				{ type: "tool_end", call_id: "c1", is_error: false },
+				{ type: "run_end", reason: "done" },
+			],
+			expectRecord: [
+				{ type: "user_message", label: "task", text: "read the shelf" },
+				{ type: "tool_message", toolCallId: "c1", isError: false, content: "the shelf" },
+				{ type: "status", state: "done" },
+			],
+		}),
+		{ recipes: new Map([[shelf.name, shelf]]) },
+	);
+
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	// The recipe's own instructions and tools ran, not the scenario's defaults.
+	expect(outcome.record?.header.task).toBe("shelf");
+});
+
+test("SCN06 a recipe nobody provided is named rather than reported as a failed run", async () => {
+	// A host's mistake, so it says so instead of reporting a mismatch nobody can act
+	// on. The message lists what was available, which is the proof that both the
+	// host's map and the testkit's own were consulted.
+	const shelf = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read the shelf", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const missing = runScenario(scenario({ recipe: "nobody", input: {}, tools: [] }), {
+		recipes: new Map([[shelf.name, shelf]]),
+	});
+	await expect(missing).rejects.toThrow(/names the recipe "nobody"/);
+	await expect(missing).rejects.toThrow(/shelf, timeline-test/);
 });
 
 test("SCN02 a mismatch is reported with what was expected and what came", async () => {

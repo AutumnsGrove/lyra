@@ -8,6 +8,10 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+- `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
+  recipe instead of only the testkit's `timeline-test` (issue #59). `decodeScenario` now accepts any
+  recipe name, and a name nobody provided throws with the names that were available.
+
 ### Fixed
 
 - `fitEntry` could return a line over the cap it was given: a small cap with a long id left a window where
