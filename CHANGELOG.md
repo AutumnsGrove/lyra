@@ -8,6 +8,8 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+### Added
+
 - `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
   recipe instead of only the testkit's `timeline-test` (issue #59). `decodeScenario` now accepts any
   recipe name, and a name nobody provided throws with the names that were available.
