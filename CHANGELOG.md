@@ -10,6 +10,11 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- `message_end` carries the model's thinking trace as `reasoning` when a reply has one, so a connected client
+  can show it while the run happens instead of only after a reload. The field is the string the record's
+  assistant entry holds: absent when there was none, and the cut string when the entry cap cut it, so the
+  live event, a replay from `Last-Event-ID` and `get_messages` all agree (EVT08 to EVT10, issue #74).
+
 - `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
   recipe instead of only the testkit's `timeline-test` (issue #59). A host's recipe reaches the run with
   everything it declares — limits, approvals, stuck, compaction, the fallback model and its input schema —
