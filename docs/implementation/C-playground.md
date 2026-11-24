@@ -64,12 +64,19 @@ Each of these becomes a numbered entry in `docs/decisions.md` in the slice that 
   Worker (`AutumnsGrove/Lattice#1815`), and the published `@autumnsgrove/lyra` has a size budget that a
   playground's tools do not belong inside.
 - **A token box, `localStorage`, and it lasts.** The token is entered once, stored, and sent with every
-  request (`Authorization: Bearer`); a `401` clears it and shows the box again. The Worker's token comes
+  request (`Authorization: Bearer`); a refusal on the command or event surface clears it and shows the box
+  again. That refusal is **403 `permission_denied`**, which is what `statusForCode` answers for a missing or
+  unknown token (HTP02, ACC02) — the HTTP surface never returns 401. The socket upgrade is the one 401
+  (WSK04), so the page resets on either. The Worker's token comes
   from a secret binding, and it is what stops a passer-by using the deployment.
 - **One model picker over an allow-list** in a binding (`PLAYGROUND_MODELS`), with
   `deepseek/deepseek-v4.1-flash-1017` first. A free-text model id would turn a typo into a failed run and a
   surprise bill.
-- **A sidebar of conversations**, each a session, listed from an index the playground owns. Lyra's
+- **A sidebar of conversations**, each a session, listed from an index the playground owns. The index
+  holds each conversation's id, its label, when it was last used, and **the recipe it runs**, so the page
+  can start a conversation on \`tool-table\` and later on \`fireside\` without a second deployment (#60's
+  Decided comment). The pick is at "new conversation", and a conversation keeps its recipe for its life,
+  because the recipe is what the run is pinned to (decision 91). Lyra's
   `list_sessions` answers `unsupported` on purpose ("listing every session needs an index of its own"), so
   the index is a playground object, not a change to Lyra's protocol. If it earns its place later it moves
   into Lyra as `list_sessions`.
@@ -81,11 +88,14 @@ Each of these becomes a numbered entry in `docs/decisions.md` in the slice that 
   number is a binding (`PLAYGROUND_DAY_CAP_USD`), and the page shows spend against it. **A reply that
   reports no cost (LIM05) marks the day unpriced**, and from then on a new run is refused until the day
   rolls over, because a "hard" cap that silently undercounted would be worse than no cap. A token count is
-  not used as a fallback: it is not money, so it would put a precise-looking number on a guess.
+  not used as a fallback: it is not money, so it would put a precise-looking number on a guess. The budget
+  object learns it from the run's own record — the \`limit_unenforceable\` note LIM05 already writes, or a
+  \`usage\` event with no \`cost\` — so nothing new is added to the core for it. That rule is a host policy
+  on top of a core row, so it gets its own decision when the slice is built.
 - **The smoke job runs a scripted model on the deployment, behind a boundary that is named.** A `start`
   carrying `x-lyra-script` is accepted only when `PLAYGROUND_SCRIPT_TOKEN` is set **and** the header matches
-  it exactly (a constant-time compare); otherwise the request is refused `permission_denied` (401) and
-  nothing runs. **The tenant is never taken from the header**: it is the one the bearer token resolved to
+  it exactly (a constant-time compare); otherwise the request is refused `permission_denied` (**403**,
+  which is what the command surface answers, HTP02) and nothing runs. **The tenant is never taken from the header**: it is the one the bearer token resolved to
   through the existing door, and scripts are allowed only for the smoke token's tenant
   (`PLAYGROUND_SMOKE_TENANT`), so a script cannot reach a person's session. The script is held on the
   session object for the run it starts and dropped when the object is rebuilt. A script that is not JSON, is
@@ -140,8 +150,10 @@ allow-list and `MODEL_SOURCE=openrouter` through the existing adapter with the k
 `tool-table` recipe with `now` and `calculator`. The page starts a run, follows the SSE stream, and prints
 the transcript. This is the first time Lyra does real work on a real deployment.
 
-**Slice 3: the conversation.** Sessions in the sidebar (the index object), a session id in the URL, the
-transcript rebuilt from the record on load, steer/follow-up/stop, the status line, and the record panel.
+**Slice 3: the conversation.** Sessions in the sidebar (the index object, which also carries each
+conversation's recipe), the **recipe picker at "new conversation"** over the recipes the Worker ships, a
+session id in the URL, the transcript rebuilt from the record on load, steer/follow-up/stop, the status
+line, and the record panel.
 The stream resumes from `last-event-id` after a reload, and a conversation survives an eviction.
 
 **Slice 4: tool calls and traces.** The tool-call list (name, arguments, result, duration, error, and several
@@ -190,7 +202,8 @@ either demonstrated or recorded as unfinished with the reason, as #60 asks.
   sessions and one for the index, one migration tag.
 - Repository secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Worker secrets set by the workflow:
   `PLAYGROUND_TOKEN`, `OPENROUTER_API_KEY`, `PLAYGROUND_SCRIPT_TOKEN`. Vars: `PLAYGROUND_MODELS`,
-  `PLAYGROUND_DAY_CAP_USD`, `PLAYGROUND_TENANT`.
+  `PLAYGROUND_DAY_CAP_USD`, `PLAYGROUND_TENANT`, and `PLAYGROUND_SMOKE_TENANT` (a var, not a secret: it
+  names the tenant scripts may run as, and the script door fails closed without it).
 - A failed smoke job is red and does not roll back: this is a test rig, and a failed smoke on a rig is
   information rather than an outage.
 - `wrangler deploy --dry-run` stays in the gate for size; the real deploy happens only on `main`, never in a
