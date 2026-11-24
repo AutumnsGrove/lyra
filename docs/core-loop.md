@@ -131,6 +131,11 @@ at a time, apart from the clock's timestamps. A kill can land with a group's fir
 last not; the resume answers the calls of the last reply that have no result, one at a time, and the
 conversation it rebuilds is the one the uninterrupted run ended with (RSM05).
 
+**A call that ends the run.** A tool may say `done` (or propose) and also opt in, so a group can end
+mid-chunk. Every call in a chunk is started before any result is saved, so the calls behind the one that
+ended the run are answered "the run already finished, so this call was not run" — exactly what a serial
+batch answers them — and a question among them is never asked.
+
 **A question inside a group.** A call whose result is a question (decision 34) parks the run where the
 question falls: the calls before it are saved, the request is saved in its place, and the calls after it
 in the same chunk have already run and are saved behind it. The calls the batch never started wait for
@@ -146,5 +151,6 @@ answered with an error result rather than overwriting the first.
 | LOOP21 | Sad: a question in a group | The calls either side of the question are saved around its request, the run parks once `waiting_for_person`, and the answer becomes the question's result on the resume. A second question in one chunk is answered as an error result rather than overwriting the first request |
 | LOOP22 | Bad: a tool that opts in but may not | A tool with an `apply`, and one whose policy asks, each stay a barrier: they start only after the call before them is saved, and nothing behind an ask runs |
 | LOOP23 | Bad: a group larger than the cap | Five calls with a cap of two start two at a time in chunks, in call order; a cap that is not a positive whole number falls back to the default |
-| LOOP24 | Property: the record does not depend on it | For any script of grouped calls, a run of groups saves the same record, timestamps aside, as the same calls run one at a time |
+| LOOP24 | Property: the record does not depend on it | For any script of grouped calls, a run of groups saves the same record and reaches the same ending, timestamps aside, as the same calls run one at a time |
+| LOOP25 | Bad: a call that ends the run inside a group | A `done` tool in the middle of a chunk answers the calls behind it the way a serial run does, and a question among them is never asked |
 

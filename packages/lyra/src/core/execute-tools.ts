@@ -255,6 +255,17 @@ async function runChunk(
 			continue;
 		}
 		const outcome = await item.outcome;
+		// A call in this chunk may have ended the run, and every call was started
+		// before any result was saved, so the calls behind it are answered the way a
+		// serial batch answers them rather than with a result the run no longer wants
+		// (found in review: a `done` tool in a group let its siblings through).
+		if (options.isFinished()) {
+			await options.onFinish(
+				item.call,
+				errorResult("the run already finished, so this call was not run"),
+			);
+			continue;
+		}
 		if (outcome.ask !== undefined) {
 			if (asked) {
 				// One batch parks on one question (decision 34): a second would have to

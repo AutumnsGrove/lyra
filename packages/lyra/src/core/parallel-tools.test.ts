@@ -18,6 +18,7 @@ import {
 	type ScriptedTurn,
 } from "../testkit/index.js";
 import { drive, readRecord, runHarness as harness, until } from "./run-harness.testing.js";
+import { createRuntime } from "./runtime.js";
 import { runTask, type RunConfig } from "./run.js";
 import type { Tool } from "./tool.js";
 
@@ -397,6 +398,48 @@ test("LOOP21 the answer resumes the group: the question's result is the person's
 	expect(executions.count("c3")).toBe(1);
 });
 
+test("LOOP25 a call that ends the run mid-group answers the rest the way a serial run does", async () => {
+	// A host's own tool may say both "done" and "parallel", and `defineTool` allows
+	// that: only an `apply` is refused. The calls behind it were started before its
+	// result was saved, and they must not turn into results the finished run keeps.
+	const finishing: Tool = { ...createFinishTool(), parallel: true, safeToRepeat: true };
+	const group = harness(
+		[
+			{
+				toolCalls: [
+					{ id: "c1", name: "finish", args: {} },
+					{ id: "c2", name: "read", args: {} },
+					{ id: "c3", name: "ask", args: {} },
+				],
+			},
+		],
+		() => [
+			finishing,
+			toolReturning("read", "the page", { parallel: true }),
+			toolAsking(
+				"ask",
+				{ kind: "question", title: "Which one?", message: "Pick a shelf." },
+				{ parallel: true },
+			),
+		],
+	);
+
+	const result = await group.run({ canAsk: true });
+	expect(result.reason).toBe("done");
+
+	const results = await toolResults(group.storage);
+	expect(results.map((entry) => entry.id)).toEqual(["c1", "c2", "c3"]);
+	expect(results[0]?.isError).toBe(false);
+	expect(results.slice(1).map((entry) => entry.isError)).toEqual([true, true]);
+	expect(results.slice(1).map((entry) => entry.content)).toEqual([
+		"the run already finished, so this call was not run",
+		"the run already finished, so this call was not run",
+	]);
+	// A question the finished run should never have asked was not asked.
+	const record = await readRecord(group.storage);
+	expect(record.entries.some((entry) => entry.type === "request")).toBe(false);
+});
+
 test("LOOP22 a tool with an apply is a barrier even when it opts in", async () => {
 	const applied: string[] = [];
 	// Built by hand rather than by `defineTool`, which refuses this combination: the
@@ -497,6 +540,51 @@ test("LOOP23 a group larger than the cap starts the next chunk when the last one
 	expect(group.clock.pending()).toBe(0);
 });
 
+test("LOOP23 a recipe's cap reaches a run the runtime starts, not only one it resumes", async () => {
+	const clock = fakeClock();
+	const starts: number[] = [];
+	const runtime = createRuntime({
+		storage: memoryStorage(),
+		clock,
+		ids: counterIds(),
+		model: scriptedModel(
+			[
+				{
+					toolCalls: [
+						{ id: "c1", name: "read", args: {} },
+						{ id: "c2", name: "read", args: {} },
+					],
+				},
+				{ toolCalls: [{ id: "c3", name: "finish" }] },
+			],
+			{ clock },
+		),
+		host: "test-host",
+	});
+
+	const started = runtime.start({
+		runId: "run-1",
+		task: "test-task",
+		input: "go",
+		definition: {
+			name: "capped",
+			version: 1,
+			instructions: "read two pages",
+			tools: [timedTool("read", 100, clock, starts), createFinishTool()],
+			// A cap of one is a serial run, and the recipe says so where it is written.
+			maxParallelCalls: 1,
+		},
+	});
+	if (!started.ok) {
+		throw new Error(started.error.message);
+	}
+
+	const result = await drive(clock, started.value.outcome);
+	expect(result.reason).toBe("done");
+	const origin = starts[0] ?? 0;
+	expect(starts.map((at) => at - origin)).toEqual([0, 100]);
+});
+
 test("LOOP23 a cap that is not a positive whole number falls back to the default", async () => {
 	const starts: number[] = [];
 	const group = harness(
@@ -523,13 +611,18 @@ test("LOOP23 a cap that is not a positive whole number falls back to the default
 
 /**
  * A script of groups, so the property compares the same calls run two ways. The
- * tool names carry different durations, so a group's calls finish out of order.
+ * tool names carry different durations, so a group's calls finish out of order, and
+ * `done` ends the run inside a group, which is the case the calls behind it have to
+ * survive (LOOP25).
  */
 const groupedScript: fc.Arbitrary<ScriptedTurn[]> = fc
-	.array(fc.array(fc.constantFrom("slow", "quick", "medium"), { minLength: 2, maxLength: 5 }), {
-		minLength: 1,
-		maxLength: 2,
-	})
+	.array(
+		fc.array(fc.constantFrom("slow", "quick", "medium", "done"), {
+			minLength: 2,
+			maxLength: 5,
+		}),
+		{ minLength: 1, maxLength: 2 },
+	)
 	.map((turns) => [
 		...turns.map((names, turn) => ({
 			toolCalls: names.map((name, index) => ({
@@ -540,6 +633,28 @@ const groupedScript: fc.Arbitrary<ScriptedTurn[]> = fc
 		})),
 		{ toolCalls: [{ id: "cf", name: "finish" }] },
 	]);
+
+/**
+ * A host's own tool that ends the run, which `defineTool` allows to say `parallel`
+ * too: only an `apply` is refused. The calls behind it must still meet the answer a
+ * serial run gives them.
+ */
+function doneTool(parallel: boolean): Tool {
+	return {
+		spec: {
+			name: "done",
+			description: "End the run from inside a group.",
+			parameters: { type: "object", properties: {} },
+		},
+		parallel,
+		safeToRepeat: true,
+		execute: async () => ({
+			isError: false,
+			content: "finished by the tool",
+			done: true,
+		}),
+	};
+}
 
 /** Whether any two calls were in flight at once, read from the stream of events. */
 function overlapped(events: readonly { type: string }[]): boolean {
@@ -571,15 +686,21 @@ test("LOOP24 property: a run of groups saves the record the same calls sequentia
 					toolTakingTime("slow", 300, clock, { parallel }),
 					toolReturning("quick", "quick answered", { parallel }),
 					toolTakingTime("medium", 200, clock, { parallel }),
+					doneTool(parallel),
 					createFinishTool(),
 				]);
 				// A cap of two, with replies of up to five calls, so the chunk boundaries
 				// inside one group are exercised rather than only a group of exactly three.
 				const result = await drive(group.clock, group.run({ maxParallelCalls: 2 }));
-				expect(result.reason).toBe("done");
 				const record = await readRecord(group.storage);
+				// The ending is compared rather than assumed: a script where a `done` tool
+				// is followed by three calls of one name parks as stuck, because the three
+				// "already finished" answers count as the same failure three times. That is
+				// the loop's safeguard doing its job, and both runs must do it the same way.
 				return {
 					entries: withoutTime(record.entries),
+					reason: result.reason,
+					parked: result.parkedDetail ?? null,
 					overlapped: overlapped(group.events),
 				};
 			};
@@ -591,6 +712,10 @@ test("LOOP24 property: a run of groups saves the record the same calls sequentia
 			// Without that, the comparison below could be two serial runs agreeing.
 			expect(together.overlapped).toBe(true);
 			expect(oneByOne.overlapped).toBe(false);
+			expect({ reason: together.reason, parked: together.parked }).toEqual({
+				reason: oneByOne.reason,
+				parked: oneByOne.parked,
+			});
 			expect(together.entries).toEqual(oneByOne.entries);
 		}),
 	);

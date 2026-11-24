@@ -198,6 +198,30 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		});
 	};
 
+	/**
+	 * What a setup takes from the recipe itself. Both `start` and a resume spread
+	 * this, so a field the recipe gains cannot reach one of the two paths and miss
+	 * the other; `maxParallelCalls` reached only the resume at first (found in
+	 * review).
+	 */
+	const fromDefinition = (
+		definition: RunDefinition,
+	): Partial<RunSetup> & Pick<RunSetup, "system" | "tools"> => ({
+		system: definition.instructions,
+		tools: definition.tools,
+		recipe: { name: definition.name, version: definition.version },
+		...(definition.setup === undefined ? {} : { setup: definition.setup }),
+		...(definition.fallbackModel === undefined
+			? {}
+			: { fallbackModel: definition.fallbackModel }),
+		...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
+		...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
+		...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
+		...(definition.maxParallelCalls === undefined
+			? {}
+			: { maxParallelCalls: definition.maxParallelCalls }),
+	});
+
 	const setupFor = (
 		request: ResumeRequest,
 		extra: Pick<RunConfig, "input" | "resume">,
@@ -209,28 +233,16 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			task: request.task,
 			host: options.host,
 			input: extra.input,
-			system: definition.instructions,
-			tools: definition.tools,
 			model: options.model,
 			storage: options.storage,
 			clock: options.clock,
 			ids: options.ids,
-			recipe: { name: definition.name, version: definition.version },
-			...(definition.setup === undefined ? {} : { setup: definition.setup }),
+			...fromDefinition(definition),
 			...(inputCheck === undefined ? {} : { inputCheck }),
 			...(options.tenant === undefined ? {} : { tenant: options.tenant }),
 			...((request.limits ?? definition.limits) === undefined
 				? {}
 				: { limits: request.limits ?? definition.limits }),
-			...(definition.fallbackModel === undefined
-				? {}
-				: { fallbackModel: definition.fallbackModel }),
-			...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
-			...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
-			...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
-			...(definition.maxParallelCalls === undefined
-				? {}
-				: { maxParallelCalls: definition.maxParallelCalls }),
 			...(options.canAsk === true ? { canAsk: true } : {}),
 			...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			...(extra.resume === undefined ? {} : { resume: extra.resume }),
@@ -312,25 +324,14 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 				host: options.host,
 				input: definition.setup === undefined ? String(request.input) : "",
 				inputValue: request.input,
-				system: definition.instructions,
-				tools: definition.tools,
 				model: options.model,
 				storage: options.storage,
 				clock: options.clock,
 				ids: options.ids,
-				recipe: { name: definition.name, version: definition.version },
-				...(definition.setup === undefined ? {} : { setup: definition.setup }),
+				...fromDefinition(definition),
 				...(check.value === undefined ? {} : { inputCheck: check.value }),
 				...(options.tenant === undefined ? {} : { tenant: options.tenant }),
 				...(definition.limits === undefined ? {} : { limits: definition.limits }),
-				...(definition.fallbackModel === undefined
-					? {}
-					: { fallbackModel: definition.fallbackModel }),
-				...(definition.stuck === undefined ? {} : { stuck: definition.stuck }),
-				...(definition.compaction === undefined
-					? {}
-					: { compaction: definition.compaction }),
-				...(definition.approvals === undefined ? {} : { approvals: definition.approvals }),
 				...(options.canAsk === true ? { canAsk: true } : {}),
 				...(options.modelName === undefined ? {} : { modelName: options.modelName }),
 			};

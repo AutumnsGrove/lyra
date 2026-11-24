@@ -31,6 +31,14 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   `ui_request` and the core spells it `request`, so a scenario cannot name that event at both levels; the
   question scenario pins the order in the record instead. The cap scenario asserts the record only, not
   the start times, because the runner's `advance(1000)` step is a test detail rather than a promise.
+- **Two things review caught that the tests were shaped not to see.** `maxParallelCalls` reached the
+  resume path and not `start`, because `runtime.ts` builds two setups and only one gained the field; both
+  now spread one `fromDefinition`, and a test starts a run through the runtime rather than `runTask`.
+  And a `done` tool inside a chunk let its siblings through: every call is started before any result is
+  saved, so the calls behind it have to be answered the way the serial path answers them (LOOP25, and
+  LOOP24's script now includes a tool that ends a run mid-group). The property also compares the ending,
+  not only the record, because a `done` followed by three same-named calls parks as stuck — the
+  safeguard counting the three "already finished" answers — and a serial run parks the same way.
 - **`starts` in an events assertion includes every `tool_start`, including the barrier after the group.**
   Three of the new tests failed first on that, not on the behaviour, which is worth remembering when
   writing the next one: slice to the group before comparing timestamps.
