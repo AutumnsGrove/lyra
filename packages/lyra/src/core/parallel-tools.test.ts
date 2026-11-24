@@ -20,7 +20,7 @@ import {
 import { drive, readRecord, runHarness as harness, until } from "./run-harness.testing.js";
 import { createRuntime } from "./runtime.js";
 import { runTask, type RunConfig } from "./run.js";
-import type { Tool } from "./tool.js";
+import { defineTool, type Tool } from "./tool.js";
 
 /** The rows are in `docs/core-loop.md`, "Parallel tool calls (decision 154)". */
 
@@ -320,6 +320,84 @@ test("LOOP21 a second question in one chunk is answered rather than overwriting 
 	);
 });
 
+test("LOOP21 a done result behind a question still ends the run after the answer", async () => {
+	// `[ask, finish]` in one chunk: the request is saved first, the done result lands
+	// behind it, and the resume has to answer the question before concluding the reply
+	// is finished (found in review: the answer was dropped).
+	const turns: ScriptedTurn[] = [
+		{
+			toolCalls: [
+				{ id: "c1", name: "ask", args: {} },
+				{ id: "c2", name: "finish", args: {} },
+			],
+		},
+	];
+	const clock = fakeClock();
+	const storage = memoryStorage();
+	const tools: Tool[] = [
+		toolAsking(
+			"ask",
+			{ kind: "question", title: "Which one?", message: "Pick a shelf." },
+			{ parallel: true },
+		),
+		{ ...createFinishTool(), parallel: true, safeToRepeat: true },
+	];
+	const setup: Omit<RunConfig, "storage" | "model" | "resume" | "onEvent"> = {
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "do the thing",
+		system: "you are a test",
+		tools,
+		clock,
+		ids: counterIds(),
+	};
+
+	const parked = await runTask({
+		...setup,
+		model: scriptedModel(turns, { clock }),
+		storage,
+		canAsk: true,
+	});
+	expect(parked).toMatchObject({ reason: "parked", parkedReason: "waiting_for_person" });
+
+	const record = await readRecord(storage);
+	const request = record.entries.find((entry) => entry.type === "request");
+	if (request?.type !== "request") {
+		throw new Error("no request was saved");
+	}
+	const last = storage.saved().at(-1);
+	const answered = await storage.append(
+		JSON.stringify({
+			type: "request_answered",
+			id: "e_answer_1",
+			parent: JSON.parse(last ?? "{}").id ?? null,
+			ts: 100,
+			request: request.request,
+			decision: "approve",
+			text: "the shelf on the left",
+		}),
+	);
+	expect(answered.ok).toBe(true);
+
+	const resumed = await runTask({
+		...setup,
+		model: scriptedModel(turns, { clock }),
+		storage,
+		canAsk: true,
+		resume: { lines: storage.saved(), by: "person" },
+	});
+	expect(resumed.reason).toBe("done");
+	// The answer is the question's result, and the done result the group saved behind
+	// it ended the run without asking the model for a turn it cannot act on.
+	expect(resumed.turns).toBe(1);
+	const results = await toolResults(storage);
+	// The request came first, the done result was saved behind it, and the answer
+	// arrives last, which is the order the record already had.
+	expect(results.map((entry) => entry.id)).toEqual(["c2", "c1"]);
+	expect(results[1]?.content).toBe("the shelf on the left");
+});
+
 test("LOOP21 the answer resumes the group: the question's result is the person's words", async () => {
 	const executions = executionCounter();
 	const turns: ScriptedTurn[] = [
@@ -438,6 +516,50 @@ test("LOOP25 a call that ends the run mid-group answers the rest the way a seria
 	// A question the finished run should never have asked was not asked.
 	const record = await readRecord(group.storage);
 	expect(record.entries.some((entry) => entry.type === "request")).toBe(false);
+});
+
+test("LOOP25 a call whose arguments are refused behind a done answers as a serial run does", async () => {
+	// The answer for a call that never runs is decided before the chunk starts, and the
+	// `done` beside it is saved first, so this is the case where the chunk's own guard
+	// has to come before the pre-decided answers rather than after them (found in
+	// review: the record depended on the cap).
+	const strict = defineTool({
+		name: "strict",
+		description: "needs a name",
+		parameters: {
+			type: "object",
+			properties: { name: { type: "string" } },
+			required: ["name"],
+		},
+		parallel: true,
+		async execute() {
+			return { isError: false, content: "the name" };
+		},
+	});
+	const run = async (maxParallelCalls: number) => {
+		const group = harness(
+			[
+				{
+					toolCalls: [
+						{ id: "c1", name: "finish", args: {} },
+						{ id: "c2", name: "strict", args: {} },
+					],
+				},
+			],
+			() => [{ ...createFinishTool(), parallel: true, safeToRepeat: true }, strict],
+		);
+		const result = await group.run({ maxParallelCalls });
+		expect(result.reason).toBe("done");
+		return toolResults(group.storage);
+	};
+
+	const together = await run(4);
+	expect(together.map((entry) => entry.content)).toEqual([
+		"finished",
+		"the run already finished, so this call was not run",
+	]);
+	// The serial chunk size is the reference, and the record must not depend on the cap.
+	expect(await run(1)).toEqual(together);
 });
 
 test("LOOP22 a tool with an apply is a barrier even when it opts in", async () => {

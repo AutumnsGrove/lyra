@@ -1760,9 +1760,13 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 							usage: usageTotal.total(),
 							turns,
 						};
-					} else if (finishedRun) {
+					} else if (
+						finishedRun ||
+						(seed.doneInLastReply && config.resume.followUp === undefined)
+					) {
 						// A repeated safe call may itself have passed the done-check (a finish
-						// is safe to repeat for exactly this reason).
+						// is safe to repeat for exactly this reason), and so may a result the
+						// group saved behind the question this resume just answered.
 						result = { reason: "done", usage: usageTotal.total(), turns };
 					} else {
 						result = await loop();
