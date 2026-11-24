@@ -60,6 +60,8 @@ new API and any breaking change, and a patch bump is fixes only.
 - A keyed `start` named its Durable Object `<tenant>:<key>`, so a tenant whose name held a colon could share
   an object name with another tenant's key. `%` and `:` are now escaped in the tenant; a tenant with neither,
   which is every tenant so far, keeps the name it always had, so a retried key still reaches its first run.
+- A stop that arrived together with a retryable model failure emitted a `retry` event for an attempt that never
+  happened. The signal is read before the retry is announced (RTY05).
 
 ## [0.3.1] - 2026-11-22
 

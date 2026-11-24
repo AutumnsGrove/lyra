@@ -701,7 +701,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		for (;;) {
 			const answered = await askOnce();
 			const delay = answered.ok ? undefined : RETRY_DELAYS_MS[retries];
-			if (answered.ok || !answered.error.retryable || delay === undefined) {
+			// A stop that arrived with the failure means there is no next attempt, so none is
+			// announced or counted: the caller reads the signal before the error.
+			if (answered.ok || !answered.error.retryable || delay === undefined || signal.aborted) {
 				return { ...answered, retries };
 			}
 			const waitMs = Math.max(delay, answered.error.retryAfterMs ?? 0);
