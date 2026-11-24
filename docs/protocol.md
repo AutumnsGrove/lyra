@@ -211,6 +211,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | HTP06 | A client that stops reading | Dropped once more than the cap is queued for it, and a reconnect with `Last-Event-ID` catches up from the record |
 | HTP07 | `GET /v1/state` and `POST /v1/ui_response` | The `get_state` answer, and an answer routed to the session its frame names — through the handler and through the Worker's front door alike, with `not_found` for a request that session does not hold |
 | HTP08 | Another path or method | `not_found`, as a frame |
+| HTP09 | The Worker's router reading a command or an answer, before it picks an object | The body is read through the same 2 MiB cap the object applies, so a body over it is `bad_request` after reading no more than the cap and the stream is given back; a body that fails while it is read is `bad_request` too, not an exception; nothing is forwarded to an object in either case |
 | ACC01 | A command naming another tenant's session | `not_found` |
 | ACC02 | No token from outside a service binding | Refused |
 | WSK01 | An upgrade, then the hello exchange | The server speaks first with `{type: "hello", version, server, capabilities}`, the client answers with its own hello, and a command then reaches the session |
@@ -227,7 +228,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | WSK12 | An evicted object with a socket open | The socket outlives the eviction; the first frame after it wakes a fresh object, which follows that socket again, and the run it releases reaches it |
 | WSK14 | The attachment | It carries the session, the tenant, whether the exchange happened and the `seq` a wake resumes from, and stays far inside the platform's 16,384-byte cap |
 
-The framing, command, event, HTTP and access rows above are built as far as step 8, and `scripts/unbuilt-rows.json` is empty. The socket rows (`WSK01` to `WSK14`, `WSK16` in prose) are its own. `CMD08` to `CMD10`, `CMD21`, `CMD22`, `EVT04` and `REQ01` to `REQ07` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
+The framing, command, event, HTTP and access rows above are built as far as step 8, and `scripts/unbuilt-rows.json` is empty. The socket rows (`WSK01` to `WSK14`, `WSK16` in prose) are its own. `CMD08` to `CMD10`, `CMD21`, `CMD22`, `HTP09`, `EVT04` and `REQ01` to `REQ07` are built: `list_pending` answers with the requests and open proposals, `resume` is `busy` while a person is deciding, `POST /v1/ui_response` answers, `decide_proposal` decides once, and the record projects `ui_request`, `ui_resolved`, `ui_expired`, `proposal` and `proposal_decided`. `list_sessions` needs an index across sessions, which is a design of its own, so it answers `unsupported` for now too. Image attachments and Heartwood sign-in are not in version one.
 
 ## Settled
 

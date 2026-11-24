@@ -26,6 +26,7 @@ import { CAPABILITIES, claimedBy, decodeFrame, responseFrame } from "../../proto
 import {
 	createHttpHandler,
 	createTokenDoor,
+	readBody,
 	refusalResponse,
 	PROTOCOL_VERSION,
 	type SessionHost,
@@ -663,7 +664,12 @@ export function createSessionWorker(
 		let target: Result<DurableObjectIdLike>;
 		let forward: Request;
 		if (request.method === "POST" && url.pathname === "/v1/commands") {
-			const body = await request.text();
+			// Read through the cap, because the object's own cap comes after this read.
+			const read = await readBody(request, DEFAULT_LINE_CAP_BYTES);
+			if (!read.ok) {
+				return refusalResponse("bad_request", read.error.message);
+			}
+			const body = read.value;
 			const route = routeOf(body, tenant.value);
 			if (!route.ok) {
 				return refusalResponse(route.error.code, route.error.message);
@@ -692,7 +698,11 @@ export function createSessionWorker(
 		} else if (request.method === "POST" && url.pathname === "/v1/ui_response") {
 			// An answer names its session in the frame, the way a command does, and the
 			// object serves the route itself with its own token door (REQ02).
-			const body = await request.text();
+			const read = await readBody(request, DEFAULT_LINE_CAP_BYTES);
+			if (!read.ok) {
+				return refusalResponse("bad_request", read.error.message);
+			}
+			const body = read.value;
 			const route = answerRouteOf(body, tenant.value);
 			if (!route.ok) {
 				return refusalResponse(route.error.code, route.error.message);

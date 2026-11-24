@@ -69,6 +69,10 @@ new API and any breaking change, and a patch bump is fixes only.
   which is every tenant so far, keeps the name it always had, so a retried key still reaches its first run.
 - A stop that arrived together with a retryable model failure emitted a `retry` event for an attempt that never
   happened. The signal is read before the retry is announced (RTY05).
+- The Worker router read a command's or an answer's whole body with `request.text()` before the object's cap applied,
+  so a large authenticated body cost the Worker its memory first. It now reads through the 2 MiB cap and stops
+  there, and a body that fails mid-read is `bad_request` instead of an exception, here and in the HTTP handler
+  (HTP09).
 
 ## [0.3.1] - 2026-11-22
 

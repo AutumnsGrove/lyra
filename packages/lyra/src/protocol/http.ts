@@ -141,8 +141,12 @@ function answerForFrame(fields: Record<string, unknown>, outcome: Result<JsonVal
 	return answer(id, "ui_response", outcome);
 }
 
-/** The body, in bytes, refusing to read past the cap rather than reading and then complaining. */
-async function readBody(request: Request, cap: number): Promise<Result<string>> {
+/**
+ * The body, in bytes, refusing to read past the cap rather than reading and then
+ * complaining. A body that fails while it is read is a refusal too, not an exception:
+ * a client that drops the connection mid-body must not turn into a 500.
+ */
+export async function readBody(request: Request, cap: number): Promise<Result<string>> {
 	const body = request.body;
 	if (body === null) {
 		return ok("");
@@ -152,7 +156,12 @@ async function readBody(request: Request, cap: number): Promise<Result<string>> 
 	let text = "";
 	let read = 0;
 	for (;;) {
-		const chunk = await reader.read();
+		let chunk: Awaited<ReturnType<typeof reader.read>>;
+		try {
+			chunk = await reader.read();
+		} catch {
+			return fail("bad_request", "the body could not be read");
+		}
 		if (chunk.done) {
 			break;
 		}
