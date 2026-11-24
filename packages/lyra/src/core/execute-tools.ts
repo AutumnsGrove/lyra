@@ -21,6 +21,7 @@
 import { policyOf, type ToolPolicy } from "./approval.js";
 import type { Clock } from "./clock.js";
 import { isPlainObject } from "./json.js";
+import { isPositiveInteger } from "./limits.js";
 import { formatErrors } from "./schema.js";
 import type { ToolCall } from "./model.js";
 import type { PersonQuestion } from "./tool.js";
@@ -190,9 +191,14 @@ function names(available: string): string {
 	return available === "" ? "no tools are available" : `the tools are ${available}`;
 }
 
-/** How many calls run at once: a batch that says nothing is one after another. */
+/**
+ * How many calls run at once: a batch that says nothing, or says one, runs them one
+ * after another. The cap itself is a positive whole number, which `isPositiveInteger`
+ * is the one statement of; "more than one" is this function's own business, because a
+ * chunk of one is the serial path.
+ */
 function usableConcurrency(value: number | undefined): number {
-	return value !== undefined && Number.isSafeInteger(value) && value > 1 ? value : 1;
+	return isPositiveInteger(value) && value > 1 ? value : 1;
 }
 
 export async function executeTools(options: ExecuteToolsOptions): Promise<void> {

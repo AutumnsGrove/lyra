@@ -143,7 +143,7 @@ answered with an error result rather than overwriting the first.
 | LOOP18 | Sad: one call in a group fails | A group of four where one returns an error and one throws: each failure is its own result in its own place, the two successes are unaffected, and the run goes on |
 | LOOP19 | Sad: a stop during a group | The stop parks the run `stopped`, every call of the group is answered, and no timer is left waiting |
 | LOOP20 | Sad: a deadline in a group | The call that outstays the deadline gets the deadline error, the calls beside it answer normally, and the run goes on |
-| LOOP21 | Sad: a question in a group | The calls either side of the question are saved around its request, the run parks once `waiting_for_person`, and the answer becomes the question's result on the resume |
+| LOOP21 | Sad: a question in a group | The calls either side of the question are saved around its request, the run parks once `waiting_for_person`, and the answer becomes the question's result on the resume. A second question in one chunk is answered as an error result rather than overwriting the first request |
 | LOOP22 | Bad: a tool that opts in but may not | A tool with an `apply`, and one whose policy asks, each stay a barrier: they start only after the call before them is saved, and nothing behind an ask runs |
 | LOOP23 | Bad: a group larger than the cap | Five calls with a cap of two start two at a time in chunks, in call order; a cap that is not a positive whole number falls back to the default |
 | LOOP24 | Property: the record does not depend on it | For any script of grouped calls, a run of groups saves the same record, timestamps aside, as the same calls run one at a time |

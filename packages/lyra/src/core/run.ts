@@ -46,7 +46,7 @@ import {
 	type RunEventListener,
 	type RunEvent,
 } from "./events.js";
-import { reachedLimit, validateLimits, type Limits } from "./limits.js";
+import { isPositiveInteger, reachedLimit, validateLimits, type Limits } from "./limits.js";
 import { createUsageTotal } from "./usage.js";
 import { compareTools, describeChange, pinRecipe } from "./recipe.js";
 import { hashText } from "./hash.js";
@@ -309,12 +309,9 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	 * a positive whole number is not a cap, so the default applies rather than the
 	 * run refusing to start over a setting it can read.
 	 */
-	const maxParallelCalls =
-		config.maxParallelCalls !== undefined &&
-		Number.isSafeInteger(config.maxParallelCalls) &&
-		config.maxParallelCalls > 0
-			? config.maxParallelCalls
-			: DEFAULT_MAX_PARALLEL_CALLS;
+	const maxParallelCalls = isPositiveInteger(config.maxParallelCalls)
+		? config.maxParallelCalls
+		: DEFAULT_MAX_PARALLEL_CALLS;
 	const entryCap = entryCapBytes(config.storage, config.entryCapBytes);
 	const signal = config.signal ?? new AbortController().signal;
 	const control = config.control;

@@ -10,7 +10,7 @@
  */
 
 import { isJsonValue, type JsonObject, type JsonValue } from "./json.js";
-import { validateLimits, type Limits } from "./limits.js";
+import { isPositiveInteger, validateLimits, type Limits } from "./limits.js";
 import { compileSchema, SchemaDefinitionError, type InferSchema } from "./schema.js";
 import type { CompactionSettings } from "./compaction.js";
 import { validateCompactionSettings } from "./compaction.js";
@@ -135,16 +135,10 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 			refuse(`a recipe's compaction settings cannot be used: ${compaction.error.message}`);
 		}
 	}
-	if (options.maxParallelCalls !== undefined) {
-		// A cap nobody can honour is a recipe's mistake, and it is refused where it is
-		// written rather than quietly replaced by the default (decision 154).
-		if (
-			typeof options.maxParallelCalls !== "number" ||
-			!Number.isSafeInteger(options.maxParallelCalls) ||
-			options.maxParallelCalls < 1
-		) {
-			refuse("a recipe's maxParallelCalls must be a positive whole number");
-		}
+	// A cap nobody can honour is a recipe's mistake, and it is refused where it is
+	// written rather than quietly replaced by the default (decision 154).
+	if (options.maxParallelCalls !== undefined && !isPositiveInteger(options.maxParallelCalls)) {
+		refuse("a recipe's maxParallelCalls must be a positive whole number");
 	}
 
 	const recipe: Recipe<S> = {

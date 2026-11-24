@@ -170,8 +170,8 @@ test("LOOP19 a stop during a group answers every call and leaves no timer waitin
 
 	const running = group.run({ signal: controller.signal });
 	await until(() => startEvents(group.events).length === 3);
-	// All three really were in flight, which is the case this test is about.
-	expect(startEvents(group.events)).toHaveLength(3);
+	// All three really were in flight together, which a serial batch could not show.
+	expect(new Set(startEvents(group.events).map((start) => start.at)).size).toBe(1);
 	controller.abort();
 
 	const result = await running;
@@ -270,6 +270,53 @@ test("LOOP21 a group that raises a question saves the calls around it and parks 
 		callId: "c2",
 	});
 	expect(group.clock.pending()).toBe(0);
+});
+
+test("LOOP21 a second question in one chunk is answered rather than overwriting the first", async () => {
+	const ask = (name: string, title: string) =>
+		toolAsking(
+			name,
+			{ kind: "question", title, message: `${title} please.` },
+			{ parallel: true },
+		);
+	const group = harness(
+		[
+			{
+				toolCalls: [
+					{ id: "c1", name: "read", args: {} },
+					{ id: "c2", name: "ask1", args: {} },
+					{ id: "c3", name: "ask2", args: {} },
+				],
+			},
+		],
+		() => [
+			toolReturning("read", "the page", { parallel: true }),
+			ask("ask1", "First?"),
+			ask("ask2", "Second?"),
+		],
+	);
+
+	const result = await group.run({ canAsk: true });
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "waiting_for_person" });
+
+	const record = await readRecord(group.storage);
+	const order = record.entries.flatMap((entry) => {
+		if (entry.type === "request") {
+			return [`request:${entry.callId ?? ""}`];
+		}
+		return entry.type === "tool_message" ? [entry.toolCallId] : [];
+	});
+	// One question is on the record, and the call that could not be asked is answered
+	// in its own place rather than left dangling or overwriting the first request.
+	expect(order).toEqual(["c1", "request:c2", "c3"]);
+	expect(record.entries.filter((entry) => entry.type === "request")).toHaveLength(1);
+	const answered = record.entries.find(
+		(entry) => entry.type === "tool_message" && entry.toolCallId === "c3",
+	);
+	expect(answered?.type === "tool_message" ? answered.isError : false).toBe(true);
+	expect(answered?.type === "tool_message" ? answered.content : "").toContain(
+		"already waiting for a person",
+	);
 });
 
 test("LOOP21 the answer resumes the group: the question's result is the person's words", async () => {
@@ -479,7 +526,7 @@ test("LOOP23 a cap that is not a positive whole number falls back to the default
  * tool names carry different durations, so a group's calls finish out of order.
  */
 const groupedScript: fc.Arbitrary<ScriptedTurn[]> = fc
-	.array(fc.array(fc.constantFrom("slow", "quick", "medium"), { minLength: 1, maxLength: 3 }), {
+	.array(fc.array(fc.constantFrom("slow", "quick", "medium"), { minLength: 2, maxLength: 5 }), {
 		minLength: 1,
 		maxLength: 2,
 	})
@@ -526,7 +573,9 @@ test("LOOP24 property: a run of groups saves the record the same calls sequentia
 					toolTakingTime("medium", 200, clock, { parallel }),
 					createFinishTool(),
 				]);
-				const result = await drive(group.clock, group.run({ maxParallelCalls: 3 }));
+				// A cap of two, with replies of up to five calls, so the chunk boundaries
+				// inside one group are exercised rather than only a group of exactly three.
+				const result = await drive(group.clock, group.run({ maxParallelCalls: 2 }));
 				expect(result.reason).toBe("done");
 				const record = await readRecord(group.storage);
 				return {
@@ -535,16 +584,12 @@ test("LOOP24 property: a run of groups saves the record the same calls sequentia
 				};
 			};
 
-			// The positive case first: the script really did more than one call, so the
-			// comparison below is not two empty records agreeing.
-			expect(turns.length).toBeGreaterThan(1);
 			const together = await run(true);
 			const oneByOne = await run(false);
-			// The positive case: a reply that asked for more than one call really did run
-			// them together, and the same script one at a time never overlapped, so the
-			// comparison below is between two different schedules.
-			const hasGroup = turns.some((turn) => (turn.toolCalls ?? []).length > 1);
-			expect(together.overlapped).toBe(hasGroup);
+			// The positive case: every reply in this script carries at least two calls, so
+			// the group really did overlap and the same script one at a time never could.
+			// Without that, the comparison below could be two serial runs agreeing.
+			expect(together.overlapped).toBe(true);
 			expect(oneByOne.overlapped).toBe(false);
 			expect(together.entries).toEqual(oneByOne.entries);
 		}),
