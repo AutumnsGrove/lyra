@@ -872,16 +872,9 @@ function modelFor(
  * record and the protocol, so this is how it finds the request to answer.
  */
 export function outstandingRequestOf(record: LoadedRecord): string | undefined {
-	const answered = new Set(
-		record.entries.flatMap((entry) =>
-			entry.type === "request_answered" ? [entry.request] : [],
-		),
-	);
-	const open = record.entries.filter(
-		(entry): entry is Extract<RecordEntry, { type: "request" }> =>
-			entry.type === "request" && !answered.has(entry.request),
-	);
-	return open.at(-1)?.request;
+	// One scan, so the runner and the wire harnesses cannot drift: a rule that grows
+	// in one of them would silently not hold in the other.
+	return outstandingRequest(record)?.id;
 }
 
 /** The request a run parked on, when the record has one still waiting for a person. */
@@ -1060,23 +1053,26 @@ export async function runScenario(
 	const problems: string[] = [];
 	const results: RunResult[] = [];
 	/** How many assistant messages the conversation already holds, which is the position the scripted model reads. */
-	const answeredSoFar = async (): Promise<number> => {
+	const answeredSoFar = async (): Promise<{ count: number } | { problem: string }> => {
+		// A record that cannot be read would make the padding wrong, and the next step
+		// would then consume the wrong turns: a model-script mismatch rather than the
+		// cause, so it is reported as the cause.
 		const saved = await storage.read();
 		if (!saved.ok) {
-			return 0;
+			return { problem: `the record could not be read: ${saved.error.message}` };
 		}
 		const record = loadRecord(saved.value);
 		if (!record.ok) {
-			return 0;
+			return { problem: `the record did not load: ${record.error.message}` };
 		}
-		return replayConversation(record.value.entries).filter(
-			(message) => message.role === "assistant",
-		).length;
+		return {
+			count: replayConversation(record.value.entries).filter(
+				(message) => message.role === "assistant",
+			).length,
+		};
 	};
 	// A file with no `runs:` is one run, exactly as it always was.
 	const steps: readonly ScenarioRun[] = scenario.runs ?? [{ model: scenario.model }];
-	// The run an answer continues is the one still going, so it keeps its id; a
-	// follow-up is the next run and takes a new one.
 	// One session owns one record and therefore one run id: a follow-up continues that
 	// run as a new segment, which is what the record's header and the runtime's resume
 	// check allow (decision 44). A step is a segment, not a run of its own.
@@ -1127,8 +1123,12 @@ export async function runScenario(
 		// The scripted model answers by the position the turn would have in the
 		// conversation, so a resumed run's script starts after the turns the record
 		// already holds: a file says what happens next, not what happened before.
-		const alreadyAnswered = first ? 0 : await answeredSoFar();
-		const turns = [...Array<ScriptedTurn>(alreadyAnswered).fill({}), ...step.model];
+		const alreadyAnswered = first ? { count: 0 } : await answeredSoFar();
+		if ("problem" in alreadyAnswered) {
+			problems.push(`scenario.runs[${index}]: ${alreadyAnswered.problem}`);
+			break;
+		}
+		const turns = [...Array<ScriptedTurn>(alreadyAnswered.count).fill({}), ...step.model];
 		results.push(await runOnce(runId, turns, resume));
 	}
 
