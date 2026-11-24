@@ -52,7 +52,7 @@ Concretely:
 | Thinking traces | `core/model.ts`, `adapters/openai/sse.ts`, `record/entries.ts` | the adapter already collects `reasoning`/`reasoning_content`, and `run.ts` already saves it on the assistant entry. **Only the live event lacks it** (below) |
 | The front door | `createSessionWorker` | authenticates, routes `/v1/*` to the object, 404s everything else, which leaves the asset route to this Worker |
 | A protocol client | `scripts/lyra.mjs` | `start`, `tail`, `steer`, `follow-up`, `abort`, `resume`, `messages`, HTTP and WS |
-| Parallel tool calls | decision 154, **pull request #69** | not on `main` when this plan was written, so it is a prerequisite rather than a fact about the tree; the fan-out tools below want it, and the page shows several calls in flight at once |
+| Parallel tool calls | decision 154, pull request #69 | on `main` since 2026-11-24; the fan-out tools below use it, and the page shows several calls in flight at once |
 
 ## Settled here (Autumn, 2026-11-24)
 
@@ -116,7 +116,14 @@ their record; the slices cite it as the authority, so if they belong on the issu
    the playground's recipes cannot be asserted by scenario files at all — the acceptance table below would
    have to be re-implemented in TypeScript, which is the copy that drifts. One `ScenarioRunOptions.recipes`
    map, as #59 proposes. **This is the first thing to build.**
-2. **The live trace.** `run.ts` saves `reasoning` on the assistant entry, but `message_end` carries only
+2. **A scenario that drives one session through several runs.** #60's Decided comment asks for a
+   conversation scenario in the acceptance list, and the runner cannot express one today: `runScenario`
+   calls `runTask` exactly once and a `Scenario` has no follow-up, steer or answer field
+   (`packages/lyra/src/testkit/scenario.ts`). #59's `recipes` map alone does not make a session assertable,
+   so this is its own small change: a `runs:` list with the commands between them, and the assertions over
+   the session's whole record. Until it exists, the smoke job's second run in Slice 7 is the only
+   multi-run check, and it is one case rather than a file.
+3. **The live trace.** `run.ts` saves `reasoning` on the assistant entry, but `message_end` carries only
    `text` and `toolCalls`, so a live client can only show a trace by re-reading the record. Add
    `reasoning?` to the `message_end` event and to the protocol's projection, with rows in `docs/core-loop.md`
    and `docs/protocol.md`. Small, and it is Lyra's, not the playground's.

@@ -22,7 +22,7 @@ are written down as hanging in the harness rather than done. Approvals are outsi
 rather than a step number. A second lettered slice, B, is the parallel tool calls of
 issue #67 (decision 154): a tool opts in with `parallel: true` and is only run beside another call when
 its policy is `allow` and it has no `apply`, groups are saved in call order, and the cap is
-`maxParallelCalls` on the recipe. It is in review, and its own document is
+`maxParallelCalls` on the recipe. It is merged (pull request #69), and its own document is
 `docs/implementation/B-parallel-tool-calls.md`. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
