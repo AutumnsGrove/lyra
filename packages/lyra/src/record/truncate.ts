@@ -295,14 +295,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			// Emptying this field is not enough on its own, so it goes whole and its
 			// bytes join the total. Leaving them uncounted would save an entry that lost
 			// a kilobyte with nothing in it saying so, and a resume would replay a call
-			// with no arguments at all. A field the record does not require is removed
-			// rather than emptied, because `""` reads as a value the model produced.
+			// with no arguments at all. The field is already empty from the check above;
+			// a field the record does not require is removed rather than kept as `""`,
+			// because `""` reads as a value the model produced.
 			dropped += originalBytes;
-			if (candidate.drop === undefined) {
-				candidate.write("");
-			} else {
-				candidate.drop();
-			}
+			candidate.drop?.();
 			continue;
 		}
 		let low = 0;

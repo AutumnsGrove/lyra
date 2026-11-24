@@ -1372,17 +1372,19 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 			if (answered.retries > 0) {
 				entry.retries = answered.retries;
 			}
-			if (reply.reasoning !== undefined) {
+			// An adapter that reports an empty trace reported no trace, so it is not saved:
+			// a stored `""` makes `get_messages` claim an empty trace at a client that
+			// decides on presence (EVT09).
+			if (reply.reasoning !== undefined && reply.reasoning !== "") {
 				entry.reasoning = reply.reasoning;
 			}
 			const { seq, saved: savedMessage } = await fitAndAppend(entry);
 			// The trace is announced as the record holds it, because it is cut to fit the
 			// entry cap: announcing the raw string would put more on the wire than a reload
-			// can show (EVT10, REC02). Empty counts as absent, so a record written before
-			// REC02 stopped storing `""` still reaches a client as no trace (EVT09).
-			const savedReasoning =
+			// can show (EVT10, REC02). It is absent when there was none, and `fitAndAppend`
+			// is what guarantees the field is either a trace or absent (EVT09).
+			const reasoning =
 				savedMessage.type === "assistant_message" ? savedMessage.reasoning : undefined;
-			const reasoning = savedReasoning === "" ? undefined : savedReasoning;
 			emit({
 				type: "message_end",
 				run: runId,

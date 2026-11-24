@@ -33,6 +33,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   client surface too, so the record stops claiming it: a field the record does not require is removed when
   it loses everything, which is what `fitEntry` already did for a tool result's `details` (RECTRUNC, REC02).
   The event spreads also treat `""` as absent, because a record written before this rule can still hold one.
+- **An empty trace is not saved at all, so the live spread has no `""` branch.** The second review round noted
+  the live guard could not fail: with `fitEntry` removing a whole-dropped field, the only source of `""` on
+  that path was an adapter reporting one, and `run.ts` was saving it. It now skips an empty `reasoning`
+  instead, so the record never claims an empty trace, and the live event needs no empty check at all — only
+  the projection keeps one, for records written before this rule (EVT09).
 
 ## Slice B, parallel tool calls, 2026-11-24
 

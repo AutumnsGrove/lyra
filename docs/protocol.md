@@ -191,7 +191,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | EVT07 | A record with a compaction | A `compaction` event carrying the entry's `seq`, its summary, how many entries it replaced and whether the run or a person asked for it, so a reconnect replays it |
 | EVT05 | A client reconnects with `Last-Event-ID` | Receives every missed record-derived event in order, and no live deltas |
 | EVT08 | A reply with a thinking trace | `message_end` carries `reasoning`, and it is the string the record's assistant entry holds, on the live path and on a replay |
-| EVT09 | A reply with no thinking trace | `message_end` has no `reasoning` field at all, rather than `null` or an empty string, so a client can tell "no trace" from "an empty trace". Holds when the cap dropped the trace whole and when an older record says `""` |
+| EVT09 | A reply with no thinking trace | `message_end` has no `reasoning` field at all, rather than `null` or an empty string, so a client can tell "no trace" from "an empty trace". An adapter that reports `""` is reporting no trace, so nothing is saved and nothing is announced; it also holds when the cap dropped the trace whole, and a record written before this rule that says `""` is replayed as no trace |
 | EVT10 | A trace longer than one record entry can hold | `message_end` announces the trace the record saved, cut and marked as REC02 saves it, never the raw string the adapter reported |
 | REQ01 | A request is created | Saved in the record before it is sent |
 | REQ02 | A request with no connected client | Listed by `list_pending`, answerable later |

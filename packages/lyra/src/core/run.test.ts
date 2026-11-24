@@ -1217,3 +1217,23 @@ test("EVT09 a trace the cap dropped whole is announced absent, and the record do
 	expect(saved).not.toHaveProperty("reasoning");
 	expect(saved?.type === "assistant_message" ? saved.truncated?.field : undefined).toBe("text");
 });
+
+test("EVT09 a reply whose reasoning is an empty string saves no trace and announces none", async () => {
+	// An adapter can report `reasoning: ""`, and the model did not think "nothing": it
+	// reported no trace. Saving "" would make `get_messages` claim an empty trace at a
+	// client that decides on presence, which is the rule EVT09 states.
+	const blank = harness(
+		[{ text: "Done.", reasoning: "", toolCalls: [{ id: "c1", name: "finish" }] }],
+		() => [createFinishTool()],
+	);
+
+	const result = await blank.run();
+	expect(result.reason).toBe("done");
+
+	const announced = blank.events.find((event) => event.type === "message_end");
+	expect(announced).not.toHaveProperty("reasoning");
+
+	const record = await readRecord(blank.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved).not.toHaveProperty("reasoning");
+});
