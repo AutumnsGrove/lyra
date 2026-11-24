@@ -25,8 +25,9 @@ its policy is `allow` and it has no `apply`, groups are saved in call order, and
 `maxParallelCalls` on the recipe. It is merged (pull request #69), and its own document is
 `docs/implementation/B-parallel-tool-calls.md`. Next is **C, the playground** ([`docs/implementation/C-playground.md`](docs/implementation/C-playground.md),
 issue #60): a SvelteKit page served by one Worker that runs Lyra against a real model, so the loop is tried
-the way a person drives it and not only the way a scenario file does. It is planned and not started, and its
-prerequisites are #59, a conversation-shaped scenario, and a live `message_end.reasoning`. What is left of step 5 is its
+the way a person drives it and not only the way a scenario file does. It is planned and not started; #59 and
+decision 154 are merged, `message_end.reasoning` is #74, and what is left is a conversation-shaped scenario,
+#73. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both
