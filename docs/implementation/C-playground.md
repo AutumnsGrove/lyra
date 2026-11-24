@@ -28,7 +28,8 @@ Concretely:
 - a **token box** takes the bearer token, keeps it in `localStorage`, and every request carries it; a
   person who finds the URL without the token gets a login screen and nothing else;
 - a **sidebar of conversations**, each one a session (decision 44), kept across reloads and across an
-  object eviction;
+  object eviction, and **a conversation rather than one run**: two runs in one session with a question
+  answered between them is an acceptance row, not only a smoke check;
 - a run shows **the transcript, every tool call with its arguments, result, duration and error, and the
   model's thinking trace**, and the trace survives a reload because it is on the record;
 - **steer, follow-up, stop**, a **question/approval card** answered in the page, a **status line** (state,
@@ -109,9 +110,8 @@ their record; the slices cite it as the authority, so if they belong on the issu
 
 ## Prerequisites
 
-0. **Decision 154 and `Tool.parallel`, which is pull request #69.** The fan-out tools in Slice 5 and the
-   page's several-calls-in-flight view both assume it. It is in review, not merged, so it is listed here
-   rather than in the table above. If #69 is not on `main` when Slice 1 starts, it merges first.
+0. **Decision 154 and `Tool.parallel`** — pull request #69, merged on 2026-11-24. The fan-out tools in
+   Slice 5 and the page's several-calls-in-flight view both assume it.
 1. **#59: a host runs its own recipe through a scenario file.** `runScenario` only knows `timeline-test`, so
    the playground's recipes cannot be asserted by scenario files at all — the acceptance table below would
    have to be re-implemented in TypeScript, which is the copy that drifts. One `ScenarioRunOptions.recipes`
@@ -191,7 +191,12 @@ either demonstrated or recorded as unfinished with the reason, as #60 asks.
 
 ## The tool table, as the acceptance list
 
-#60's table is the checklist, unchanged, plus three notes from this plan:
+#60's table is the checklist, unchanged, plus four notes from this plan:
+
+- A **conversation scenario** is part of the list, which is #60's own ask: one session, a run, a question
+  answered, a follow-up run, and the assertions over the session's whole record. It cannot be written
+  until prerequisite 2 lands, and it is the file that proves the sidebar and the cards rather than only
+  the single-run tools.
 
 - `now`, `calculator`, `read_page`/`fetch_page` and the notes reads opt in to `parallel`, so a group of calls
   shows up as several in-flight rows in the page.

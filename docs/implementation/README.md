@@ -26,8 +26,9 @@ Last updated: 2026-11-22. This folder turns `docs/first-slice.md` (what to build
 | 7 | [`07-compaction.md`](07-compaction.md) | Lyra | step 6 merged | merged ([pull request #25](https://github.com/AutumnsGrove/lyra/pull/25), `eb95d42`) |
 | A | [`A-approvals-proposals.md`](A-approvals-proposals.md) | Lyra | step 7 merged | merged ([pull request #27](https://github.com/AutumnsGrove/lyra/pull/27), `6970a1e`), after six review rounds |
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
+| B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69 (decision 154), #59, and a live `message_end.reasoning` | planned, not started |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69 (merged), #59, a conversation scenario, and a live `message_end.reasoning` | planned, not started |
 
 ### Where the last session stopped (2026-11-22)
 
