@@ -10,6 +10,12 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- A scenario file can describe a conversation rather than one run: a `runs:` list whose first step starts
+  the run and whose later steps answer the request the run parked on or carry the person's follow-up, each
+  with its own script (issues #60 and #73, SCN07 to SCN09). A single-run file is unchanged, and every level
+  drives the steps as real commands — in-process, the fake server, HTTP and the socket. **Upgrading:**
+  `ScenarioOutcome` gained `results`, and `Scenario` gained an optional `runs`; nothing that existed changed
+  shape.
 - `runScenario` takes an optional `recipes` map, so a host can run a scenario file that names its own
   recipe instead of only the testkit's `timeline-test` (issue #59). A host's recipe reaches the run with
   everything it declares — limits, approvals, stuck, compaction, the fallback model and its input schema —
