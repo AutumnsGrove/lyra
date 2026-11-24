@@ -45,6 +45,22 @@ new API and any breaking change, and a patch bump is fixes only.
 - `fitEntry` could return a line over the cap it was given: a small cap with a long id left a window where
   the entry could not fit even with its text emptied, and the marker was written on top of the empty field.
   It now refuses the entry as the same rule does for any structure that is too big on its own (REC04).
+- The OpenAI-style adapter redacted the key from a provider's words after cutting them to 300 characters, so a
+  key the provider echoed across the cut stayed in the error message as a prefix. It is now taken out first,
+  on a failing status, on a 200 that is not a stream, and on an error chunk in the middle of one (OAI22).
+- `decide_proposal`, `compact`, `prompt`, `follow_up` and `resume` read the record before taking the session's
+  write claim, so a command that had read just before another one landed could write from a stale record: two
+  decisions on one proposal, or an entry chained from a parent that had moved. They now claim first and read
+  under the claim (CMD10).
+- An answer or a decision whose note, text or ids were too big for one record entry answered `internal`, which
+  reads as a host fault; it is `bad_request` now, and the request stays open for a shorter answer (REQ03).
+- A `prompt` or `follow_up` on a finished session whose text fit the command cap but not an entry once its
+  quotes and newlines were escaped was accepted, and then failed the run it continued. It is refused with
+  `bad_request` before anything is written (CMD04).
+- A keyed `start` named its Durable Object `<tenant>:<key>`, so a tenant whose name held a colon could share
+  an object name with another tenant's key. `%` and `:` are now escaped in the tenant; a tenant with neither,
+  which is every tenant so far, keeps the name it always had, so a retried key still reaches its first run.
+  A socket frame over the line cap is now refused before the socket is replayed or the frame decoded.
 
 ## [0.3.1] - 2026-11-22
 
