@@ -800,6 +800,42 @@ test("SCN07 a question is answered with text, and the run carries on from it", a
 	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done"]);
 });
 
+test("SCN07 a conversation that also declares compaction still scripts each segment", async () => {
+	// Declaring `compaction:` alone switches the scripted model to sequence position, where
+	// a fresh model per segment starts at its own turn 0. The padding that a resumed
+	// segment needs in position mode would then be served as that segment's replies, and
+	// the step would end stuck (found in review on pull request #78).
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			// A summary script is required by the decoder even though no cut happens here.
+			compaction: { settings: {}, summaries: [{ text: "a summary nobody asks for" }] },
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					answer: { decision: "approve" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done"]);
+	// Served an empty padding turn, the run nudges the model with a reminder instead of
+	// reading the segment's own script first, and this is what catches that.
+	const reminders = outcome.record?.entries.filter(
+		(entry) => entry.type === "user_message" && entry.label === "reminder",
+	);
+	expect(reminders).toEqual([]);
+});
+
 test("SCN08 a run that parks with nobody to answer it is named in the report", async () => {
 	// A follow-up while the run is still waiting for a person is the session's `busy`
 	// (CMD08), so the scenario must say which run is waiting rather than let a second

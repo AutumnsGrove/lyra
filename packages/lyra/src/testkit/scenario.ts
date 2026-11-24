@@ -1129,7 +1129,14 @@ export async function runScenario(
 		// The scripted model answers by the position the turn would have in the
 		// conversation, so a resumed run's script starts after the turns the record
 		// already holds: a file says what happens next, not what happened before.
-		const alreadyAnswered = first ? { count: 0 } : await answeredSoFar();
+		// The padding exists for the conversation-position model, which picks its reply by
+		// how much of the conversation is already written. A file that declares
+		// compaction is scripted by sequence instead, and each segment's model starts at
+		// its own turn 0, so padding there would be served as the segment's replies and
+		// the step would have to be nudged before it read its own script (found in review
+		// on pull request #78).
+		const positioned = scenario.compaction === undefined;
+		const alreadyAnswered = first || !positioned ? { count: 0 } : await answeredSoFar();
 		if ("problem" in alreadyAnswered) {
 			problems.push(`scenario.runs[${index}]: ${alreadyAnswered.problem}`);
 			break;

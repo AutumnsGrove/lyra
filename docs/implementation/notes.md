@@ -26,6 +26,13 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   conversation file proves the protocol carries a conversation rather than proving the testkit can. The open
   stream matters: a segment that ends quickly sent its live-only events before a per-segment stream had
   attached, which is how the missing turn first looked like a bare `failed` with no error on the wire.
+- **Padding is for the conversation-position model only.** `pi-review` found that a file declaring
+  `compaction:` is scripted by sequence position, and each segment's model starts at its own turn 0, so
+  the padding a resumed segment needs in position mode was served as that segment's replies: the run had
+  to be nudged with a reminder before it read its own script. The padding is now skipped when a file
+  declares compaction, which is the one place the two modes differ. The first test for it passed either
+  way, because a nudge still ends `done`; the assertion that catches it is that the record holds no
+  `reminder` entry.
 - **The step types are public on purpose.** `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are
   on the testkit's surface rather than internal, because decision 67's whole point is that a host runs the
   files through its own adapter: without them, Lattice would re-implement the request scan and the two
