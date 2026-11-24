@@ -441,8 +441,21 @@ re-implementing the cases in TypeScript against it (SCN06, issue #59). The decod
 accepts any recipe name: what a file looks like is the file's business, and which
 recipes exist is the host's.
 
+A file can describe a **conversation** rather than one run, with a `runs:` list
+(SCN07, issue #73). The first step's `model` starts the run; every later step says
+how it continues, either `answer: { decision | text }` for the request the run
+parked on or `follow_up:` for the person's next words, and carries its own `model`,
+because turns are consumed per segment. The record is the session's, so the steps
+are segments of one run and not rival runs: `runScenario` reports one result per
+step and asserts over the whole record. A single-run file is unchanged, and the
+model is scripted by position in the conversation, so a resumed segment's turns
+begin where the record left off.
+
 | ID | Case | Expected |
 |---|---|---|
 | SCN04 | Happy: a scenario through a server | Every scenario file runs again with the OpenAI-style adapter over the fake model server, and its events and record match the same expectations |
 | SCN05 | Happy: a scenario over HTTP | Every scenario file runs again over the real HTTP surface in workerd, against a Durable Object, and its events and record match the same expectations |
 | SCN06 | Happy: a host's own recipe | `runScenario` is given a map of the host's recipes and a file naming one runs that recipe; a name nobody provided throws, naming it and the ones that were available (issue #59) |
+| SCN07 | Happy: a conversation | A file with `runs:` drives one session through a segment that parks on a request, the person's answer, and a follow-up, and its events and record match over the whole session rather than only the last segment. One session holds one run id, so the later steps are `resumed` segments of the same run (decision 44), at every level: in-process, the fake server, HTTP and the socket |
+| SCN08 | Sad: a step that cannot run | A follow-up while the run is `waiting_for_person` is the session's `busy` (CMD08), so the report names the step that is waiting and the step that could not start, and the refused step's model turns are never spent |
+| SCN09 | Bad: a malformed `runs:` list | An empty list, a first step that answers or follows up, a step with both commands, a step with no `model`, an `answer` with neither a decision nor a text, and a file with both `model` and `runs` are each `bad_request` naming the field |

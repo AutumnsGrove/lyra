@@ -1,0 +1,34 @@
+# SCN07, at every level: one session, a run that asks, the person's answer, and a follow-up
+# that continues the same run. This is the shape a chat page has, and the file runs in-process,
+# through the fake model server, over HTTP and over a socket.
+name: a conversation, not one run
+task: scenario-conversation
+input: ask me which note to read, then read it
+tools:
+  - name: choose
+    behavior: ask
+    question: { title: which note, message: which note should I read? }
+  - { name: read, behavior: ok, content: the note }
+runs:
+  - model:
+      - tool_calls: [{ id: c1, name: choose, args: {} }]
+  # A segment carries every turn it needs: the filled slot from the answer, and the
+  # reply after the tool result, or the run would ask a script that had nothing left.
+  - answer: { text: the second one }
+    model:
+      - tool_calls: [{ id: c2, name: read, args: { number: 2 } }]
+      - tool_calls: [{ id: c3, name: finish, args: {} }]
+  - follow_up: now say it back
+    model:
+      - tool_calls: [{ id: c4, name: finish, args: {} }]
+expect_events:
+  - { type: run_start }
+  - { type: tool_end, call_id: c2, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: user_message, label: task, text: "ask me which note to read, then read it" }
+  - { type: request, kind: question }
+  - { type: request_answered, text: the second one }
+  - { type: tool_message, toolCallId: c2, isError: false }
+  - { type: user_message, label: follow_up, text: now say it back }
+  - { type: status, state: done }

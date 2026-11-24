@@ -701,3 +701,154 @@ describe("the scenario runner's clock", () => {
 		expect(outcome.result.reason).toBe("done");
 	});
 });
+
+/** A raw file, the way a YAML file reaches `decodeScenario`. */
+function file(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		name: "a conversation",
+		task: "scenario-conversation",
+		input: "write a line, then read it back",
+		tools: [{ name: "write", behavior: "ok", policy: "ask", content: "wrote one line" }],
+		model: [{ tool_calls: [{ id: "c1", name: "finish" }] }],
+		...overrides,
+	};
+}
+
+test("SCN07 a scenario carries a conversation: two runs with an approval answered between them", async () => {
+	// The shape #60's acceptance list asks for, and the one a chat page has: a run, a
+	// person answering it, and the person's next word starting another run, all
+	// asserted over the session's record rather than only the last run's.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					answer: { decision: "approve" },
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+				{
+					follow_up: "read it back",
+					model: [{ tool_calls: [{ id: "c3", name: "finish" }] }],
+				},
+			],
+			expect_events: [{ type: "run_end", reason: "done" }],
+			expect_record: [
+				{ type: "user_message", label: "task" },
+				{ type: "request", kind: "approve" },
+				{ type: "request_answered", decision: "approve" },
+				{ type: "tool_message", toolCallId: "c1", content: "wrote one line" },
+				{ type: "user_message", label: "follow_up", text: "read it back" },
+			],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.results.map((result) => result.reason)).toEqual(["parked", "done", "done"]);
+	// A session owns one record and one run id, so the answer and the follow-up are
+	// new segments of the same run rather than rival runs (decision 44). The record
+	// says so: two `resumed` statuses, and every event names the one run.
+	const resumed = outcome.record?.entries.filter(
+		(entry) => entry.type === "status" && entry.state === "resumed",
+	);
+	expect(resumed).toHaveLength(2);
+	expect(new Set(outcome.events.map((event) => event.run))).toEqual(new Set(["scenario"]));
+});
+
+test("SCN08 a run that parks with nobody to answer it is named in the report", async () => {
+	// A follow-up while the run is still waiting for a person is the session's `busy`
+	// (CMD08), so the scenario must say which run is waiting rather than let a second
+	// run go on top of it.
+	const decoded = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }] },
+				{
+					follow_up: "never mind",
+					model: [{ tool_calls: [{ id: "c2", name: "finish" }] }],
+				},
+			],
+			expect_events: [
+				{ type: "run_end", reason: "parked", parked_reason: "waiting_for_person" },
+			],
+			expect_record: [{ type: "request", kind: "approve" }],
+		}),
+	);
+	expect(decoded.ok).toBe(true);
+	if (!decoded.ok) {
+		return;
+	}
+
+	const outcome = await runScenario(decoded.value);
+	expect(outcome.problems.join(" ")).toMatch(/scenario\.runs\[0\]/);
+	expect(outcome.problems.join(" ")).toMatch(/waiting_for_person/);
+	// The follow-up never ran: its model turns were not spent.
+	expect(outcome.results).toHaveLength(1);
+});
+
+test("SCN09 a malformed runs list is refused with the field named", () => {
+	const refusals: Array<[Record<string, unknown>, RegExp]> = [
+		[{ runs: [] }, /runs/],
+		// The first step starts the run; there is nothing for it to continue.
+		[{ runs: [{ follow_up: "hello", model: [{ text: "hi" }] }] }, /runs\[0\]/],
+		// Two commands in one step is ambiguous: does it answer, or start a new run?
+		[
+			{
+				runs: [
+					{ model: [{ text: "hi" }] },
+					{
+						answer: { decision: "approve" },
+						follow_up: "and again",
+						model: [{ text: "hi" }],
+					},
+				],
+			},
+			/runs\[1\]/,
+		],
+		// A step with no script has nothing to say when it resumes.
+		[{ runs: [{ model: [{ text: "hi" }] }, { follow_up: "again" }] }, /model/],
+		// An answer that carries neither a decision nor a text answers nothing.
+		[
+			{ runs: [{ model: [{ text: "hi" }] }, { answer: {}, model: [{ text: "hi" }] }] },
+			/runs\[1\]\.answer/,
+		],
+	];
+
+	for (const [overrides, pattern] of refusals) {
+		const decoded = decodeScenario(file(overrides));
+		expect(decoded.ok, JSON.stringify(overrides)).toBe(false);
+		if (!decoded.ok) {
+			expect(decoded.error.code).toBe("bad_request");
+			expect(decoded.error.message).toMatch(pattern);
+		}
+	}
+});
+
+test("SCN03 a single-run file still decodes, and a conversation needs no top-level model", () => {
+	const single = decodeScenario(file());
+	expect(single.ok).toBe(true);
+	if (single.ok) {
+		expect(single.value.runs).toBeUndefined();
+	}
+
+	const conversation = decodeScenario(
+		file({
+			model: undefined,
+			runs: [
+				{ model: [{ text: "first" }] },
+				{ follow_up: "again", model: [{ text: "second" }] },
+			],
+		}),
+	);
+	expect(conversation.ok).toBe(true);
+	if (conversation.ok) {
+		expect(conversation.value.runs).toHaveLength(2);
+		expect(conversation.value.runs?.[1]?.followUp).toBe("again");
+	}
+});

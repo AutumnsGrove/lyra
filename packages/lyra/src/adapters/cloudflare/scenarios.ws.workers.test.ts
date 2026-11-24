@@ -8,6 +8,8 @@ import {
 	decodeScenario,
 	matchScenarioEvents,
 	matchScenarioRecord,
+	type ScenarioAnswer,
+	type ScenarioRun,
 } from "../../testkit/scenario.js";
 import type { TestSession } from "./testing/session-class.testing.js";
 
@@ -37,6 +39,48 @@ function nameOf(path: string): string {
 interface Frame {
 	id: number | null;
 	event: { type: string } & Record<string, unknown>;
+}
+
+/** Send one conversation step as the person would, on the socket. */
+function sendStep(
+	step: ScenarioRun,
+	socket: WebSocket,
+	session: string,
+	request: string | undefined,
+): void {
+	if (step.answer !== undefined) {
+		if (request === undefined) {
+			throw new Error("the step answers a request, and no ui_request arrived");
+		}
+		socket.send(JSON.stringify(uiResponse(session, request, step.answer)));
+	}
+	if (step.followUp !== undefined) {
+		socket.send(
+			JSON.stringify({
+				type: "command",
+				id: `follow-${request ?? session}`,
+				command: "follow_up",
+				session,
+				text: step.followUp,
+			}),
+		);
+	}
+}
+
+function uiResponse(
+	session: string,
+	request: string,
+	answer: ScenarioAnswer,
+): Record<string, unknown> {
+	return {
+		type: "ui_response",
+		id: `answer-${request}`,
+		session,
+		request,
+		ok: answer.decision !== "deny",
+		...(answer.note === undefined ? {} : { note: answer.note }),
+		...(answer.text === undefined ? {} : { text: answer.text }),
+	};
 }
 
 test("every scenario file in the repository is picked up over a socket", () => {
@@ -82,6 +126,11 @@ for (const [path, raw] of Object.entries(files)) {
 
 		const socket = await socketTo(session);
 		const frames: Frame[] = [];
+		// A conversation file is several segments of one run, driven the way a browser
+		// drives them: the next step goes out when a segment ends, on the same socket.
+		const steps: readonly ScenarioRun[] = scenario.runs ?? [];
+		let segment = 0;
+		let request: string | undefined;
 		let end: () => void = () => undefined;
 		const ended = new Promise<void>((resolve) => {
 			end = resolve;
@@ -93,6 +142,9 @@ for (const [path, raw] of Object.entries(files)) {
 			}
 			const event = frame["event"] as Frame["event"];
 			frames.push({ id: typeof event["seq"] === "number" ? event.seq : null, event });
+			if (event.type === "ui_request" && typeof event["request"] === "string") {
+				request = event["request"];
+			}
 			if (scenario.abortAfter !== undefined && frames.length === scenario.abortAfter) {
 				socket.send(
 					JSON.stringify({
@@ -104,7 +156,13 @@ for (const [path, raw] of Object.entries(files)) {
 				);
 			}
 			if (event.type === "run_end") {
-				end();
+				const next = steps[segment + 1];
+				if (next === undefined) {
+					end();
+					return;
+				}
+				segment += 1;
+				sendStep(next, socket, session, request);
 			}
 		});
 
