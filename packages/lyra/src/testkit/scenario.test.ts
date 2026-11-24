@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { createFinishTool, type ScriptedTurn } from "./index.js";
+import { defineRecipe } from "../core/define-recipe.js";
+import { createFinishTool as finishedTool } from "../core/finish.js";
+import { defineTool } from "../core/tool.js";
+import { createFinishTool, toolReturning, type ScriptedTurn } from "./index.js";
 import { decodeScenario, runScenario, type Scenario, type ScenarioTool } from "./scenario.js";
 
 /** The rows are in `docs/engineering-practices.md`, "Spec rows: the scenario runner". */
@@ -48,6 +51,402 @@ test("SCN01 a scenario prompt with no tools still runs against finish", async ()
 		}),
 	);
 	expect(outcome.problems).toEqual([]);
+});
+
+test("SCN06 a host runs its own recipe through a scenario file", async () => {
+	// The case #59 exists for: a recipe that lives in the host, named by the file, so
+	// the file stays the source of truth rather than a TypeScript copy of it.
+	const shelf = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read the shelf", state: {} }),
+		tools: [
+			toolReturning("read", "the shelf", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+	});
+	const outcome = await runScenario(
+		scenario({
+			recipe: "shelf",
+			input: {},
+			tools: [],
+			model: [
+				{ toolCalls: [{ id: "c1", name: "read", args: {} }] },
+				{ toolCalls: [{ id: "c2", name: "finish" }] },
+			],
+			expectEvents: [
+				{ type: "tool_end", call_id: "c1", is_error: false },
+				{ type: "run_end", reason: "done" },
+			],
+			expectRecord: [
+				{ type: "user_message", label: "task", text: "read the shelf" },
+				{ type: "tool_message", toolCallId: "c1", isError: false, content: "the shelf" },
+				{ type: "status", state: "done" },
+			],
+		}),
+		{ recipes: new Map([[shelf.name, shelf]]) },
+	);
+
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	// The recipe's own instructions and tools ran, not the scenario's defaults.
+	expect(outcome.record?.header.task).toBe("shelf");
+});
+
+test("SCN06 a decoded file that names a host recipe runs that recipe", async () => {
+	// The decode half of the change: the name is not checked in the decoder, so this is
+	// the path a host's own file takes from YAML to a run.
+	const host = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: { day: { type: "string" } }, required: ["day"] },
+		setup: (input) => ({ message: `read ${input.day}`, state: {} }),
+		tools: [
+			toolReturning("shelf_read", "the shelf", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		// A limit the run must honour, which the runner used to drop (found in review).
+		limits: { steps: 1 },
+	});
+	const decoded = decodeScenario({
+		name: "a file about the host's recipe",
+		task: "ignored-when-a-recipe-is-named",
+		system: "ignored-too",
+		recipe: "shelf",
+		input: { day: "2026-11-24" },
+		model: [
+			{ tool_calls: [{ id: "c1", name: "shelf_read", args: {} }] },
+			{ tool_calls: [{ id: "c2", name: "finish", args: {} }] },
+		],
+		expect_events: [{ type: "run_start" }],
+		expect_record: [{ type: "user_message", text: "read 2026-11-24" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+	expect(decoded.value.recipe).toBe("shelf");
+
+	// And a name the testkit has never heard of decodes, which is the other half.
+	const unknown = decodeScenario({
+		name: "an unknown name",
+		task: "t",
+		input: {},
+		recipe: "somewhere-else",
+		model: [{ tool_calls: [] }],
+	});
+	expect(unknown.ok).toBe(true);
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	// The recipe's limit is the run's: one step, so the second turn parks instead of
+	// finishing, which the runner's own `steps` would have let through.
+	expect(outcome.result).toMatchObject({ reason: "parked", parkedReason: "limit" });
+	expect(outcome.result.parkedDetail).toBe("steps");
+	expect(outcome.record?.header.task).toBe("shelf");
+});
+
+test("SCN06 a recipe's approvals reach the run, so a scenario can see the park", async () => {
+	// One of the settings the runner used to drop. A recipe that asks parks, and a
+	// scenario file about an approval would otherwise run straight past it.
+	const host = defineRecipe({
+		name: "cautious",
+		version: 1,
+		instructions: "write, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "write it", state: {} }),
+		tools: [
+			toolReturning("write", "wrote the line", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		approvals: { policy: "ask" },
+	});
+	const decoded = decodeScenario({
+		name: "a file about an approval",
+		task: "cautious",
+		input: {},
+		recipe: "cautious",
+		model: [{ tool_calls: [{ id: "c1", name: "write", args: {} }] }],
+		expect_events: [{ type: "run_end", reason: "parked", parked_reason: "waiting_for_person" }],
+		expect_record: [{ type: "request", kind: "approve", callId: "c1" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result).toMatchObject({
+		reason: "parked",
+		parkedReason: "waiting_for_person",
+	});
+});
+
+test("SCN06 a recipe's stuck settings reach the run", async () => {
+	// The second of the settings the runner used to drop, and one with an observable
+	// difference: the default nudges the model and asks again, and this recipe says not
+	// to, so the run fails with the reason it says.
+	const host = defineRecipe({
+		name: "quiet",
+		version: 1,
+		instructions: "say nothing, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "say something", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+		stuck: { enabled: false },
+	});
+	const decoded = decodeScenario({
+		name: "a file about the stuck safeguard",
+		task: "quiet",
+		input: {},
+		recipe: "quiet",
+		model: [{ text: "nothing to do" }],
+		expect_events: [{ type: "run_end", reason: "failed" }],
+		expect_record: [{ type: "status", state: "failed" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("failed");
+	expect(outcome.result.reason === "failed" ? outcome.result.error?.message : "").toContain(
+		"the stuck safeguard is off",
+	);
+});
+
+test("SCN06 a recipe's parallel cap reaches the run, and wins over the file's", async () => {
+	// The one setting the runner still dropped. Two opted-in calls run together with the
+	// default cap and one after another with a recipe that says one, which is observable
+	// without a clock: both starts come before the first end, or they do not.
+	const order: string[] = [];
+	const reading = (name: string) =>
+		defineTool({
+			name,
+			description: name,
+			parameters: { type: "object", properties: {} },
+			parallel: true,
+			async execute() {
+				order.push(`${name}:start`);
+				await Promise.resolve();
+				order.push(`${name}:end`);
+				return { isError: false, content: name };
+			},
+		});
+	const recipeWith = (cap?: number) =>
+		defineRecipe({
+			name: "capped",
+			version: 1,
+			instructions: "read both",
+			input: { type: "object", properties: {} },
+			setup: () => ({ message: "read both", state: {} }),
+			tools: [
+				reading("first"),
+				reading("second"),
+				finishedTool({ check: () => ({ ok: true }) }),
+			],
+			...(cap === undefined ? {} : { maxParallelCalls: cap }),
+		});
+	const file = scenario({
+		recipe: "capped",
+		input: {},
+		tools: [],
+		// The file says four, so the recipe's one has to win for the run to be serial.
+		maxParallelCalls: 4,
+		model: [
+			{
+				toolCalls: [
+					{ id: "c1", name: "first", args: {} },
+					{ id: "c2", name: "second", args: {} },
+				],
+			},
+			{ toolCalls: [{ id: "c3", name: "finish" }] },
+		],
+		expectEvents: [{ type: "run_end", reason: "done" }],
+		expectRecord: [{ type: "status", state: "done" }],
+	});
+
+	// The positive case first: the file's four does run the two together, so the serial
+	// order below is the recipe's doing and not the default's.
+	order.length = 0;
+	const together = await runScenario(file, { recipes: new Map([["capped", recipeWith()]]) });
+	expect(together.problems).toEqual([]);
+	expect(order).toEqual(["first:start", "second:start", "first:end", "second:end"]);
+
+	order.length = 0;
+	const oneByOne = await runScenario(file, { recipes: new Map([["capped", recipeWith(1)]]) });
+	expect(oneByOne.problems).toEqual([]);
+	expect(order).toEqual(["first:start", "first:end", "second:start", "second:end"]);
+});
+
+test("SCN06 a recipe's fallback model reaches the run", async () => {
+	// The last of the forwarded settings, and the one that needs a model that fails: the
+	// recipe names a fallback, so a run whose first model exhausts its retries moves to
+	// it and the record says the move happened.
+	const host = defineRecipe({
+		name: "insured",
+		version: 1,
+		instructions: "finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "finish", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+		fallbackModel: "fallback/model",
+	});
+	const outcome = await runScenario(
+		scenario({
+			recipe: "insured",
+			input: {},
+			tools: [],
+			// The first model fails its first try and every retry, so the run moves on.
+			model: [
+				{
+					toolCalls: [{ id: "c1", name: "finish" }],
+					failures: Array.from({ length: 4 }, () => ({ retryable: true })),
+				},
+			],
+			expectEvents: [{ type: "run_end", reason: "done" }],
+			expectRecord: [{ type: "fallback", to: "fallback/model" }],
+		}),
+		{ recipes: new Map([[host.name, host]]) },
+	);
+
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	expect(outcome.record?.entries.find((entry) => entry.type === "fallback")).toMatchObject({
+		type: "fallback",
+		to: "fallback/model",
+	});
+});
+
+test("SCN06 the recipe's compaction wins over the file's", async () => {
+	// The file's compaction is one that cuts a short run; the recipe's never cuts. The
+	// file's settings are only a default for a scenario with no recipe, so the run must
+	// end without a single compaction (found in review: the file's spread came later
+	// and silently reversed the order).
+	const host = defineRecipe({
+		name: "long-memory",
+		version: 1,
+		instructions: "read the file, then finish",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read it", state: {} }),
+		tools: [
+			toolReturning("read", "the file, all of it", { safeToRepeat: true }),
+			finishedTool({ check: () => ({ ok: true }) }),
+		],
+		compaction: { contextWindow: 1_000_000, reserveTokens: 1_000, keepTokens: 20_000 },
+	});
+	const decoded = decodeScenario({
+		name: "a file whose compaction should not be used",
+		task: "long-memory",
+		input: {},
+		recipe: "long-memory",
+		compaction: {
+			context_window: 600,
+			reserve_tokens: 100,
+			keep_tokens: 2,
+			summaries: [{ text: "a summary the run must never ask for" }],
+		},
+		model: [
+			{
+				tool_calls: [{ id: "c1", name: "read", args: {} }],
+				usage: { input_tokens: 400, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c2", name: "read", args: {} }],
+				usage: { input_tokens: 450, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c3", name: "read", args: {} }],
+				usage: { input_tokens: 500, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c4", name: "read", args: {} }],
+				usage: { input_tokens: 550, output_tokens: 10 },
+			},
+			{
+				tool_calls: [{ id: "c5", name: "finish", args: {} }],
+				usage: { input_tokens: 600, output_tokens: 10 },
+			},
+		],
+		expect_events: [{ type: "run_end", reason: "done" }],
+		expect_record: [{ type: "status", state: "done" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+
+	const outcome = await runScenario(decoded.value, { recipes: new Map([[host.name, host]]) });
+	expect(outcome.problems).toEqual([]);
+	expect(outcome.result.reason).toBe("done");
+	expect(outcome.record?.entries.some((entry) => entry.type === "compaction")).toBe(false);
+});
+
+test("SCN06 a host's map wins over the testkit's when both have the name", async () => {
+	// The precedence the doc comment and the rows claim, which a map keyed on a name
+	// only the testkit has would never show.
+	const host = defineRecipe({
+		name: "timeline-test",
+		version: 1,
+		instructions: "the host's own timeline",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "build the host's page", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const decoded = decodeScenario({
+		name: "a file whose recipe the host shadows",
+		task: "shadowed",
+		input: {},
+		recipe: "timeline-test",
+		model: [{ tool_calls: [{ id: "c1", name: "finish", args: {} }] }],
+		expect_events: [{ type: "run_end", reason: "done" }],
+		expect_record: [{ type: "user_message", text: "build the host's page" }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+	const outcome = await runScenario(decoded.value, {
+		recipes: new Map([[host.name, host]]),
+	});
+	expect(outcome.problems).toEqual([]);
+});
+
+test("SCN06 a file whose input the recipe refuses says so instead of running setup", async () => {
+	const host = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: { day: { type: "string" } }, required: ["day"] },
+		setup: () => ({ message: "read the day", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const refused = runScenario(
+		scenario({ recipe: "shelf", input: {}, tools: [], model: [{ toolCalls: [] }] }),
+		{ recipes: new Map([[host.name, host]]) },
+	);
+	await expect(refused).rejects.toThrow(/gives input the recipe refuses/);
+	await expect(refused).rejects.toThrow(/day/);
+});
+
+test("SCN06 a recipe nobody provided is named rather than reported as a failed run", async () => {
+	// A host's mistake, so it says so instead of reporting a mismatch nobody can act
+	// on. The message lists what was available, which is the proof that both the
+	// host's map and the testkit's own were consulted.
+	const shelf = defineRecipe({
+		name: "shelf",
+		version: 1,
+		instructions: "read the shelf",
+		input: { type: "object", properties: {} },
+		setup: () => ({ message: "read the shelf", state: {} }),
+		tools: [finishedTool({ check: () => ({ ok: true }) })],
+	});
+	const missing = runScenario(scenario({ recipe: "nobody", input: {}, tools: [] }), {
+		recipes: new Map([[shelf.name, shelf]]),
+	});
+	await expect(missing).rejects.toThrow(/names the recipe "nobody"/);
+	await expect(missing).rejects.toThrow(/shelf, timeline-test/);
 });
 
 test("SCN02 a mismatch is reported with what was expected and what came", async () => {
@@ -101,6 +500,10 @@ test("SCN03 a malformed scenario is refused with the field named", () => {
 			field: /scenario\.model\[0\]\.tool_calls\[0\]\.id/,
 		},
 		{ value: { name: "x", input: "y", model: [{}], abort_after: 0 }, field: /abort_after/ },
+		// The recipe name may be anything a host provides, and an empty one names
+		// nothing (issue #59), so these two are the decoder's whole recipe rule.
+		{ value: { name: "x", input: "y", model: [{}], recipe: "" }, field: /scenario\.recipe/ },
+		{ value: { name: "x", input: "y", model: [{}], recipe: "  " }, field: /scenario\.recipe/ },
 		{ value: { name: "x", input: "y", model: [{}], abort_after: 1.5 }, field: /abort_after/ },
 		{ value: { name: 5, input: "y", model: [{}] }, field: /scenario\.name/ },
 		{ value: { name: "x", input: 5, model: [{}] }, field: /scenario\.input/ },

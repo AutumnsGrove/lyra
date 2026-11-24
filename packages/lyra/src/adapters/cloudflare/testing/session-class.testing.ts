@@ -119,6 +119,29 @@ function recipeFor(clock: FakeClock): RunDefinition {
 	};
 }
 
+/**
+ * The recipe a scenario file runs at this level: the testkit's one by name, or the
+ * file's inline tools.
+ *
+ * A file naming any other recipe is refused here rather than falling through to the
+ * inline branch, which would run the file's own `system` and `tools` under the host
+ * recipe's name and assert something the file never said (found in review). The
+ * host's recipes reach a scenario through `runScenario`'s `recipes` map; this
+ * harness has no way to import them.
+ */
+function definitionForScenario(scenario: Scenario, clock: FakeClock): RunDefinition {
+	if (scenario.recipe === "timeline-test") {
+		return timelineTestRecipe;
+	}
+	return {
+		name: scenario.task,
+		version: 1,
+		instructions: scenario.system,
+		tools: [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()],
+		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
+	};
+}
+
 export class TestSession extends DurableObject<Cloudflare.Env> {
 	#clock: FakeClock | undefined;
 	#session: CloudflareSession | undefined;
@@ -139,22 +162,7 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 		const scenario = this.#scenario;
 		const taskName = scenario === undefined ? "test-task" : (scenario.recipe ?? scenario.task);
 		const definition: RunDefinition =
-			scenario === undefined
-				? recipeFor(clock)
-				: scenario.recipe === "timeline-test"
-					? timelineTestRecipe
-					: {
-							name: taskName,
-							version: 1,
-							instructions: scenario.system,
-							tools: [
-								...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
-								createFinishTool(),
-							],
-							...(scenario.compaction === undefined
-								? {}
-								: { compaction: scenario.compaction.settings }),
-						};
+			scenario === undefined ? recipeFor(clock) : definitionForScenario(scenario, clock);
 		const scripted =
 			scenario === undefined
 				? scriptedByInput()
@@ -195,6 +203,16 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 	 * it starts the run, so every command and event after it is a real one on the wire.
 	 */
 	configure(scenario: Scenario): void {
+		// Refused here rather than at the first request, so a file naming a recipe this
+		// harness does not have fails the test that configures it instead of running the
+		// file's inline `system` and `tools` under the host recipe's name (found in
+		// review). The host's recipes reach a scenario through `runScenario`'s `recipes`
+		// map, which is the in-process level's; this harness cannot import them.
+		if (scenario.recipe !== undefined && scenario.recipe !== "timeline-test") {
+			throw new Error(
+				`the scenario ${scenario.name} names the recipe ${scenario.recipe}, and this workerd harness only has timeline-test`,
+			);
+		}
 		this.#scenario = scenario;
 		this.#clock = undefined;
 		this.#session = undefined;

@@ -435,7 +435,14 @@ adapter and a fake server as well as through the in-process scripted model. That
 the third of the three levels decision 63 asks for; `src/scenarios.test.ts` runs
 every file twice, and the Lumen adapter in Lattice will be the fourth.
 
+It also takes an optional map of the host's own recipes (`recipes`), consulted before
+the testkit's own, so a host writes a file that names *its* recipe instead of
+re-implementing the cases in TypeScript against it (SCN06, issue #59). The decoder
+accepts any recipe name: what a file looks like is the file's business, and which
+recipes exist is the host's.
+
 | ID | Case | Expected |
 |---|---|---|
 | SCN04 | Happy: a scenario through a server | Every scenario file runs again with the OpenAI-style adapter over the fake model server, and its events and record match the same expectations |
 | SCN05 | Happy: a scenario over HTTP | Every scenario file runs again over the real HTTP surface in workerd, against a Durable Object, and its events and record match the same expectations |
+| SCN06 | Happy: a host's own recipe | `runScenario` is given a map of the host's recipes and a file naming one runs that recipe; a name nobody provided throws, naming it and the ones that were available (issue #59) |
