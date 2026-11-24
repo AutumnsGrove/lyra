@@ -56,6 +56,10 @@ export interface ExecuteToolsOptions {
 	 * How many of these calls may run at the same time (decision 154). Absent or 1
 	 * runs them one after another, which is what a batch that is not a group gets,
 	 * and a group larger than this runs in chunks of this size, in call order.
+	 *
+	 * The caller decides who may run together (`canRunTogether`); this executor does
+	 * not re-check each tool, because eligibility depends on the recipe's default
+	 * policy, and the scheduler is what knows it.
 	 */
 	concurrency?: number;
 }

@@ -968,9 +968,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 		seed: ResumeSeed,
 		decided: RequestAnsweredEntry | undefined,
 	): Promise<void> => {
-		// The call a request named, and every call after it, never ran: the batch
-		// stopped there rather than guessing. A person's decision settles them, and an
-		// approval covers only the call it named, so the rest meet their own policy.
+		// The call a request named, and every call after it with no result, waited for
+		// the answer: a serial batch stopped there rather than guessing. Inside a group
+		// the calls behind a question have already run and are saved, so the seed leaves
+		// them out (decision 154) and only the ones with no result reach here. A person's
+		// decision settles them, and an approval covers only the call it named, so the
+		// rest meet their own policy.
 		const asked = seed.pendingRequest?.callId;
 		const heldFrom =
 			asked === undefined ? -1 : seed.unansweredCalls.findIndex((call) => call.id === asked);
