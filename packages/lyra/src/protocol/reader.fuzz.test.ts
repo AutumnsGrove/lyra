@@ -42,3 +42,79 @@ test("FRM03 a stream of newlines never produces a frame", () => {
 	expect(reader.push(new TextEncoder().encode("\n\n\n\r\n\n")).lines).toEqual([]);
 	expect(reader.end().lines).toEqual([]);
 });
+
+/**
+ * The reader as it was first written, one byte at a time into a plain array. It is
+ * slow and obviously right, which is what a reference is for: the real reader is
+ * allowed to be faster only while it answers exactly the same.
+ */
+function referenceRead(
+	chunks: readonly Uint8Array[],
+	cap: number,
+): { lines: string[]; overCap?: { bytes: number; cap: number } } {
+	let pending: number[] = [];
+	const lines: string[] = [];
+	const finish = (bytes: number[]): string => {
+		const trimmed =
+			bytes.length > 0 && bytes[bytes.length - 1] === 0x0d ? bytes.slice(0, -1) : bytes;
+		return new TextDecoder().decode(Uint8Array.from(trimmed));
+	};
+	for (const chunk of chunks) {
+		for (const byte of chunk) {
+			if (byte === 0x0a) {
+				const line = finish(pending);
+				pending = [];
+				if (line !== "") {
+					lines.push(line);
+				}
+				continue;
+			}
+			pending.push(byte);
+			if (pending.length > cap) {
+				return { lines, overCap: { bytes: pending.length, cap } };
+			}
+		}
+	}
+	const last = finish(pending);
+	if (last !== "") {
+		lines.push(last);
+	}
+	return { lines };
+}
+
+test("FRM03 the reader answers exactly as the byte-at-a-time reference, in any chunking", () => {
+	const bytesOf = fc.uint8Array({ maxLength: 120 });
+	fc.assert(
+		fc.property(
+			bytesOf,
+			fc.array(fc.nat({ max: 40 }), { maxLength: 8 }),
+			fc.integer({ min: 1, max: 40 }),
+			(data, cuts, cap) => {
+				const chunks: Uint8Array[] = [];
+				let from = 0;
+				for (const cut of cuts) {
+					chunks.push(data.slice(from, from + cut));
+					from += cut;
+				}
+				chunks.push(data.slice(from));
+
+				const reader = lineReader({ maxLineBytes: cap });
+				const lines: string[] = [];
+				let overCap: { bytes: number; cap: number } | undefined;
+				for (const chunk of chunks) {
+					const read = reader.push(chunk);
+					lines.push(...read.lines);
+					overCap ??= read.overCap;
+				}
+				const ended = reader.end();
+				lines.push(...ended.lines);
+				overCap ??= ended.overCap;
+
+				const expected = referenceRead(chunks, cap);
+				expect(lines).toEqual(expected.lines);
+				expect(overCap).toEqual(expected.overCap);
+			},
+		),
+		{ numRuns: 600 },
+	);
+});

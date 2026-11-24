@@ -40,6 +40,13 @@ new API and any breaking change, and a patch bump is fixes only.
   would have saved. Everything that changes state, asks a person or never opted in is a barrier and runs
   alone. An existing recipe behaves exactly as before, because the flag is off by default.
 
+### Changed
+
+- The frame reader holds a line as bytes instead of one number per byte, so a line near the 2 MiB cap costs
+  about its own size while it is assembled and not about eight times it, and it finds each newline with a
+  byte search instead of walking every byte in JavaScript. It answers exactly as before, which a property
+  test checks against the original byte-at-a-time reader in any chunking (FRM03).
+
 ### Fixed
 
 - `fitEntry` could return a line over the cap it was given: a small cap with a long id left a window where

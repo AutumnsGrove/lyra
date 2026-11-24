@@ -40,21 +40,39 @@ function decode(bytes: Uint8Array): string {
 	return new TextDecoder().decode(bytes);
 }
 
+/** The pieces of one line as one run of bytes, copying only when there is more than one piece. */
+function joined(pieces: readonly Uint8Array[], length: number): Uint8Array {
+	if (pieces.length === 1) {
+		return pieces[0] as Uint8Array;
+	}
+	const whole = new Uint8Array(length);
+	let at = 0;
+	for (const piece of pieces) {
+		whole.set(piece, at);
+		at += piece.length;
+	}
+	return whole;
+}
+
 export function lineReader(options: LineReaderOptions = {}): LineReader {
 	const cap = options.maxLineBytes ?? DEFAULT_LINE_CAP_BYTES;
-	/** Bytes of the line being assembled, which always ends at a newline. */
-	let pending: number[] = [];
+	/**
+	 * The start of the line being assembled, as the pieces that have arrived so far.
+	 * They are copies, because a caller may reuse the chunk it handed in, and they
+	 * are kept as bytes rather than one number each, so a line near the cap costs
+	 * about its own size and not eight times it.
+	 */
+	let pending: Uint8Array[] = [];
+	let pendingLength = 0;
 	let overCap: { bytes: number; cap: number } | undefined;
 
-	const lineOf = (bytes: readonly number[]): string => {
-		const withoutCarriageReturn =
+	/** One line's bytes as text, without its `\r`; empty text is the keep-alive between frames. */
+	const lineOf = (bytes: Uint8Array): string =>
+		decode(
 			bytes.length > 0 && bytes[bytes.length - 1] === CARRIAGE_RETURN
-				? bytes.slice(0, -1)
-				: bytes;
-		const text = decode(Uint8Array.from(withoutCarriageReturn));
-		// An empty line is the keep-alive a stream sends between frames.
-		return text === "" ? "" : text;
-	};
+				? bytes.subarray(0, -1)
+				: bytes,
+		);
 
 	return {
 		push(chunk) {
@@ -62,34 +80,49 @@ export function lineReader(options: LineReaderOptions = {}): LineReader {
 				return { lines: [], overCap };
 			}
 			const lines: string[] = [];
-			for (const byte of chunk) {
-				if (byte === NEWLINE) {
-					const line = lineOf(pending);
+			let start = 0;
+			for (;;) {
+				const newline = chunk.indexOf(NEWLINE, start);
+				const end = newline === -1 ? chunk.length : newline;
+				// The first byte past the cap is where the line is refused, whether or not its
+				// newline has arrived yet, and the report names that byte's position.
+				if (pendingLength + (end - start) > cap) {
+					overCap = { bytes: cap + 1, cap };
 					pending = [];
-					if (line !== "") {
-						lines.push(line);
-					}
-					continue;
-				}
-				pending.push(byte);
-				if (pending.length > cap) {
-					overCap = { bytes: pending.length, cap };
-					pending = [];
+					pendingLength = 0;
 					return { lines, overCap };
 				}
+				if (newline === -1) {
+					if (end > start) {
+						pending.push(chunk.slice(start, end));
+						pendingLength += end - start;
+					}
+					return { lines };
+				}
+				const pieces =
+					pending.length === 0
+						? [chunk.subarray(start, end)]
+						: [...pending, chunk.subarray(start, end)];
+				const line = lineOf(joined(pieces, pendingLength + (end - start)));
+				pending = [];
+				pendingLength = 0;
+				if (line !== "") {
+					lines.push(line);
+				}
+				start = newline + 1;
 			}
-			return { lines };
 		},
 
 		end() {
 			if (overCap !== undefined) {
 				return { lines: [], overCap };
 			}
-			if (pending.length === 0) {
+			if (pendingLength === 0) {
 				return { lines: [] };
 			}
-			const line = lineOf(pending);
+			const line = lineOf(joined(pending, pendingLength));
 			pending = [];
+			pendingLength = 0;
 			return { lines: line === "" ? [] : [line] };
 		},
 	};
