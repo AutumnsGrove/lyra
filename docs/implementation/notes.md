@@ -26,6 +26,13 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   with the other events (EVT08 to EVT10), and the plan now says so. The client-visible half is
   `scenarios/reasoning-trace.yaml`, which runs at all four levels rather than being asserted only against
   the core's `RunEvent`.
+- **`pi-review` found that `""` still reached the wire, and the fix went into the record.** With a text and a
+  reasoning both over the cap on their own, `fitEntry` emptied the reasoning whole and left `reasoning: ""`
+  with the marker naming `text`, so the live event, the replay and `get_messages` all claimed an empty trace
+  (EVT09). The first fix would have been to skip `""` in the two event spreads, but `get_messages` is a
+  client surface too, so the record stops claiming it: a field the record does not require is removed when
+  it loses everything, which is what `fitEntry` already did for a tool result's `details` (RECTRUNC, REC02).
+  The event spreads also treat `""` as absent, because a record written before this rule can still hold one.
 
 ## Slice B, parallel tool calls, 2026-11-24
 

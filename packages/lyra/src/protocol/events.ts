@@ -190,8 +190,12 @@ export function projectEvents(
 					text: entry.text,
 					toolCalls: entry.toolCalls,
 					// A reload shows the entry, so the replay announces the entry's own trace:
-					// the one the cap already cut, with no field at all when there was none.
-					...(entry.reasoning === undefined ? {} : { reasoning: entry.reasoning }),
+					// the one the cap already cut, and no field at all when there was none. An
+					// empty string counts as none, so a record written before REC02 stopped
+					// storing `""` cannot draw an empty thinking panel (EVT09).
+					...(entry.reasoning === undefined || entry.reasoning === ""
+						? {}
+						: { reasoning: entry.reasoning }),
 				});
 				for (const call of entry.toolCalls) {
 					events.push({ ...base, type: "tool_call", call });

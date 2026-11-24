@@ -1376,8 +1376,13 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				entry.reasoning = reply.reasoning;
 			}
 			const { seq, saved: savedMessage } = await fitAndAppend(entry);
-			const reasoning =
+			// The trace is announced as the record holds it, because it is cut to fit the
+			// entry cap: announcing the raw string would put more on the wire than a reload
+			// can show (EVT10, REC02). Empty counts as absent, so a record written before
+			// REC02 stopped storing `""` still reaches a client as no trace (EVT09).
+			const savedReasoning =
 				savedMessage.type === "assistant_message" ? savedMessage.reasoning : undefined;
+			const reasoning = savedReasoning === "" ? undefined : savedReasoning;
 			emit({
 				type: "message_end",
 				run: runId,
@@ -1385,9 +1390,6 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				seq,
 				text: reply.text,
 				toolCalls: calls,
-				// The trace is announced as the record holds it, because it is cut to fit
-				// the entry cap: announcing the raw string would put more on the wire than a
-				// reload can show (EVT10, REC02).
 				...(reasoning === undefined ? {} : { reasoning }),
 			});
 

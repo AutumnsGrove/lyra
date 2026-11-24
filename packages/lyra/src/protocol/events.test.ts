@@ -339,3 +339,13 @@ test("EVT10 a reasoning the cap cut is replayed as the cut string, with the mark
 	// The marker itself stays on the entry: the event is the message, not the save.
 	expect(announced).not.toHaveProperty("truncated");
 });
+
+test("EVT09 a record that says reasoning is the empty string is replayed as no trace", () => {
+	// A record written before this rule, or by a build that stored "", must not turn
+	// into an empty thinking panel for a client that decides on presence (review on
+	// pull request #76).
+	const empty: Entry = { ...assistant, reasoning: "" };
+	const projected = events(record(running, empty, done));
+	const announced = projected.find((event) => event.type === "message_end");
+	expect(announced).not.toHaveProperty("reasoning");
+});

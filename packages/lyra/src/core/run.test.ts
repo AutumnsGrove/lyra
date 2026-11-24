@@ -1190,3 +1190,30 @@ test("EVT10 a reasoning over the entry cap is announced as saved, not as the mod
 	// and a reload would then show a shorter trace than the live one did.
 	expect(announcedReasoning).toBe(savedReasoning);
 });
+
+test("EVT09 a trace the cap dropped whole is announced absent, and the record does not claim an empty one", async () => {
+	// Found in review on pull request #76: with both fields over the cap on their own,
+	// `fitEntry` emptied the reasoning whole, so the record held `reasoning: ""` and
+	// both the live event and a replay announced an empty trace (EVT09, REC02).
+	const both = harness(
+		[
+			{
+				text: "t".repeat(2_000),
+				reasoning: "r".repeat(2_000),
+				toolCalls: [{ id: "c1", name: "finish" }],
+			},
+		],
+		() => [createFinishTool()],
+	);
+
+	const result = await both.run({ entryCapBytes: 1_024 });
+	expect(result.reason).toBe("done");
+
+	const announced = both.events.find((event) => event.type === "message_end");
+	expect(announced).not.toHaveProperty("reasoning");
+
+	const record = await readRecord(both.storage);
+	const saved = record.entries.find((entry) => entry.type === "assistant_message");
+	expect(saved).not.toHaveProperty("reasoning");
+	expect(saved?.type === "assistant_message" ? saved.truncated?.field : undefined).toBe("text");
+});

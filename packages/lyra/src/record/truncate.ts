@@ -52,6 +52,13 @@ interface Candidate {
 	field: TextField;
 	read(): string;
 	write(value: string): void;
+	/**
+	 * How to remove the field from the entry when it loses everything it held, for a
+	 * field that is optional in the record. Writing `""` there would claim the model
+	 * produced an empty value, and a client cannot tell that from no value at all
+	 * (EVT09, found in review on pull request #76).
+	 */
+	drop?(): void;
 }
 
 /**
@@ -98,6 +105,9 @@ function textCandidates(entry: Truncatable): Candidate[] {
 				read: () => entry.reasoning ?? "",
 				write: (value) => {
 					entry.reasoning = value;
+				},
+				drop: () => {
+					delete entry.reasoning;
 				},
 			});
 			candidates.push({
@@ -285,8 +295,14 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			// Emptying this field is not enough on its own, so it goes whole and its
 			// bytes join the total. Leaving them uncounted would save an entry that lost
 			// a kilobyte with nothing in it saying so, and a resume would replay a call
-			// with no arguments at all.
+			// with no arguments at all. A field the record does not require is removed
+			// rather than emptied, because `""` reads as a value the model produced.
 			dropped += originalBytes;
+			if (candidate.drop === undefined) {
+				candidate.write("");
+			} else {
+				candidate.drop();
+			}
 			continue;
 		}
 		let low = 0;
