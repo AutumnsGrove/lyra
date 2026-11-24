@@ -28,11 +28,13 @@ import {
 import type { LoadedRecord } from "../record/load.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
+import { encodeEntry, type UserMessageEntry } from "../record/entries.js";
+import { utf8Length } from "../record/truncate.js";
 import type { Clock, Ids } from "./clock.js";
 import type { Limits } from "./limits.js";
 import type { ModelSlot } from "./model.js";
 import { fail, ok, type Result } from "./result.js";
-import type { RunConfig, StuckSettings } from "./run.js";
+import { entryCapBytes, type RunConfig, type StuckSettings } from "./run.js";
 import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
 import type { StorageSlot, WakingSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
@@ -269,6 +271,26 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 	};
 
 	const beginResume = async (request: ResumeRequest): Promise<Result<RunHandle>> => {
+		if (request.followUp !== undefined) {
+			// Measured as the entry it becomes, which is bigger than the text once its
+			// quotes and newlines are escaped. Left to the run, an entry that does not fit
+			// would fail a run that had already finished, after its `resumed` status.
+			const message: UserMessageEntry = {
+				type: "user_message",
+				id: "x".repeat(64),
+				parent: "x".repeat(64),
+				ts: options.clock.now(),
+				label: "follow_up",
+				text: request.followUp,
+			};
+			const cap = entryCapBytes(options.storage);
+			if (utf8Length(encodeEntry(message)) > cap) {
+				return fail(
+					"bad_request",
+					`the text is bigger than one record entry can hold (${cap} bytes)`,
+				);
+			}
+		}
 		const read = await options.storage.read();
 		if (!read.ok) {
 			return read;

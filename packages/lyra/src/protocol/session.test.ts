@@ -1717,3 +1717,20 @@ test("CMD10 a decision that read the record before another one landed does not d
 	expect(lateOutcome.ok ? "" : lateOutcome.error.code).toBe("conflict");
 	expect(entriesOf(inner).filter((entry) => entry.type === "proposal_decided")).toHaveLength(1);
 });
+
+test("CMD04 a follow-up that fits the command cap but not the entry is bad_request, and the finished run stays done", async () => {
+	const { session, storage } = harness([{ toolCalls: [{ id: "c1", name: "finish" }] }]);
+	valueOf(await send(session, { command: "start", task: "test-task", input: "go" }));
+	await until(() => finished(storage));
+	const before = storage.saved().length;
+
+	// Each quote is one byte in the text and two in the saved line, so this is under
+	// the command cap and over the entry cap. Writing it would fail the run it
+	// continues, so it has to be refused before anything is written.
+	const refused = errorOf(
+		await send(session, { command: "prompt", session: "s1", text: '"'.repeat(600_000) }),
+	);
+	expect(refused.code).toBe("bad_request");
+	expect(storage.saved()).toHaveLength(before);
+	expect(storage.saved().some((line) => line.includes('"state":"failed"'))).toBe(false);
+});
