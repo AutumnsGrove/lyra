@@ -1016,3 +1016,15 @@ test("SCN08 a hand-built Scenario cannot stop and converse at once", async () =>
 	expect(outcome.results).toEqual([]);
 	expect(outcome.events).toEqual([]);
 });
+
+test("SCN08 a hand-built Scenario with no runs is a problem, not an exception", async () => {
+	// The decoder refuses an empty list, so only a host building the type can reach this,
+	// and the rest of the module reports rather than throws (found in review on pull
+	// request #78).
+	const hand: Scenario = scenario({ runs: [] });
+
+	const outcome = await runScenario(hand);
+	expect(outcome.problems.join(" ")).toMatch(/no run to make/);
+	expect(outcome.results).toEqual([]);
+	expect(outcome.result.reason).toBe("failed");
+});

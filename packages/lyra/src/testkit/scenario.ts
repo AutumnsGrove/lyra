@@ -1169,10 +1169,24 @@ export async function runScenario(
 
 	const last = results.at(-1);
 	if (last === undefined) {
-		// The decoder refuses a file with no run, so this is a runner bug rather than a
-		// file's mistake, and it says so instead of reporting a scenario that passed
-		// without running anything.
-		throw new Error(`the scenario ${scenario.name} carries no run to make`);
+		// A file cannot reach this, because the decoder refuses an empty `runs:`; a host
+		// building a `Scenario` by hand can. Errors are data here, so it is a problem
+		// rather than an exception (found in review on pull request #78).
+		const error = {
+			code: "bad_request" as const,
+			message: "the scenario carries no run to make",
+		};
+		return {
+			result: {
+				reason: "failed",
+				error,
+				usage: { inputTokens: 0, outputTokens: 0 },
+				turns: 0,
+			},
+			results,
+			events,
+			problems: [error.message],
+		};
 	}
 
 	const saved = await storage.read();

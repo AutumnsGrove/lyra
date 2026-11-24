@@ -449,7 +449,8 @@ because turns are consumed per segment. The record is the session's, so the step
 are segments of one run and not rival runs: `runScenario` reports one result per
 step and asserts over the whole record. A single-run file is unchanged, and the
 model is scripted by position in the conversation, so a resumed segment's turns
-begin where the record left off. A stop and a conversation cannot both be meant — one controller is aborted
+begin where the record left off. A file's `abort_after` cannot be combined with `runs:`; on the public
+`Scenario` type the field still covers a conversation's whole run, which is a shape no file can express. A stop and a conversation cannot both be meant — one controller is aborted
 once and stays aborted, so every later segment would begin stopped — and both the decoder and the runner
 refuse that pair. The step types and `outstandingRequestOf` are on the testkit's
 exported surface, because a host that drives a conversation file through its own adapter needs both.
