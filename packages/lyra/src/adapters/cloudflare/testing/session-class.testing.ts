@@ -133,11 +133,6 @@ function definitionForScenario(scenario: Scenario, clock: FakeClock): RunDefinit
 	if (scenario.recipe === "timeline-test") {
 		return timelineTestRecipe;
 	}
-	if (scenario.recipe !== undefined) {
-		throw new Error(
-			`the scenario ${scenario.name} names the recipe ${scenario.recipe}, and this workerd harness only has timeline-test`,
-		);
-	}
 	return {
 		name: scenario.task,
 		version: 1,
@@ -208,6 +203,16 @@ export class TestSession extends DurableObject<Cloudflare.Env> {
 	 * it starts the run, so every command and event after it is a real one on the wire.
 	 */
 	configure(scenario: Scenario): void {
+		// Refused here rather than at the first request, so a file naming a recipe this
+		// harness does not have fails the test that configures it instead of running the
+		// file's inline `system` and `tools` under the host recipe's name (found in
+		// review). The host's recipes reach a scenario through `runScenario`'s `recipes`
+		// map, which is the in-process level's; this harness cannot import them.
+		if (scenario.recipe !== undefined && scenario.recipe !== "timeline-test") {
+			throw new Error(
+				`the scenario ${scenario.name} names the recipe ${scenario.recipe}, and this workerd harness only has timeline-test`,
+			);
+		}
 		this.#scenario = scenario;
 		this.#clock = undefined;
 		this.#session = undefined;

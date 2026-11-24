@@ -75,6 +75,28 @@ test("every scenario file in the repository is picked up over HTTP", () => {
 	expect(Object.keys(files).length).toBeGreaterThanOrEqual(6);
 });
 
+test("SCN05 a scenario naming a recipe this harness does not have is refused, not run", async () => {
+	// The harness has the testkit's recipe and nothing else, so a file naming a host's
+	// recipe must fail where it is configured rather than quietly running the inline
+	// branch under that name (found in review).
+	const decoded = decodeScenario({
+		name: "a host recipe at the wrong level",
+		task: "somewhere-else",
+		input: {},
+		recipe: "somewhere-else",
+		model: [{ tool_calls: [{ id: "c1", name: "finish", args: {} }] }],
+	});
+	if (!decoded.ok) {
+		throw new Error(decoded.error.message);
+	}
+	const stub = env.SESSION.get(env.SESSION.newUniqueId());
+	await expect(
+		runInDurableObject(stub, (instance: TestSession) => {
+			instance.configure(decoded.value);
+		}),
+	).rejects.toThrow(/only has timeline-test/);
+});
+
 for (const [path, raw] of Object.entries(files)) {
 	const name = nameOf(path);
 
