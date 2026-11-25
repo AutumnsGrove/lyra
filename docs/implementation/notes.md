@@ -15,7 +15,7 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   over-refusal at caps 237, 250 and 280, and REC04's clause is what answers it: a refusal is right when the
   *structure, counting the truncation marker it would need,* is over the cap. For that turn the trace-less
   entry is 237 bytes and the marker costs 44, so 280 cannot hold the note that says what went — the fix is
-  the range above it (291 to 314 was refusing a 291-byte save), not those three caps. The boundary is now
+  the range above it (281 to 313 was refusing a 281-byte save), not those three caps. The boundary is now
   280 refused, 281 saved, and a sweep asserts a refusal never hides a save.
 - **The same window was open for a dropped `details` block, and review found it.** That drop happens
   before the loop and still measured the widest number a marker could hold, so a tool message with empty

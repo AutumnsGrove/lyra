@@ -50,8 +50,8 @@ new API and any breaking change, and a patch bump is fixes only.
 ### Fixed
 
 - `fitEntry` refused an entry that dropping a whole field had just made fit: a 2.2 KB turn whose trace
-  went is 291 bytes with the marker that says so, and every cap from 291 to 314 failed the save as if the
-  structure were too big. The entry is measured with the marker it really carries as soon as a field is
+  went is 291 bytes with the marker that says so, and every cap from 281 to 313 failed the save as if the
+  structure were too big, with 314 the first that saved. The entry is measured with the marker it really carries as soon as a field is
   dropped — the whole `details` block before the loop as well — and saved when it fits (REC04,
   issue #77). **Upgrading:** at a very small cap — a couple of hundred bytes for a
   whole entry — a tool result now saves with its `content` gone and a `truncated` marker saying so, where
