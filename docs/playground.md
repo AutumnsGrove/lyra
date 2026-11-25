@@ -14,6 +14,20 @@ promises, and it grows a slice at a time.
 The playground is a rig rather than a product: it is unpublished, its bundle has its own size budget, and a
 failed smoke run on it is information rather than an outage.
 
+## Where it runs
+
+Slice 1 is deployed: **https://lyra-playground.m7jv4v7npb.workers.dev** on the `AutumnsGrove` Cloudflare account,
+Worker `lyra-playground`, from `packages/playground/wrangler.jsonc`. The deploy is by hand until `deploy.yml`
+lands in slice 7, and the token is a Worker secret held in Autumn's `gw secret` vault as `PLAYGROUND_TOKEN`.
+The vault hands it to wrangler over stdin rather than in argv, so it is never in this repository or a
+transcript, and the live checks below drive the deployment through `pnpm lyra`, which reads the token from the
+environment rather than a command line.
+
+Driven against that deployment on 2026-11-25: the page and the single-page fallback both answer `200`, a
+command with no token is `403 permission_denied` without waking an object, an unknown path under `/v1` is `404`,
+and `pnpm lyra start shell` runs to `run_end` with a follow-up finishing its own segment afterwards
+(`state: "done"`, `turns: 2`). The page holds one placeholder line, because the page is slice 2.
+
 ## Slice 1: the shell that deploys
 
 One Worker, one Durable Object, one placeholder page, and a model that decides nothing. The page is served
