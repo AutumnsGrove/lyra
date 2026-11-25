@@ -49,6 +49,12 @@ export default defineConfig({
 				// The Cloudflare adapter is tested in workerd, where V8 coverage is not
 				// available (decision 101), so the 85% floor measures the Node-tested core.
 				"packages/lyra/src/adapters/cloudflare/**",
+				"packages/playground/src/session.ts",
+				// The playground's session class is the same shape one level up: its six
+				// forwardings and its build need a real Durable Object, so it cannot be
+				// covered from Node. What is testable in it — the options and the token map —
+				// is tested through the tests that import it; counting the file here would
+				// only make the floor measure workerd work (found in review on #81).
 			],
 			reporter: ["text"],
 			thresholds: {
