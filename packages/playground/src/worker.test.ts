@@ -6,7 +6,7 @@ import type {
 } from "@autumnsgrove/lyra/cloudflare";
 
 import type { Env } from "./session.js";
-import worker from "./worker.js";
+import worker, { Session } from "./worker.js";
 
 /**
  * The rows are in `docs/playground.md`: PGS01.
@@ -118,4 +118,13 @@ test("PGS01 a path outside the protocol is not answered as one", async () => {
 	// the page; the page itself is served from the assets and never reaches here.
 	expect(response.status).toBe(404);
 	expect(forwarded).toEqual([]);
+});
+
+test("PGS01 the entry point exports the session class under the name the config binds", () => {
+	// `class_name` in `wrangler.jsonc` is resolved against this entry module's exports, so
+	// a rename or a lost re-export is a deploy that uploads and then fails. The class is
+	// not constructed here: its own delegation to the adapter needs workerd, and that is
+	// slice 2's test, where a session has a real model to talk to.
+	expect(typeof Session).toBe("function");
+	expect(Session.name).toBe("Session");
 });

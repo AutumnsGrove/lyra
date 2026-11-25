@@ -41,6 +41,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **The routing that keeps the page off `/v1/*` is configuration, so it gets a test that reads it.** `PGS03`
   parses `wrangler.jsonc`; removing `run_worker_first` would otherwise break every protocol call on a deployment
   with the gate still green (found in review).
+- **`Session`'s own delegation is untested until slice 2, and the PR says so.** What one can check in Node is
+  that the entry exports the class the config binds; the six one-line forwardings — `fetch`, `alarm`, the three
+  socket callbacks, and the build that hands the adapter its context and env — need a real Durable Object, so
+  the workerd test belongs with the slice that gives a session a real model to talk to. Slice 1's end-to-end
+  proof is the by-hand deploy, and slice 7's smoke job is the standing one.
 
 
 ## #77, a dropped field that made the entry fit, 2026-11-25

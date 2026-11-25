@@ -16,13 +16,27 @@ import { ROOT } from "./workflows.ts";
  * page — and the gate would stay green, because nothing else reads this file.
  */
 
-/** The config as data: comments stripped, trailing commas allowed (it is JSONC). */
-function config(): Record<string, unknown> {
-	const source = readFileSync(join(ROOT, "packages/playground/wrangler.jsonc"), "utf8");
+/**
+ * JSONC as data: comments stripped, trailing commas allowed.
+ *
+ * A tiny parser rather than a dependency, because the file is wrangler's config and its
+ * two JSONC features are all the playground uses. It tracks strings properly, escapes
+ * included, so a `//` inside a value — a URL, say — survives: a stripper that looked
+ * only at the character before a quote would flip its state on a value ending in a
+ * backslash and cut the rest of the line (found in review).
+ */
+export function parse(source: string): Record<string, unknown> {
 	let out = "";
 	let inString = false;
 	for (let index = 0; index < source.length; index += 1) {
 		const char = source[index];
+		if (inString && char === "\\") {
+			// The escaped character cannot end the string, whatever it is.
+			out += char;
+			index += 1;
+			out += source[index] ?? "";
+			continue;
+		}
 		if (!inString && char === "/" && source[index + 1] === "/") {
 			while (index < source.length && source[index] !== "\n") {
 				index += 1;
@@ -30,12 +44,17 @@ function config(): Record<string, unknown> {
 			out += "\n";
 			continue;
 		}
-		if (char === '"' && source[index - 1] !== "\\") {
+		if (char === '"') {
 			inString = !inString;
 		}
 		out += char;
 	}
 	return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1")) as Record<string, unknown>;
+}
+
+/** The config as data, read where it is deployed from. */
+function config(): Record<string, unknown> {
+	return parse(readFileSync(join(ROOT, "packages/playground/wrangler.jsonc"), "utf8"));
 }
 
 test("PGS03 the protocol path is claimed by the Worker before the page can answer it", () => {
@@ -69,4 +88,28 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 	const vars = wrangler["vars"] as Record<string, string> | undefined;
 	expect(vars?.["PLAYGROUND_TENANT"]).toBe("playground");
 	expect(Object.keys(vars ?? {})).not.toContain("PLAYGROUND_TOKEN");
+});
+
+test("PGS03 the parser keeps a // inside a value, and a value that ends in a backslash", () => {
+	// Neither shape is in the config today. They are here because the parser is the one
+	// piece of this test that could quietly change what it reads: a URL added to `vars`
+	// must not be truncated, and an escaped backslash must not look like a closing quote.
+	const parsed = parse(
+		[
+			"{",
+			'  // a comment with \"quotes\" in it',
+			'  "url": "https://example.test//path",',
+			'  "escaped": "a\\\\",',
+			"  // a comment after a value ending in a backslash",
+			'  "after": "still here"',
+			"}",
+		].join("\n"),
+	);
+	expect(parsed).toEqual({
+		url: "https://example.test//path",
+		// JSON's `"a\\"` is one backslash; the point is that the quote after it closes
+		// the string rather than being read as escaped.
+		escaped: "a\\",
+		after: "still here",
+	});
 });
