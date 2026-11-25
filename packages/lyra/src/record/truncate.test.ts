@@ -396,15 +396,14 @@ test("REC04 a refusal never hides a save: every cap that can hold the marked str
 
 	for (let cap = 200; cap <= 320; cap += 1) {
 		const fitted = fitEntry(traceHeavyTurn(), cap);
+		// The boundary is carried by the sweep itself, not only by the pair above: the
+		// smallest marked line fits and every cap under it refuses, so a refusal cannot
+		// be for some other reason and still pass. A refusal's own line is the emptied
+		// structure, which may be over the cap; what could not fit was that plus the
+		// marker, and the sweep is what says so.
+		expect(fitted.refused === undefined, `cap ${cap}`).toBe(cap >= smallestMarked);
 		if (fitted.refused === undefined) {
 			expect(utf8Length(fitted.line), `cap ${cap}`).toBeLessThanOrEqual(cap);
-		} else {
-			// A refusal's own line is the emptied structure, which may be over the cap:
-			// what could not fit was that plus the marker. That is the case to refuse.
-			expect(
-				smallestMarked,
-				`cap ${cap} refused a ${smallestMarked}-byte save`,
-			).toBeGreaterThan(cap);
 		}
 	}
 });
