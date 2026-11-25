@@ -340,8 +340,9 @@ function traceHeavyTurn(): AssistantMessageEntry {
 test("REC04 an entry that fits once a field is dropped whole is saved, not refused", () => {
 	// The candidate loop walked largest first, dropped a field whenever emptying it
 	// could not help on its own, and refused after the loop without ever re-checking
-	// what the drops had left: 291 bytes of turn refused at every cap from 291 to 314,
-	// which is a save REC04 allows turned into a failed run (#77).
+	// what the drops had left: every cap from 281 to 313 refused a 281-byte turn, and
+	// 314 was the first that saved, which is a save REC04 allows turned into a failed
+	// run (#77). The upper bound was measured on the reverted tree in review.
 	for (const cap of [291, 300, 310]) {
 		const fitted = fitEntry(traceHeavyTurn(), cap);
 
@@ -377,6 +378,41 @@ test("REC04 a cap too small for the marker itself still refuses, and says why", 
 
 	const fitted = fitEntry(traceHeavyTurn(), 280);
 	expect(fitted.refused).toMatch(/structure/);
+});
+
+test("REC04 a dropped details block is measured with the marker it really carries", () => {
+	// The details branch decided whether dropping the whole block would do by measuring
+	// the *widest* number a marker could hold, so a save whose real marker fitted was
+	// refused in a twelve-byte window: this entry's line with the block gone and its
+	// marker is 165 bytes, yet every cap from 165 to 176 failed the run for size while
+	// 177 saved. The same class as #77, missing for the one drop that happens before the
+	// loop (found in review on pull request #80).
+	const entry: RecordEntry = {
+		type: "tool_message",
+		id: "e1",
+		parent: null,
+		ts: START,
+		toolCallId: "c1",
+		isError: false,
+		content: "",
+		details: { rows: "d".repeat(1_000) },
+	};
+
+	for (const cap of [165, 170, 176]) {
+		const fitted = fitEntry(entry, cap);
+
+		expect(fitted.refused, `cap ${cap}`).toBeUndefined();
+		expect(utf8Length(fitted.line), `cap ${cap}`).toBeLessThanOrEqual(cap);
+		if (fitted.entry.type !== "tool_message") {
+			throw new Error("the fitted entry is not a tool message");
+		}
+		expect(fitted.entry.details).toBeUndefined();
+		expect(fitted.entry.truncated).toEqual({ field: "details", droppedBytes: 1_011 });
+		expect(loadRecord([encodeHeader(header()), fitted.line]).ok).toBe(true);
+	}
+
+	// And under the real line there is nothing left to save, so that refusal is honest.
+	expect(fitEntry(entry, 164).refused).toMatch(/structure/);
 });
 
 test("REC04 a refusal never hides a save: every cap that can hold the marked structure is saved", () => {

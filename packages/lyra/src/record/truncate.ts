@@ -264,7 +264,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 		dropped += utf8Length(JSON.stringify(working.details));
 		const { details: _details, ...rest } = working;
 		working = { ...rest };
-		if (sizeWithMarker(working, "details") <= maxBytes) {
+		// The marker this entry would really carry, not the widest one: an entry whose
+		// dropped block leaves a line inside the cap must be saved, and measuring the
+		// widest number refused a twelve-byte window of saves where nothing else was
+		// left to cut (found in review on pull request #80, the same class as #77).
+		if (sizeWith(working, "details", dropped) <= maxBytes) {
 			const truncated: Truncatable = {
 				...working,
 				truncated: { field: "details", droppedBytes: dropped },
