@@ -87,6 +87,25 @@ test("PGS01 a command without the token is refused, and no object is woken", asy
 	expect(forwarded).toEqual([]);
 });
 
+test("PGS01 a wrong token is refused, and no object is woken", async () => {
+	const { namespace, forwarded } = recordingNamespace();
+	const response = await worker.fetch(
+		new Request("https://playground.test/v1/commands", {
+			method: "POST",
+			// A token of the right shape against a deployment whose secret is set: the one
+			// case a door that compared nothing would accept.
+			headers: { authorization: "Bearer not-the-token" },
+			body: startFrame(),
+		}),
+		env(namespace),
+	);
+
+	expect(response.status).toBe(403);
+	const body = (await response.json()) as { error?: { code?: string } };
+	expect(body.error?.code).toBe("permission_denied");
+	expect(forwarded).toEqual([]);
+});
+
 test("PGS01 a command with the token reaches the object for the token's tenant", async () => {
 	const { namespace, forwarded, names } = recordingNamespace();
 	const response = await worker.fetch(

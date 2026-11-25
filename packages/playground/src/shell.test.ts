@@ -76,7 +76,10 @@ test("PGS02 the placeholder model asks to finish rather than pretending to work"
 	expect(reply.value.toolCalls.map((call) => call.name)).toEqual(["finish"]);
 	expect(reply.value.toolCalls[0]?.arguments).toBe("{}");
 	// No cost is claimed, because no model was called: the day cap's unpriced rule
-	// (slice 7) has to be able to tell that apart from a reply that forgot to price.
-	expect(reply.value.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+	// (slice 7) has to be able to tell that apart from a reply that forgot to price, so
+	// the absence of the key is the assertion rather than a value `toEqual` would let
+	// through as `undefined`.
+	expect(reply.value.usage).not.toHaveProperty("cost");
+	expect(reply.value.usage).toStrictEqual({ inputTokens: 0, outputTokens: 0 });
 	expect(reply.value.model).toBe(PLACEHOLDER_MODEL_NAME);
 });
