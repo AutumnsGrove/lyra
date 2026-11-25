@@ -9,6 +9,20 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 1 deployed, 2026-11-25
+
+- **The rig is live, and it is a blank page on purpose.** `lyra-playground.m7jv4v7npb.workers.dev` serves the
+  placeholder, refuses a command with no token, and runs `pnpm lyra start shell` to `run_end`, with a follow-up
+  finishing its own segment (`state: "done"`, `turns: 2`) — which is the bug review found, proven fixed on the
+  deployed object. What is missing is everything a person would touch: the page, the token box, the model.
+- **The token never came near the work.** `gw secret generate PLAYGROUND_TOKEN` made it in the vault, `gw secret
+  apply … --worker lyra-playground` put it on the Worker, and every verification ran under `gw secret exec`, so
+  the value was only ever in a child process's environment. The vault records it as deployed to this Worker,
+  which is where a later slice finds it instead of asking again.
+- **Deploying by hand is two commands until slice 7.** `wrangler deploy --config packages/playground/wrangler.jsonc`
+  from `main`, then `gw secret apply` if the secret had to be recreated; `deploy.yml` is slice 7's job.
+
+
 ## C slice 1, the shell that deploys, 2026-11-25
 
 - **`run_worker_first` on `/v1/*`, not a second deployment.** With assets and a single-page fallback, a
