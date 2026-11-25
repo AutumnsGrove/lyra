@@ -37,6 +37,7 @@ const GATE = {
 		"matrixcheck",
 		"workflowcheck",
 		"build:example",
+		"build:playground",
 		"budget",
 	],
 	slow: ["test", "test:workers", "fuzz", "coverage"],

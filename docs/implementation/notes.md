@@ -9,6 +9,28 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 1, the shell that deploys, 2026-11-25
+
+- **`run_worker_first` on `/v1/*`, not a second deployment.** With assets and a single-page fallback, a
+  request that matches no asset becomes `index.html` — including `/v1/commands` — so the protocol path has to
+  be claimed before the assets layer sees it. The alternative was an `ASSETS` binding and a Worker that routes
+  every request itself, which is the same routing written in a place a config already covers.
+- **The page is one static `public/index.html`, not SvelteKit yet.** The plan puts the SvelteKit app in `web/`
+  built into `dist/web`, and that arrives with the page that needs it (slice 2). Adding SvelteKit in slice 1
+  would have meant a build step and a dependency before there is a second thing to render, and dependencies
+  need an allow-list entry and a decision.
+- **The shell ships a placeholder model that calls `finish`.** Slice 1 has to prove the door, the object, the
+  record and the protocol on a real deployment, which needs a run that completes, and the real model is slice
+  2's job. It reports zero tokens and no cost on purpose, so slice 7's "a reply with no cost marks the day
+  unpriced" rule has something honest to read rather than a placeholder pretending to be priced.
+- **`docs/playground.md` starts now, with two rows.** `matrixcheck` fails a test that cites an ID no spec
+  defines, and the alternative — test names with no row — is the drift the rule exists to stop. The row table
+  was planned for slice 8; it is cheaper to grow it per slice than to write eight slices of rows at the end.
+- **The playground's bundle has its own budget entry, 60 KiB.** Measured 45.6 KiB gzipped at slice 1. It is
+  separate from the example Worker's 48 KiB because the two measure different promises: the example proves the
+  library is embeddable, the playground is the thing that pays for its own imports.
+
+
 ## #77, a dropped field that made the entry fit, 2026-11-25
 
 - **The marker is part of the cap, so the issue's three caps still refuse.** #77 reproduced the

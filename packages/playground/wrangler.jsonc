@@ -1,0 +1,23 @@
+// The playground: one Worker that serves the page and runs Lyra (issue #60, slice 1).
+//
+// The page is served from this Worker's static assets, so a browser talks to one
+// origin and there is no CORS and no second deployment. `/v1/*` is handed to the
+// session object by `run_worker_first`, because the assets layer would otherwise
+// answer a protocol route with the page's `index.html`.
+{
+	"name": "lyra-playground",
+	"main": "src/worker.ts",
+	"compatibility_date": "2026-11-01",
+	// The tenant is a var because it is not a secret; the token is a Worker secret, so
+	// it is never in this file. `wrangler dev` reads it from `.dev.vars`.
+	"vars": { "PLAYGROUND_TENANT": "playground" },
+	"assets": {
+		"directory": "./public",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": ["/v1/*"],
+	},
+	"durable_objects": {
+		"bindings": [{ "name": "SESSION", "class_name": "Session" }],
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
+}
