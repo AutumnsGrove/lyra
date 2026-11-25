@@ -30,12 +30,10 @@ export function frontDoor(door: FrontDoor): (request: Request) => Promise<Respon
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		return frontDoor({
-			// The declared binding type comes from the runtime's own types, and the
-			// adapter asks only for the three methods it calls.
-			namespace: env.SESSION as unknown as DurableObjectNamespaceLike,
-			tokens: tokensFrom(env),
-		})(request);
+		// The runtime's own binding type is assignable to the three methods the adapter
+		// names, so no cast is needed: the binding is narrowed by the type system rather
+		// than by a promise in a comment (found in review on #81).
+		return frontDoor({ namespace: env.SESSION, tokens: tokensFrom(env) })(request);
 	},
 } satisfies ExportedHandler<Env>;
 

@@ -61,32 +61,42 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	expect(saved.value.some((line) => line.includes('"name":"finish"'))).toBe(true);
 });
 
-test("PGS02 a resumed segment answers text, because a finished run cannot finish again", async () => {
-	// A follow-up continues the run as a new segment (decision 44), so the model is asked
-	// again after an assistant turn is already saved. A second `finish` there would be a
-	// call the finished run cannot make.
-	const reply = await PLACEHOLDER_MODEL.complete({
+test("PGS02 a follow-up finishes its own segment, rather than parking stuck", async () => {
+	// A follow-up continues the run as a new segment (decision 44), and each segment gets
+	// its own `finish`. A segment that answers text and never finishes is exactly what the
+	// stuck safeguard catches, so the shell parked `stuck` on every follow-up; driving the
+	// same follow-up through the loop is what showed it (found in review on #81, after a
+	// hand-built request had asserted the opposite).
+	const options = sessionOptions(env());
+	const storage = memoryStorage();
+	const config = {
+		runId: "run-1",
+		task: "shell",
+		host: options.host,
+		input: "say hello",
 		system: shellRecipe.instructions,
-		messages: [
-			{ role: "user", text: "say hello" },
-			{
-				role: "assistant",
-				text: "",
-				toolCalls: [{ id: "c1", name: "finish", arguments: "{}" }],
-			},
-			{ role: "user", text: "that is all" },
-		],
-		tools: shellRecipe.tools.map((tool) => tool.spec),
-		signal: new AbortController().signal,
-	});
+		tools: shellRecipe.tools,
+		model: options.model,
+		storage,
+		clock: fakeClock(),
+		ids: counterIds(),
+	};
 
-	expect(reply.ok).toBe(true);
-	if (!reply.ok) {
+	const first = await runTask(config);
+	expect(first.reason).toBe("done");
+
+	const lines = await storage.read();
+	expect(lines.ok).toBe(true);
+	if (!lines.ok) {
 		return;
 	}
-	expect(reply.value.toolCalls).toEqual([]);
-	expect(reply.value.text).toBe("The shell has nothing to do.");
-	expect(reply.value.finishReason).toBe("stop");
+	const second = await runTask({
+		...config,
+		resume: { lines: lines.value, by: "person", followUp: "and again" },
+	});
+
+	expect(second.reason).toBe("done");
+	expect(second.parkedReason).toBeUndefined();
 });
 
 test("PGS02 the placeholder model asks to finish rather than pretending to work", async () => {

@@ -18,14 +18,16 @@ export const PLACEHOLDER_MODEL_NAME = "playground-placeholder";
 
 export const PLACEHOLDER_MODEL: ModelSlot = {
 	async complete(request) {
-		const answered = request.messages.filter((message) => message.role === "assistant").length;
+		// Every segment calls `finish`, including a follow-up's. A segment is its own run
+		// of the loop (decision 44), so a finished one does not forbid the next its finish;
+		// answering with text instead was a live bug, because a segment that never finishes
+		// is what the stuck safeguard parks (found in review on #81).
+		void request;
 		const reply: ModelReply = {
-			// A resumed segment has already been answered once, so it answers with text
-			// rather than a second `finish`: a run that ended cannot finish again.
-			text: answered === 0 ? "" : "The shell has nothing to do.",
-			toolCalls: answered === 0 ? [{ id: "c1", name: "finish", arguments: "{}" }] : [],
+			text: "",
+			toolCalls: [{ id: "c1", name: "finish", arguments: "{}" }],
 			usage: { inputTokens: 0, outputTokens: 0 },
-			finishReason: answered === 0 ? "tool_calls" : "stop",
+			finishReason: "tool_calls",
 			model: PLACEHOLDER_MODEL_NAME,
 		};
 		return ok(reply);

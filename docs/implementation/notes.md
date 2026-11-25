@@ -41,6 +41,13 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   fixture tree and runs the real script against it through `LYRA_CHECK_ROOT`, because a copy of the rules would
   only test the copy. Renaming `HOST_APPS`' directory fails all four cases; removing the zero-file guard fails
   one.
+- **Every segment calls `finish`, and the shell parked `stuck` on every follow-up until review said so.** The
+  placeholder model answered a resumed segment with text instead of a second `finish`, on the wrong premise
+  that a finished run cannot finish again. A segment is its own run of the loop, so the correct script is
+  `finish` each time (RSM08 and CMD05 do), and answering text made the loop send "you have not called a tool
+  and you have not finished" three times and park. A test that built the resumed request by hand asserted the
+  bug; it now drives a real `resume` with a follow-up through `runTask` and fails on `parked` (found in review
+  on #81 by `pi-review`, which ran the follow-up through `createSession`).
 - **An unset secret binds no tenant.** `tokensFrom` returns `{}` when the token or the tenant is missing or
   empty, because the door hashes whatever string it holds and an empty one would be a credential nobody chose.
   The PR said "the safe direction" before anything tested it (found in review); two tests now drive a bare
