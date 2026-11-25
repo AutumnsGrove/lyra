@@ -217,6 +217,34 @@ export function createSession(options: SessionOptions): Session {
 		}
 	};
 
+	/**
+	 * Claim the record, then read it, then do the work with what was read. A command
+	 * that read first and claimed second could hold a snapshot from before the command
+	 * that held the claim in between, and would then chain from a parent that had
+	 * moved, or miss a decision that had already landed (CMD10).
+	 */
+	const underClaim = async (
+		kind: "decision" | "run" | "compact",
+		work: (seed: ResumeSeed) => Promise<Result<JsonValue>>,
+	): Promise<Result<JsonValue>> => {
+		const claimed = claim(kind);
+		if (!claimed.ok) {
+			return claimed;
+		}
+		try {
+			const fresh = await seedOf();
+			if (!fresh.ok) {
+				return fresh;
+			}
+			if (fresh.value === undefined) {
+				return fail("not_found", "this session has no record yet");
+			}
+			return await work(fresh.value);
+		} finally {
+			release();
+		}
+	};
+
 	const subscribers = new Set<Subscriber>();
 	/** Events with no record entry behind them, waiting for the next turn of the pump. */
 	let pendingLive: SessionEvent[] = [];
@@ -317,17 +345,21 @@ export function createSession(options: SessionOptions): Session {
 		fail("not_found", `there is no session ${session} here`);
 
 	/** A message that continues the record without starting a rival run. */
-	const continueWith = async (seed: ResumeSeed, text: string): Promise<Result<JsonValue>> => {
-		const claimed = claim("run");
-		if (!claimed.ok) {
-			return claimed;
-		}
-		try {
-			return await continueRun(seed, text);
-		} finally {
-			release();
-		}
-	};
+	const continueWith = (text: string): Promise<Result<JsonValue>> =>
+		underClaim("run", async (seed) => {
+			// Both checks ran before the claim too, on a record that may have moved since.
+			if (runtime.active(seed.record.header.run) !== undefined) {
+				return fail("busy", "a run is active in this session");
+			}
+			const waiting = pendingOf(seed);
+			if (waiting !== undefined) {
+				return fail(
+					"busy",
+					`this run is waiting for a person to answer ${waiting.request}, so a message cannot be read yet`,
+				);
+			}
+			return continueRun(seed, text);
+		});
 
 	/** Continue a record that is parked, when a person asks (CMD07). */
 	const resumeRun = async (seed: ResumeSeed): Promise<Result<JsonValue>> => {
@@ -528,7 +560,8 @@ export function createSession(options: SessionOptions): Session {
 		}
 		const fitted = fitEntry(entry, entryCapBytes(options.storage));
 		if (fitted.refused !== undefined) {
-			return fail("internal", fitted.refused);
+			// Only the caller's own note can make this entry too big, so it is theirs to fix.
+			return fail("bad_request", `the decision is too big to save: ${fitted.refused}`);
 		}
 		const saved = await options.storage.append(fitted.line);
 		if (!saved.ok) {
@@ -706,7 +739,9 @@ export function createSession(options: SessionOptions): Session {
 		}
 		const fitted = fitEntry(entry, entryCapBytes(options.storage));
 		if (fitted.refused !== undefined) {
-			return fail("internal", fitted.refused);
+			// The note, text and ids are the caller's, and nothing has been written, so
+			// the request stays open for a shorter answer.
+			return fail("bad_request", `the answer is too big to save: ${fitted.refused}`);
 		}
 		const saved = await options.storage.append(fitted.line);
 		if (!saved.ok) {
@@ -919,15 +954,7 @@ export function createSession(options: SessionOptions): Session {
 				case "get_messages":
 					return getMessages(command, seed);
 				case "compact": {
-					const claimed = claim("compact");
-					if (!claimed.ok) {
-						return claimed;
-					}
-					try {
-						return await compactNow(command, seed);
-					} finally {
-						release();
-					}
+					return underClaim("compact", (fresh) => compactNow(command, fresh));
 				}
 				case "list_pending":
 					return listPending(seed);
@@ -937,15 +964,12 @@ export function createSession(options: SessionOptions): Session {
 						// parent it is about to move past (decision 53's one decision).
 						return fail("busy", "a run is active in this session");
 					}
-					const claimed = claim("decision");
-					if (!claimed.ok) {
-						return claimed;
-					}
-					try {
-						return await decideProposal(command, seed);
-					} finally {
-						release();
-					}
+					return underClaim("decision", async (fresh) => {
+						if (runtime.active(fresh.record.header.run) !== undefined) {
+							return fail("busy", "a run is active in this session");
+						}
+						return decideProposal(command, fresh);
+					});
 				}
 				case "prompt":
 				case "follow_up": {
@@ -968,7 +992,7 @@ export function createSession(options: SessionOptions): Session {
 						}
 						return ok(data({ session: options.id, run: header.run }));
 					}
-					return continueWith(seed, command.text);
+					return continueWith(command.text);
 				}
 				case "steer": {
 					if (active === undefined) {
@@ -991,15 +1015,12 @@ export function createSession(options: SessionOptions): Session {
 					if (active !== undefined) {
 						return fail("busy", "a run is already active in this session");
 					}
-					const claimed = claim("run");
-					if (!claimed.ok) {
-						return claimed;
-					}
-					try {
-						return await resumeRun(seed);
-					} finally {
-						release();
-					}
+					return underClaim("run", async (fresh) => {
+						if (runtime.active(fresh.record.header.run) !== undefined) {
+							return fail("busy", "a run is already active in this session");
+						}
+						return resumeRun(fresh);
+					});
 				}
 			}
 		},

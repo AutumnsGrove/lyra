@@ -125,7 +125,7 @@ still ends the run `failed`.
 | RTY02 | Sad: the retries are exhausted | After three retries with delays of 1 s, 4 s and 16 s the run parks `model_unavailable`, the status detail names the last error, and no timer is left waiting |
 | RTY03 | Sad: the error is not retryable | Asked once, no retry event, no wait, and the run ends `failed` with that error |
 | RTY04 | Happy: the provider says when to come back | The wait is the larger of the default delay and `retryAfterMs`, and the fake clock moves by it |
-| RTY05 | Sad: a stop during the backoff | The wait is cancelled, the turn is not tried again, and the run parks `stopped` |
+| RTY05 | Sad: a stop during the backoff | The wait is cancelled, the turn is not tried again, and the run parks `stopped`; a stop that arrives together with a retryable failure emits no `retry` event and counts no attempt, because none was going to happen |
 | RTY06 | Happy: the fallback model | After the retries the run moves to the recipe's fallback, writes one `fallback` entry and event naming both models and the reason, and continues on it |
 | RTY07 | Sad: the fallback also fails | It gets the same retry policy and then the run parks `model_unavailable` |
 

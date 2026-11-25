@@ -159,6 +159,7 @@ memory as a deploy would.
 | CFL24 | Happy: the idempotent session id | The same key reaches the same object and answers the same session and run, a different job under that key is `conflict`, and another key is another object |
 | CFL25 | Bad: another tenant | A caller of another tenant is `not_found` for a session over HTTP, and the answer names no tenant |
 | CFL26 | Happy: the trusted door | A method that names the tenant runs a command for it with no token and answers with the frame |
+| CFL27 | Bad: an alarm with a socket whose attachment cannot be read | The alarm still resolves and leaves no unhandled rejection behind, because the detached re-follow of the sockets that outlived an eviction catches what it throws |
 
 ## Spec rows: the OpenAI-style model adapter (step 5)
 
@@ -252,7 +253,7 @@ is not a failure: the loop reads the signal and parks the run `stopped`.
 |---|---|---|
 | OAI20 | Sad: the HTTP statuses | 400, 401, 403, 404 and any other permanent status are not retryable and name the status; 408, 429, 500, 502, 503 and 504 are retryable |
 | OAI21 | Sad: `Retry-After` | Seconds and an HTTP date both become a wait, a date in the past and a missing header give none, and an absurd value is capped |
-| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key |
+| OAI22 | Sad: an answer that is an error | A 200 whose body is an error object, a non-JSON error body and an error chunk mid-stream are errors whose message is the provider's, truncated, and never echoes a request header or the key; the key is taken out of the provider's words before they are cut, because a key that straddles the cut is no longer found by an exact match and most of it would stay |
 | OAI23 | Sad: the network | A `fetch` that rejects, and a body that fails while it is being read, are retryable `provider_error`s |
 | OAI24 | Sad: a stall | A call that never answers is abandoned at the deadline as a retryable `timeout`, on the fake clock |
 | OAI25 | Bad: a stop | Stopped before the request, during connect, mid-stream and after the last chunk, the call is an error the loop reads as a stop, and the stream is not left open |

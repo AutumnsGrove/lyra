@@ -111,6 +111,31 @@ test("RTY05 a stop during the backoff parks the run stopped", async () => {
 	expect(waiting.clock.pending()).toBe(0);
 });
 
+test("RTY05 a stop that lands with a retryable failure emits no retry and counts none", async () => {
+	// The failure and the stop arrive together, as when a person stops a run while the
+	// provider is answering 503. No retry was ever going to happen, so none is announced.
+	const controller = new AbortController();
+	const stopping = harness([finishTurn(0)], () => [createFinishTool()]);
+	const model = {
+		complete: async () => {
+			controller.abort();
+			return {
+				ok: false as const,
+				error: {
+					code: "provider_error" as const,
+					message: "the provider is down",
+					retryable: true,
+				},
+			};
+		},
+	};
+
+	const result = await stopping.run({ signal: controller.signal, model });
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stopped" });
+	expect(stopping.events.filter((event) => event.type === "retry")).toHaveLength(0);
+	expect(stopping.clock.pending()).toBe(0);
+});
+
 test("RTY06 a fallback model is used after the retries and recorded", async () => {
 	const rescued = harness([finishTurn(4)], () => [createFinishTool()]);
 

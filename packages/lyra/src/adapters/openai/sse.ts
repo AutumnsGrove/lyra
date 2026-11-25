@@ -31,6 +31,12 @@ const PERMANENT_STATUSES = new Set([400, 401, 403, 404, 422]);
 export interface SseOptions {
 	/** How many bytes of stream to accept before giving up. */
 	maxBytes?: number;
+	/**
+	 * Applied to a provider's own words before they are cut to a message length. A
+	 * secret has to come out first: cut first, a secret that straddles the cut is no
+	 * longer found by an exact match, and most of it stays in the message.
+	 */
+	scrub?: (text: string) => string;
 }
 
 export interface SseReader {
@@ -93,6 +99,7 @@ function nextLine(text: string, atEnd: boolean): { line: string; length: number 
 
 export function sseReader(options: SseOptions = {}): SseReader {
 	const maxBytes = options.maxBytes ?? DEFAULT_STREAM_CAP_BYTES;
+	const scrub = options.scrub ?? ((text: string): string => text);
 
 	let buffer = "";
 	/** The `data:` lines of the event being read. */
@@ -286,7 +293,7 @@ export function sseReader(options: SseOptions = {}): SseReader {
 					: "the model's provider reported an error";
 			settleError({
 				code: "provider_error",
-				message: truncate(message),
+				message: truncate(scrub(message)),
 				retryable: !PERMANENT_STATUSES.has(status),
 			});
 			return;

@@ -28,11 +28,13 @@ import {
 import type { LoadedRecord } from "../record/load.js";
 import { loadRecord } from "../record/load.js";
 import { activePath } from "../record/replay.js";
+import { encodeEntry, type UserMessageEntry } from "../record/entries.js";
+import { utf8Length } from "../record/truncate.js";
 import type { Clock, Ids } from "./clock.js";
 import type { Limits } from "./limits.js";
 import type { ModelSlot } from "./model.js";
 import { fail, ok, type Result } from "./result.js";
-import type { RunConfig, StuckSettings } from "./run.js";
+import { entryCapBytes, type RunConfig, type StuckSettings } from "./run.js";
 import { createRun, type RunHandle, type RunSetup } from "./run-handle.js";
 import type { StorageSlot, WakingSlot } from "./slots.js";
 import type { Tool } from "./tool.js";
@@ -277,6 +279,29 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 			return fail("not_found", `there is no record for run ${request.runId}`);
 		}
 		const loaded = loadRecord(read.value);
+		if (request.followUp !== undefined) {
+			// Measured as the entry it becomes, which is bigger than the text once its
+			// quotes and newlines are escaped. Left to the run, an entry that does not fit
+			// would fail a run that had already finished, after its `resumed` status. The
+			// parent is the record's own last entry, and the id is the longest one an id
+			// may be (decision 85), so the answer errs by at most the few bytes a shorter
+			// real id would save, and never toward writing something that does not fit.
+			const message: UserMessageEntry = {
+				type: "user_message",
+				id: "x".repeat(39),
+				parent: loaded.ok ? (loaded.value.entries.at(-1)?.id ?? null) : null,
+				ts: options.clock.now(),
+				label: "follow_up",
+				text: request.followUp,
+			};
+			const cap = entryCapBytes(options.storage);
+			if (utf8Length(encodeEntry(message)) > cap) {
+				return fail(
+					"bad_request",
+					`the text is bigger than one record entry can hold (${cap} bytes)`,
+				);
+			}
+		}
 		// A record with no readable header has no task message to offer, and the run
 		// then fails through the same path as any other unusable record.
 		const input = loaded.ok ? (firstUserText(loaded.value) ?? "") : "";

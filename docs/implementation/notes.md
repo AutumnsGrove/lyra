@@ -8,6 +8,21 @@ category: features
 
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
+
+## Review pass, 2026-11-24
+
+- **Workflow actions are pinned by tag.** `release.yml` runs `softprops/action-gh-release` and
+  `pnpm/action-setup` by tag in a job with `id-token: write`, and `pi-review.yml` calls a reusable workflow
+  at `@main`. The two third-party actions are pinned to commit SHAs (Autumn's call, 2026-11-24); the
+  `actions/*` ones stay on tags and `pi-review` stays on `@main` because Autumn owns it, so a change there
+  reaches every repository that uses it without a bump.
+- **A detached promise needs its own catch.** The alarm's re-follow of the sockets is not awaited on purpose,
+  which is exactly why nothing above it can catch what it throws; CFL27 is the test, and it needs `process`
+  declared locally because the project has no Node types.
+- **A streamed request body cannot be built from the declared platform types.** `platform.d.ts` types a
+  request body as a string, so the router tests attach a stream to a request after it is made, and show an
+  early stop through the stream's `cancel` rather than by counting pulls.
+
 ## Playground prerequisite 2, a conversation scenario (#73), 2026-11-24
 
 - **A "second run" is a segment of the first.** Issue #73 and the playground plan both say two runs in one

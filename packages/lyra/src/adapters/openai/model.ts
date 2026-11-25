@@ -156,7 +156,9 @@ export function createOpenAIChatModel(options: OpenAIChatOptions): ModelSlot {
 				}
 
 				if (!response.ok) {
-					const body = await textOf(response);
+					// The key comes out of the provider's words before they are cut, because a
+					// key that straddles the cut is no longer found by an exact match.
+					const body = redact(await textOf(response), key);
 					const error = errorForStatus(response.status, body, {
 						retryAfter: response.headers.get("retry-after"),
 						now: clock.now(),
@@ -168,7 +170,7 @@ export function createOpenAIChatModel(options: OpenAIChatOptions): ModelSlot {
 				// this adapter cannot read, because it asked for a stream.
 				const type = response.headers.get("content-type") ?? "";
 				if (type.includes("json") || type.includes("html")) {
-					const body = await textOf(response);
+					const body = redact(await textOf(response), key);
 					const explained = errorFromJsonBody(body);
 					if (explained !== undefined) {
 						return {
@@ -194,8 +196,12 @@ export function createOpenAIChatModel(options: OpenAIChatOptions): ModelSlot {
 				const read = await readReply(
 					response.body,
 					options.maxBytes === undefined
-						? { signal: controller.signal }
-						: { signal: controller.signal, maxBytes: options.maxBytes },
+						? { signal: controller.signal, scrub: (text) => redact(text, key) }
+						: {
+								signal: controller.signal,
+								maxBytes: options.maxBytes,
+								scrub: (text) => redact(text, key),
+							},
 				);
 				// Stopped as the last chunk arrived is still a stop: the reply is not
 				// handed over, because the run is not going to use it (decision 19).
