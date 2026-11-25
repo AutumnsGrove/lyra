@@ -324,8 +324,8 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			// The field just dropped may be all that stood between the entry and the cap,
 			// and carrying on to cut something smaller would lose more than it had to.
 			// So the entry as it now stands is measured once, with the marker that says
-			// what went: refusing here refused a 291-byte turn at every cap from 291 up
-			// (issue #77).
+			// what went: without this, a 281-byte turn was refused at every cap from 281
+			// to 313 while 314 saved (issue #77).
 			const saved = savedAfterDropping(working, candidate.field, dropped, maxBytes);
 			if (saved !== undefined) {
 				return saved;
