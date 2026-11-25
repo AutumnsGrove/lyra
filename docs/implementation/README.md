@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-25. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
@@ -37,7 +37,7 @@ Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build
   protocol to `createSessionWorker`, one `Session` Durable Object, a placeholder page, and a `shell` recipe with
   a local placeholder model that calls `finish` so a run needs no key. The gate gained its typecheck (its own
   project, because it needs the Workers types), `build:playground` in `ci:fast`, and a bundle budget at 60 KiB
-  (measured 45.6 KiB). Its rows are PGS01 and PGS02 in the new `docs/playground.md`, which grows per slice.
+  (measured 45.6 KiB). Its rows are PGS01 to PGS03 in the new `docs/playground.md`, which grows per slice.
 - **Preceding it, #77 is merged** (pull request #80): `fitEntry` measures an entry with the marker it would
   really carry as soon as a field is dropped, including the `details` block before the candidate loop, so a
   save that fits is no longer refused. Slice 2, the token box and the real model, is next.

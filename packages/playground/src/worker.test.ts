@@ -105,7 +105,7 @@ test("PGS01 a command with the token reaches the object for the token's tenant",
 	expect(names).toEqual(["playground:k1"]);
 });
 
-test("PGS01 a path outside the protocol is not answered as one", async () => {
+test("PGS01 an unknown /v1 route is a refusal, and wakes no object", async () => {
 	const { namespace, forwarded } = recordingNamespace();
 	const response = await worker.fetch(
 		new Request("https://playground.test/v1/nothing-here", {
@@ -114,8 +114,9 @@ test("PGS01 a path outside the protocol is not answered as one", async () => {
 		env(namespace),
 	);
 
-	// `/v1/*` is claimed by the Worker, so what is not a route is a refusal rather than
-	// the page; the page itself is served from the assets and never reaches here.
+	// `/v1/*` is the prefix the Worker claims, so an unknown path under it is a refusal
+	// rather than the page. A path outside `/v1` never reaches this function at all: the
+	// assets answer it, or the single-page fallback does.
 	expect(response.status).toBe(404);
 	expect(forwarded).toEqual([]);
 });
@@ -129,10 +130,16 @@ test("PGS01 the entry point exports the session class under the name the config 
 	expect(Session.name).toBe("Session");
 });
 
-test("PGS01 a missing or empty token binds nothing, and refuses a bare Bearer too", async () => {
+test("PGS01 a deployment with no secret binds no tenant, and no request authenticates", async () => {
 	// The secret is created by `wrangler secret put`, so a deployment can answer a request
 	// before anyone set it. An empty token would otherwise be a digest the door holds for
 	// "", which is a credential nobody chose; `tokensFrom` binds no tenant in either case.
+	//
+	// The `tokensFrom` assertion is the one that can fail on that bug: `Headers` trims the
+	// space off a bare `Bearer`, so the door never sees an empty token and would refuse
+	// this request either way. The request assertions are here for the claim a person
+	// cares about — nothing authenticates against a deployment whose secret is unset —
+	// not as a probe of the digest.
 	for (const token of [undefined, ""]) {
 		// The map itself, which is what the door is built from: no tenant, no digest.
 		expect(
@@ -143,8 +150,6 @@ test("PGS01 a missing or empty token binds nothing, and refuses a bare Bearer to
 		const response = await worker.fetch(
 			new Request("https://playground.test/v1/commands", {
 				method: "POST",
-				// Both spellings a client might send: the header alone, and a scheme with
-				// nothing after it, which is what the empty-digest bug would have accepted.
 				headers: { authorization: "Bearer   " },
 				body: startFrame(),
 			}),
