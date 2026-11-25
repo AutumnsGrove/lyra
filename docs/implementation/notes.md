@@ -37,7 +37,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   and an undeclared `yaml` import in `packages/playground/src/model.ts` each failed with the right message before
   the pass was trusted, and so did a moved directory and an empty `src/` — a walk that finds nothing would have
   made the rule true by accident, so the pass fails on zero files and the summary names how many it read
-  (decision 156).
+  (decision 156). There is now a committed test for the pass itself — `scripts/importcheck.test.ts` builds a
+  fixture tree and runs the real script against it through `LYRA_CHECK_ROOT`, because a copy of the rules would
+  only test the copy. Renaming `HOST_APPS`' directory fails all four cases; removing the zero-file guard fails
+  one.
 - **An unset secret binds no tenant.** `tokensFrom` returns `{}` when the token or the tenant is missing or
   empty, because the door hashes whatever string it holds and an empty one would be a credential nobody chose.
   The PR said "the safe direction" before anything tested it (found in review); two tests now drive a bare

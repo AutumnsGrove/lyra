@@ -18,7 +18,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// The repository, or a fixture tree when a test runs these rules against one: the
+// rules are worth a test, and a test that copied them would test the copy.
+const ROOT = process.env.LYRA_CHECK_ROOT
+	? resolve(process.env.LYRA_CHECK_ROOT)
+	: resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE_DIR = "packages/lyra";
 
 /**
