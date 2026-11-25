@@ -9,6 +9,59 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 1, the shell that deploys, 2026-11-25
+
+- **`run_worker_first` on `/v1/*`, not a second deployment.** With assets and a single-page fallback, a
+  request that matches no asset becomes `index.html` — including `/v1/commands` — so the protocol path has to
+  be claimed before the assets layer sees it. The alternative was an `ASSETS` binding and a Worker that routes
+  every request itself, which is the same routing written in a place a config already covers.
+- **The page is one static `public/index.html`, not SvelteKit yet.** The plan puts the SvelteKit app in `web/`
+  built into `dist/web`, and that arrives with the page that needs it (slice 2). Adding SvelteKit in slice 1
+  would have meant a build step and a dependency before there is a second thing to render, and dependencies
+  need an allow-list entry and a decision.
+- **The shell ships a placeholder model that calls `finish`.** Slice 1 has to prove the door, the object, the
+  record and the protocol on a real deployment, which needs a run that completes, and the real model is slice
+  2's job. It reports zero tokens and no cost on purpose, so slice 7's "a reply with no cost marks the day
+  unpriced" rule has something honest to read rather than a placeholder pretending to be priced.
+- **`docs/playground.md` starts now, with two rows.** `matrixcheck` fails a test that cites an ID no spec
+  defines, and the alternative — test names with no row — is the drift the rule exists to stop. The row table
+  was planned for slice 8; it is cheaper to grow it per slice than to write eight slices of rows at the end.
+- **The playground's bundle has its own budget entry, 60 KiB.** Measured 45.6 KiB gzipped at slice 1. It is
+  separate from the example Worker's 48 KiB because the two measure different promises: the example proves the
+  library is embeddable, the playground is the thing that pays for its own imports.
+- **A test that imports the package by name needs the runner to resolve source.** The slow half of the gate
+  runs no build, which is the point of the split, so the first version of the playground's tests imported
+  `@autumnsgrove/lyra` and resolved `dist/` that the CI job never made: green locally, red in CI. `vitest.config`
+  now aliases every entry point to `src/`, the way both tsconfigs already do.
+- **`importcheck` covers host apps now, and was run against four deliberate violations.** A `node:fs` import
+  and an undeclared `yaml` import in `packages/playground/src/model.ts` each failed with the right message before
+  the pass was trusted, and so did a moved directory and an empty `src/` — a walk that finds nothing would have
+  made the rule true by accident, so the pass fails on zero files and the summary names how many it read
+  (decision 156). There is now a committed test for the pass itself — `scripts/importcheck.test.ts` builds a
+  fixture tree and runs the real script against it through `LYRA_CHECK_ROOT`, because a copy of the rules would
+  only test the copy. Renaming `HOST_APPS`' directory fails all four cases; removing the zero-file guard fails
+  one.
+- **Every segment calls `finish`, and the shell parked `stuck` on every follow-up until review said so.** The
+  placeholder model answered a resumed segment with text instead of a second `finish`, on the wrong premise
+  that a finished run cannot finish again. A segment is its own run of the loop, so the correct script is
+  `finish` each time (RSM08 and CMD05 do), and answering text made the loop send "you have not called a tool
+  and you have not finished" three times and park. A test that built the resumed request by hand asserted the
+  bug; it now drives a real `resume` with a follow-up through `runTask` and fails on `parked` (found in review
+  on #81 by `pi-review`, which ran the follow-up through `createSession`).
+- **An unset secret binds no tenant.** `tokensFrom` returns `{}` when the token or the tenant is missing or
+  empty, because the door hashes whatever string it holds and an empty one would be a credential nobody chose.
+  The PR said "the safe direction" before anything tested it (found in review); two tests now drive a bare
+  `Bearer` header and the map itself.
+- **The routing that keeps the page off `/v1/*` is configuration, so it gets a test that reads it.** `PGS03`
+  parses `wrangler.jsonc`; removing `run_worker_first` would otherwise break every protocol call on a deployment
+  with the gate still green (found in review).
+- **`Session`'s own delegation is untested until slice 2, and the PR says so.** What one can check in Node is
+  that the entry exports the class the config binds; the six one-line forwardings — `fetch`, `alarm`, the three
+  socket callbacks, and the build that hands the adapter its context and env — need a real Durable Object, so
+  the workerd test belongs with the slice that gives a session a real model to talk to. Slice 1's end-to-end
+  proof is the by-hand deploy, and slice 7's smoke job is the standing one.
+
+
 ## #77, a dropped field that made the entry fit, 2026-11-25
 
 - **The marker is part of the cap, so the issue's three caps still refuse.** #77 reproduced the

@@ -6,7 +6,7 @@ category: features
 
 # Implementing Lyra: the rules every step shares
 
-Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
+Last updated: 2026-11-25. This folder turns `docs/first-slice.md` (what to build, in what order) into work an agent can pick up cold: one document per step, and this file for everything the steps have in common. It adds no design decisions. When a step doc and `decisions.md` disagree, `decisions.md` wins, and you say so in the PR.
 
 **How to use it.** Autumn names the step. You read, in this order: `AGENTS.md`, this file (starting with "Where the last session stopped"), your step's document, and then only the specs that step names. Do not start a step she has not named. Do not start step N+1 while step N's PR is open: the next step starts from the merged `main`, and the merge happens per step 6 of "Opening the PR" below.
 
@@ -28,7 +28,19 @@ Last updated: 2026-11-24. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | planned, not started |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slice 1 in pull request #81, slices 2 to 8 open |
+
+### Where the last session stopped (2026-11-25)
+
+- **C slice 1, the shell that deploys, lands in pull request #81.** `packages/playground` is an unpublished workspace package:
+  `wrangler.jsonc` with the page as static assets and `run_worker_first` on `/v1/*`, the front door handing the
+  protocol to `createSessionWorker`, one `Session` Durable Object, a placeholder page, and a `shell` recipe with
+  a local placeholder model that calls `finish` so a run needs no key. The gate gained its typecheck (its own
+  project, because it needs the Workers types), `build:playground` in `ci:fast`, and a bundle budget at 60 KiB
+  (measured 45.6 KiB). Its rows are PGS01 to PGS03 in the new `docs/playground.md`, which grows per slice.
+- **Preceding it, #77 is merged** (pull request #80): `fitEntry` measures an entry with the marker it would
+  really carry as soon as a field is dropped, including the `details` block before the candidate loop, so a
+  save that fits is no longer refused. Slice 2, the token box and the real model, is next.
 
 ### Where the last session stopped (2026-11-24, later)
 

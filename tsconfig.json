@@ -18,6 +18,7 @@
 	"include": ["packages/*/src/**/*.ts", "packages/lyra/testing/*.d.ts"],
 	"exclude": [
 		"packages/lyra/src/adapters/cloudflare/testing/**",
-		"packages/lyra/src/adapters/cloudflare/**/*.workers.test.ts"
+		"packages/lyra/src/adapters/cloudflare/**/*.workers.test.ts",
+		"packages/playground/**"
 	]
 }

@@ -1,0 +1,16 @@
+{
+	"name": "@autumnsgrove/lyra-playground",
+	"version": "0.0.0",
+	"private": true,
+	"description": "The Lyra playground: one Worker that serves a page and runs Lyra against a real model",
+	"type": "module",
+	"scripts": {
+		"build": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+	},
+	"dependencies": {
+		"@autumnsgrove/lyra": "workspace:*"
+	},
+	"devDependencies": {
+		"wrangler": "4.165.0"
+	}
+}

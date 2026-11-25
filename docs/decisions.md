@@ -511,6 +511,20 @@ Decided 2026-11-24, with issue #67. A reply's calls ran one after another, so a 
 
 Decided 2026-11-24, with issue #73 and pull request #78. The playground's acceptance list asks for "two runs in one session with a question answered between them", and Lyra's domain does not have two runs in a session: a session owns one record and therefore one run id, and a follow-up continues that run as a new segment (decision 44). The record is what decides this — its header names one run, and the runtime refuses a resume whose `runId` is not the header's ("the record belongs to another run"), so a file that tried to express two runs would be asking for something no host can do. A scenario file therefore carries `runs:` as **steps of a conversation**, not as runs: the first step's `model` starts the run, every later step answers the request the run parked on (`answer:`) or carries the person's next words (`follow_up:`), and each step carries its own script because turns are consumed per segment. `ScenarioOutcome.results` is one entry per step, and the assertions are over the session's whole record. A follow-up's step reuses the run id, and the events it produces are `resumed` segments rather than a new `run_start`. Two consequences are deliberate. **The step types are on the published surface** — `ScenarioRun`, `ScenarioAnswer` and `outstandingRequestOf` are exported from `./testkit` — because decision 67 has a host run the files through its own adapter, and a host that drives `conversation.yaml` would otherwise re-implement the request scan and drift from the runner. And **`abort_after` cannot be combined with `runs:`**: one controller is aborted once and stays aborted, so every later segment would begin stopped, and a file cannot mean both. The refusal is in **both** places: the decoder refuses the combination in a file, and the runner refuses it in a `Scenario` built by hand, because the type is public and one controller aborted in the first segment would leave every later segment stopped before it began. What is not here: steering mid-run as a step, because a steer is read between steps of a run that is already going and needs the runner to interleave a write with a run the fake clock is driving.
 
+### 156. The playground is a host app, and pays for its own imports
+
+Decided 2026-11-25, with issue #60 and slice 1. `packages/playground` is not a published package: it is
+unpublished, it has no place in the package budget (which sums what a consumer installs), and it is measured
+by its own `dir` entry the way the example Worker is (decision 132), at **60 KiB gzipped** against 45.6 KiB
+measured when the shell first built. Two things follow from "host app" rather than "example". It is scanned by
+`importcheck` under the rules that keep the core portable — no Node builtin in its `src/`, nothing from
+Lattice, and a bare import has to be one of Lyra's published entry points or a dependency its manifest
+declares — because it deploys to the same runtime the core promises to run on, and the example is the only
+thing that was reading those rules before. And its budget is separate from the example's on purpose: the
+example proves the library is embeddable, while the playground is a deployment whose own imports a person
+pays for, so a careless import there should fail the gate rather than the bill. What the playground does not
+get is the entry-point table (`packages/lyra`'s modules), because it has no `dist/` and no consumers.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.
