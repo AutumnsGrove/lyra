@@ -19,6 +19,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   apply … --worker lyra-playground` put it on the Worker, and every verification ran under `gw secret exec`, so
   the value was only ever in a child process's environment. The vault records it as deployed to this Worker,
   which is where a later slice finds it instead of asking again.
+- **Drive it with `pnpm lyra`, not `curl -H`.** A `curl -H "Authorization: Bearer $PLAYGROUND_TOKEN"` puts the
+  value in that process's argv, which every local user can read with `ps` — the first version of the live check
+  did exactly that. `scripts/lyra.mjs` reads `LYRA_TOKEN` from the environment, so `gw secret exec … -- bash -c
+  'LYRA_TOKEN=$PLAYGROUND_TOKEN node scripts/lyra.mjs …'` keeps it out of argv; `curl -K -` from stdin does too.
 - **Deploying by hand is two commands until slice 7.** `wrangler deploy --config packages/playground/wrangler.jsonc`
   from `main`, then `gw secret apply` if the secret had to be recreated; `deploy.yml` is slice 7's job.
 

@@ -18,8 +18,10 @@ failed smoke run on it is information rather than an outage.
 
 Slice 1 is deployed: **https://lyra-playground.m7jv4v7npb.workers.dev** on the `AutumnsGrove` Cloudflare account,
 Worker `lyra-playground`, from `packages/playground/wrangler.jsonc`. The deploy is by hand until `deploy.yml`
-lands in slice 7, and the token is a Worker secret held in Autumn's `gw secret` vault as `PLAYGROUND_TOKEN`, so
-it is never in this repository, a command line, or a transcript.
+lands in slice 7, and the token is a Worker secret held in Autumn's `gw secret` vault as `PLAYGROUND_TOKEN`.
+The vault hands it to wrangler over stdin rather than in argv, so it is never in this repository or a
+transcript, and the live checks below drive the deployment through `pnpm lyra`, which reads the token from the
+environment rather than a command line.
 
 Driven against that deployment on 2026-11-25: the page and the single-page fallback both answer `200`, a
 command with no token is `403 permission_denied` without waking an object, an unknown path under `/v1` is `404`,
