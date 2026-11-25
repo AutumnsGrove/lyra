@@ -94,6 +94,16 @@ const BANNED_GLOBALS_EXEMPT = new Set(["src/core/system-clock.ts"]);
 /** Runtime dependencies this package may declare, one decision each. */
 const RUNTIME_DEPENDENCY_ALLOW_LIST = [];
 
+/**
+ * A workspace app: a deployable host rather than a published package, built from this
+ * repository's own code (packages/playground today). The rules that keep the core
+ * portable apply to it for the same reason they apply to the core — it deploys to the
+ * same runtime — so it is scanned here rather than trusted. What it may not do is
+ * narrow: no Node builtin, nothing from Lattice, and a bare import has to be one of
+ * Lyra's own entry points or a dependency its manifest declares.
+ */
+const HOST_APPS = [{ dir: "packages/playground", name: "@autumnsgrove/lyra-playground" }];
+
 /** Packages from Lattice, and anything else that would make this repo depend on it. */
 const LATTICE_PACKAGES = [
 	"@autumnsgrove/engine",
@@ -310,7 +320,79 @@ async function checkSourceFiles() {
 	}
 }
 
+/** The entry points the published package offers, by subpath, for a host app to name. */
+async function publishedEntryPoints() {
+	const manifest = JSON.parse(await readFile(join(ROOT, PACKAGE_DIR, "package.json"), "utf8"));
+	return new Set(
+		Object.keys(manifest.exports ?? {}).map((subpath) =>
+			subpath === "." ? manifest.name : `${manifest.name}${subpath.slice(1)}`,
+		),
+	);
+}
+
+/**
+ * The host apps: the same portability rules as the core, because they deploy to the same
+ * runtime. Their tests are exempt from the Node-builtin rule alone, since a test runs on
+ * Node and never ships; a test may still use the workspace's development tooling.
+ */
+async function checkHostApps() {
+	const entryPoints = await publishedEntryPoints();
+	// The same allowance the package's tests get: the workspace's development tooling,
+	// such as the test runner, is there because every test in the tree uses it.
+	const rootJson = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
+	const rootDev = Object.keys(rootJson.devDependencies ?? {});
+	for (const app of HOST_APPS) {
+		const manifest = JSON.parse(await readFile(join(ROOT, app.dir, "package.json"), "utf8"));
+		if (manifest.name !== app.name) {
+			problems.push(`${app.dir}/package.json: name is ${manifest.name}, not ${app.name}`);
+		}
+		const declared = new Set(Object.keys(manifest.dependencies ?? {}));
+		const devOnly = new Set([...Object.keys(manifest.devDependencies ?? {}), ...rootDev]);
+		for (const file of await walk(join(ROOT, app.dir, "src"))) {
+			const source = await readFile(file, "utf8");
+			const isTest = /\.(test|fuzz\.test|testing)\.ts$/.test(file);
+			for (const { specifier, line } of importsIn(source)) {
+				if (specifier.startsWith(".")) {
+					continue;
+				}
+				if (NODE_BUILTINS.has(specifier)) {
+					if (!isTest) {
+						fail(file, line, `imports ${specifier}: ${app.dir} deploys to Workers`);
+					}
+					continue;
+				}
+				if (
+					LATTICE_PACKAGES.some(
+						(name) => specifier === name || specifier.startsWith(`${name}/`),
+					)
+				) {
+					fail(
+						file,
+						line,
+						`imports ${specifier}: this repository imports nothing from Lattice`,
+					);
+					continue;
+				}
+				if (entryPoints.has(specifier)) {
+					continue;
+				}
+				const allowed = isTest
+					? declared.has(specifier) || devOnly.has(specifier)
+					: declared.has(specifier);
+				if (!allowed) {
+					fail(
+						file,
+						line,
+						`imports ${specifier}, which is not a Lyra entry point or a declared dependency`,
+					);
+				}
+			}
+		}
+	}
+}
+
 await checkSourceFiles();
+await checkHostApps();
 
 if (problems.length > 0) {
 	console.error(`importcheck: ${problems.length} problem(s)\n`);
@@ -320,4 +402,6 @@ if (problems.length > 0) {
 	process.exit(1);
 }
 
-console.log(`importcheck: ok (${ENTRY_POINTS.length} entry point(s), core web-standard only)`);
+console.log(
+	`importcheck: ok (${ENTRY_POINTS.length} entry point(s), ${HOST_APPS.length} host app(s), core web-standard only)`,
+);

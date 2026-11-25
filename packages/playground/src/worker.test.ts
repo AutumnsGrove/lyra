@@ -5,33 +5,24 @@ import type {
 	DurableObjectStubLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
-import { tokensFrom, type Env } from "./session.js";
-import { frontDoor } from "./worker.js";
-
-/** The rows are in `docs/implementation/C-playground.md`, Slice 1. */
-
-const TOKEN = "a-playground-token-for-a-test";
+import type { Env } from "./session.js";
+import worker from "./worker.js";
 
 /**
- * The bindings the deployed Worker has, so the token map is the one the Worker makes
- * rather than one the test made up: a tenant paired with the wrong token would pass a
- * test that handed the door its own map.
+ * The rows are in `docs/playground.md`: PGS01.
+ *
+ * The subject is the Worker's own `fetch` and the bindings it reads, not the adapter's
+ * router underneath it: the tenant a token maps to, the object name that comes out,
+ * and the fact that a refusal never wakes an object.
  */
-function env(): Env {
-	return {
-		SESSION: {} as DurableObjectNamespace,
-		PLAYGROUND_TOKEN: TOKEN,
-		PLAYGROUND_TENANT: "playground",
-	};
-}
+
+const TOKEN = "a-playground-token-for-a-test";
 
 interface Recorded {
 	namespace: DurableObjectNamespaceLike;
 	forwarded: string[];
-	/** Every object name the router derived, which is where the tenant shows. */
+	/** Every object name the Worker derived, which is where the tenant shows. */
 	names: string[];
-	/** How many times the object was even asked for, which a refusal must not do. */
-	asked: () => number;
 }
 
 function recordingNamespace(): Recorded {
@@ -52,7 +43,19 @@ function recordingNamespace(): Recorded {
 		newUniqueId: () => ({ toString: () => "unique" }),
 		get: () => stub,
 	};
-	return { namespace, forwarded, names, asked: () => forwarded.length };
+	return { namespace, forwarded, names };
+}
+
+/**
+ * The bindings a deployment has. `SESSION` is the recording namespace so a forwarded
+ * request can be seen; the token and tenant are the two the Worker's door reads.
+ */
+function env(namespace: DurableObjectNamespaceLike): Env {
+	return {
+		SESSION: namespace as unknown as DurableObjectNamespace,
+		PLAYGROUND_TOKEN: TOKEN,
+		PLAYGROUND_TENANT: "playground",
+	};
 }
 
 function startFrame(): string {
@@ -66,13 +69,14 @@ function startFrame(): string {
 	});
 }
 
-test("PGS01 the front door refuses a command without the token, and never asks the object", async () => {
-	const { namespace, asked } = recordingNamespace();
-	const response = await frontDoor({ namespace, tokens: tokensFrom(env()) })(
+test("PGS01 a command without the token is refused, and no object is woken", async () => {
+	const { namespace, forwarded } = recordingNamespace();
+	const response = await worker.fetch(
 		new Request("https://playground.test/v1/commands", {
 			method: "POST",
 			body: startFrame(),
 		}),
+		env(namespace),
 	);
 
 	// 403 is what the command surface answers for an unknown or missing token (HTP02),
@@ -80,17 +84,18 @@ test("PGS01 the front door refuses a command without the token, and never asks t
 	expect(response.status).toBe(403);
 	const body = (await response.json()) as { error?: { code?: string } };
 	expect(body.error?.code).toBe("permission_denied");
-	expect(asked()).toBe(0);
+	expect(forwarded).toEqual([]);
 });
 
 test("PGS01 a command with the token reaches the object for the token's tenant", async () => {
 	const { namespace, forwarded, names } = recordingNamespace();
-	const response = await frontDoor({ namespace, tokens: tokensFrom(env()) })(
+	const response = await worker.fetch(
 		new Request("https://playground.test/v1/commands", {
 			method: "POST",
 			headers: { authorization: `Bearer ${TOKEN}` },
 			body: startFrame(),
 		}),
+		env(namespace),
 	);
 
 	expect(response.status).toBe(200);
@@ -100,24 +105,17 @@ test("PGS01 a command with the token reaches the object for the token's tenant",
 	expect(names).toEqual(["playground:k1"]);
 });
 
-test("PGS01 a page request is not the Worker's business, and an unknown /v1 path is a refusal", async () => {
+test("PGS01 a path outside the protocol is not answered as one", async () => {
 	const { namespace, forwarded } = recordingNamespace();
-	const door = frontDoor({ namespace, tokens: tokensFrom(env()) });
-
-	// The page is served from the Worker's assets, so this only has to not be answered
-	// as a protocol route: a request that does reach the Worker is the adapter's 404.
-	const page = await door(
-		new Request("https://playground.test/", {
-			headers: { authorization: `Bearer ${TOKEN}` },
-		}),
-	);
-	expect(page.status).toBe(404);
-
-	const service = await door(
+	const response = await worker.fetch(
 		new Request("https://playground.test/v1/nothing-here", {
 			headers: { authorization: `Bearer ${TOKEN}` },
 		}),
+		env(namespace),
 	);
-	expect(service.status).toBe(404);
+
+	// `/v1/*` is claimed by the Worker, so what is not a route is a refusal rather than
+	// the page; the page itself is served from the assets and never reaches here.
+	expect(response.status).toBe(404);
 	expect(forwarded).toEqual([]);
 });

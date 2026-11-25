@@ -27,7 +27,7 @@ its policy is `allow` and it has no `apply`, groups are saved in call order, and
 issue #60): a SvelteKit page served by one Worker that runs Lyra against a real model, so the loop is tried
 the way a person drives it and not only the way a scenario file does. Its four prerequisites are merged —
 #59's `recipes` map, decision 154, #74's `message_end.reasoning`, and #73's conversation-shaped scenario
-(pull request #78) — so slice 1, the shell that deploys, is what is being built, and its rows live in
+(pull request #78) — so slice 1, the shell that deploys, is built and in review (pull request #81), with its rows in
 [`docs/playground.md`](docs/playground.md). What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario

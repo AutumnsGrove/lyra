@@ -31,6 +31,18 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   library is embeddable, the playground is the thing that pays for its own imports.
 
 
+- **A test that imports the package by name needs the runner to resolve source.** The slow half of the gate
+  runs no build, which is the point of the split, so the first version of the playground's tests imported
+  `@autumnsgrove/lyra` and resolved `dist/` that the CI job never made: green locally, red in CI. `vitest.config`
+  now aliases every entry point to `src/`, the way both tsconfigs already do.
+- **`importcheck` covers host apps now, and was run against two deliberate violations.** A `node:fs` import and
+  an undeclared `yaml` import in `packages/playground/src/model.ts` each failed with the right message before
+  the pass was trusted (decision 156).
+- **The routing that keeps the page off `/v1/*` is configuration, so it gets a test that reads it.** `PGS03`
+  parses `wrangler.jsonc`; removing `run_worker_first` would otherwise break every protocol call on a deployment
+  with the gate still green (found in review).
+
+
 ## #77, a dropped field that made the entry fit, 2026-11-25
 
 - **The marker is part of the cap, so the issue's three caps still refuse.** #77 reproduced the
