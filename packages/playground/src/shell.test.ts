@@ -61,6 +61,34 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	expect(saved.value.some((line) => line.includes('"name":"finish"'))).toBe(true);
 });
 
+test("PGS02 a resumed segment answers text, because a finished run cannot finish again", async () => {
+	// A follow-up continues the run as a new segment (decision 44), so the model is asked
+	// again after an assistant turn is already saved. A second `finish` there would be a
+	// call the finished run cannot make.
+	const reply = await PLACEHOLDER_MODEL.complete({
+		system: shellRecipe.instructions,
+		messages: [
+			{ role: "user", text: "say hello" },
+			{
+				role: "assistant",
+				text: "",
+				toolCalls: [{ id: "c1", name: "finish", arguments: "{}" }],
+			},
+			{ role: "user", text: "that is all" },
+		],
+		tools: shellRecipe.tools.map((tool) => tool.spec),
+		signal: new AbortController().signal,
+	});
+
+	expect(reply.ok).toBe(true);
+	if (!reply.ok) {
+		return;
+	}
+	expect(reply.value.toolCalls).toEqual([]);
+	expect(reply.value.text).toBe("The shell has nothing to do.");
+	expect(reply.value.finishReason).toBe("stop");
+});
+
 test("PGS02 the placeholder model asks to finish rather than pretending to work", async () => {
 	const reply = await PLACEHOLDER_MODEL.complete({
 		system: shellRecipe.instructions,
