@@ -32,12 +32,20 @@ export const cases: Readonly<Record<string, TruncateCase>> = {
 	"a-reasoning-that-has-to-be-cut": [entries["an-assistant-message-with-a-long-reasoning"], 400],
 	"a-huge-content-at-the-smallest-cap": [
 		entries["a-tool-message-with-a-huge-content"],
-		200,
+		164,
 		"refused",
 	],
-	// The other side of the same boundary: at 201 the marker-only line fits, so the
-	// entry has to be cut rather than refused. A gate that measured the widest marker
-	// refused this one and turned a save that fits into a failed run (found in review).
+	// The other side of that boundary: at 165 the structure with the field gone and a
+	// marker naming it fits, so the entry has to be saved rather than refused. Before
+	// #77 the loop refused every cap from 165 to 200, because it dropped the field and
+	// never re-checked what the drop had left.
+	"a-huge-content-once-its-field-is-dropped": [
+		entries["a-tool-message-with-a-huge-content"],
+		165,
+		"fit",
+	],
+	// And the cut path has its own boundary, where the marker fits inside the content
+	// instead of the field going whole: at 201 the marker-only line is exactly the cap.
 	"the-marker-only-line-at-its-exact-cap": [
 		entries["a-tool-message-with-a-huge-content"],
 		201,

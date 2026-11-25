@@ -146,6 +146,23 @@ function sizeWithMarker(entry: Truncatable, field: Truncation["field"]): number 
 	return sizeWith(entry, field, Number.MAX_SAFE_INTEGER);
 }
 
+/**
+ * The entry as it now stands, with a marker naming the field it lost, when that line
+ * is inside the cap. Dropping a field whole can be exactly what makes the rest fit,
+ * and the loop used to refuse without re-checking, which failed a save REC04 allows
+ * (issue #77). The marker goes in the measurement, because it is part of the line.
+ */
+function savedAfterDropping(
+	entry: Truncatable,
+	field: Truncation["field"],
+	droppedBytes: number,
+	maxBytes: number,
+): Fitted | undefined {
+	const truncated: Truncatable = { ...entry, truncated: { field, droppedBytes } };
+	const line = encodeEntry(truncated);
+	return utf8Length(line) <= maxBytes ? { entry: truncated, line } : undefined;
+}
+
 function sliceAtCodePoint(text: string, length: number): string {
 	// A lone high surrogate would turn into a replacement character when encoded, so
 	// a cut one code unit earlier keeps the text exactly as it was, only shorter.
@@ -247,7 +264,11 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 		dropped += utf8Length(JSON.stringify(working.details));
 		const { details: _details, ...rest } = working;
 		working = { ...rest };
-		if (sizeWithMarker(working, "details") <= maxBytes) {
+		// The marker this entry would really carry, not the widest one: an entry whose
+		// dropped block leaves a line inside the cap must be saved, and measuring the
+		// widest number refused a twelve-byte window of saves where nothing else was
+		// left to cut (found in review on pull request #80, the same class as #77).
+		if (sizeWith(working, "details", dropped) <= maxBytes) {
 			const truncated: Truncatable = {
 				...working,
 				truncated: { field: "details", droppedBytes: dropped },
@@ -300,6 +321,15 @@ export function fitEntry(entry: RecordEntry, maxBytes: number): Fitted {
 			// because `""` reads as a value the model produced.
 			dropped += originalBytes;
 			candidate.drop?.();
+			// The field just dropped may be all that stood between the entry and the cap,
+			// and carrying on to cut something smaller would lose more than it had to.
+			// So the entry as it now stands is measured once, with the marker that says
+			// what went: without this, a 281-byte turn was refused at every cap from 281
+			// to 313 while 314 saved (issue #77).
+			const saved = savedAfterDropping(working, candidate.field, dropped, maxBytes);
+			if (saved !== undefined) {
+				return saved;
+			}
 			continue;
 		}
 		let low = 0;
