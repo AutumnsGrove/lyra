@@ -5,7 +5,7 @@ import type {
 	DurableObjectStubLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
-import type { Env } from "./session.js";
+import { tokensFrom, type Env } from "./session.js";
 import worker, { Session } from "./worker.js";
 
 /**
@@ -127,4 +127,52 @@ test("PGS01 the entry point exports the session class under the name the config 
 	// slice 2's test, where a session has a real model to talk to.
 	expect(typeof Session).toBe("function");
 	expect(Session.name).toBe("Session");
+});
+
+test("PGS01 a missing or empty token binds nothing, and refuses a bare Bearer too", async () => {
+	// The secret is created by `wrangler secret put`, so a deployment can answer a request
+	// before anyone set it. An empty token would otherwise be a digest the door holds for
+	// "", which is a credential nobody chose; `tokensFrom` binds no tenant in either case.
+	for (const token of [undefined, ""]) {
+		// The map itself, which is what the door is built from: no tenant, no digest.
+		expect(
+			tokensFrom({ ...env(recordingNamespace().namespace), PLAYGROUND_TOKEN: token }),
+		).toEqual({});
+
+		const { namespace, forwarded } = recordingNamespace();
+		const response = await worker.fetch(
+			new Request("https://playground.test/v1/commands", {
+				method: "POST",
+				// Both spellings a client might send: the header alone, and a scheme with
+				// nothing after it, which is what the empty-digest bug would have accepted.
+				headers: { authorization: "Bearer   " },
+				body: startFrame(),
+			}),
+			{ ...env(namespace), PLAYGROUND_TOKEN: token },
+		);
+
+		expect(response.status, `token ${JSON.stringify(token)}`).toBe(403);
+		const body = (await response.json()) as { error?: { code?: string } };
+		expect(body.error?.code).toBe("permission_denied");
+		expect(forwarded).toEqual([]);
+	}
+});
+
+test("PGS01 an empty or missing tenant binds nothing either", async () => {
+	const { namespace, forwarded } = recordingNamespace();
+	const response = await worker.fetch(
+		new Request("https://playground.test/v1/commands", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}` },
+			body: startFrame(),
+		}),
+		{ ...env(namespace), PLAYGROUND_TENANT: "" },
+	);
+	expect(tokensFrom({ ...env(namespace), PLAYGROUND_TENANT: "" })).toEqual({});
+
+	// The token would otherwise be filed under the empty tenant, which is a session name
+	// no request can address; refusing is what the object would do anyway (409/403), and
+	// the Worker should not wake an object to find that out.
+	expect(response.status).toBe(403);
+	expect(forwarded).toEqual([]);
 });

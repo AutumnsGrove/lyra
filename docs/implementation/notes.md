@@ -29,15 +29,19 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **The playground's bundle has its own budget entry, 60 KiB.** Measured 45.6 KiB gzipped at slice 1. It is
   separate from the example Worker's 48 KiB because the two measure different promises: the example proves the
   library is embeddable, the playground is the thing that pays for its own imports.
-
-
 - **A test that imports the package by name needs the runner to resolve source.** The slow half of the gate
   runs no build, which is the point of the split, so the first version of the playground's tests imported
   `@autumnsgrove/lyra` and resolved `dist/` that the CI job never made: green locally, red in CI. `vitest.config`
   now aliases every entry point to `src/`, the way both tsconfigs already do.
-- **`importcheck` covers host apps now, and was run against two deliberate violations.** A `node:fs` import and
-  an undeclared `yaml` import in `packages/playground/src/model.ts` each failed with the right message before
-  the pass was trusted (decision 156).
+- **`importcheck` covers host apps now, and was run against four deliberate violations.** A `node:fs` import
+  and an undeclared `yaml` import in `packages/playground/src/model.ts` each failed with the right message before
+  the pass was trusted, and so did a moved directory and an empty `src/` — a walk that finds nothing would have
+  made the rule true by accident, so the pass fails on zero files and the summary names how many it read
+  (decision 156).
+- **An unset secret binds no tenant.** `tokensFrom` returns `{}` when the token or the tenant is missing or
+  empty, because the door hashes whatever string it holds and an empty one would be a credential nobody chose.
+  The PR said "the safe direction" before anything tested it (found in review); two tests now drive a bare
+  `Bearer` header and the map itself.
 - **The routing that keeps the page off `/v1/*` is configuration, so it gets a test that reads it.** `PGS03`
   parses `wrangler.jsonc`; removing `run_worker_first` would otherwise break every protocol call on a deployment
   with the gate still green (found in review).

@@ -337,18 +337,41 @@ async function publishedEntryPoints() {
  */
 async function checkHostApps() {
 	const entryPoints = await publishedEntryPoints();
+	let scanned = 0;
 	// The same allowance the package's tests get: the workspace's development tooling,
 	// such as the test runner, is there because every test in the tree uses it.
 	const rootJson = JSON.parse(await readFile(join(ROOT, "package.json"), "utf8"));
 	const rootDev = Object.keys(rootJson.devDependencies ?? {});
 	for (const app of HOST_APPS) {
-		const manifest = JSON.parse(await readFile(join(ROOT, app.dir, "package.json"), "utf8"));
+		let manifest;
+		try {
+			manifest = JSON.parse(await readFile(join(ROOT, app.dir, "package.json"), "utf8"));
+		} catch {
+			problems.push(`${app.dir}: no package.json, so there is no host app to scan there`);
+			continue;
+		}
 		if (manifest.name !== app.name) {
 			problems.push(`${app.dir}/package.json: name is ${manifest.name}, not ${app.name}`);
 		}
 		const declared = new Set(Object.keys(manifest.dependencies ?? {}));
 		const devOnly = new Set([...Object.keys(manifest.devDependencies ?? {}), ...rootDev]);
-		for (const file of await walk(join(ROOT, app.dir, "src"))) {
+		// A pass that walks nothing passes silently, which would make this rule and
+		// decision 156 true by accident. A host app with no `src/`, or an empty one, is a
+		// moved directory rather than an app, so it is a problem and not a quiet pass.
+		let files;
+		try {
+			files = await walk(join(ROOT, app.dir, "src"));
+		} catch {
+			files = [];
+		}
+		if (files.length === 0) {
+			problems.push(
+				`${app.dir}: no source files to scan, so the host-app rules run on nothing`,
+			);
+			continue;
+		}
+		scanned += files.length;
+		for (const file of files) {
 			const source = await readFile(file, "utf8");
 			const isTest = /\.(test|fuzz\.test|testing)\.ts$/.test(file);
 			for (const { specifier, line } of importsIn(source)) {
@@ -389,10 +412,11 @@ async function checkHostApps() {
 			}
 		}
 	}
+	return scanned;
 }
 
 await checkSourceFiles();
-await checkHostApps();
+const hostFiles = await checkHostApps();
 
 if (problems.length > 0) {
 	console.error(`importcheck: ${problems.length} problem(s)\n`);
@@ -403,5 +427,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-	`importcheck: ok (${ENTRY_POINTS.length} entry point(s), ${HOST_APPS.length} host app(s), core web-standard only)`,
+	`importcheck: ok (${ENTRY_POINTS.length} entry point(s), ${HOST_APPS.length} host app(s) over ${hostFiles} file(s), core web-standard only)`,
 );

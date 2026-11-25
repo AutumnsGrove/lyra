@@ -20,13 +20,31 @@ import { shellRecipe } from "./recipes/shell.js";
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
 export interface Env {
 	SESSION: DurableObjectNamespace;
-	PLAYGROUND_TOKEN: string;
-	PLAYGROUND_TENANT: string;
+	/**
+	 * Optional because a secret that was never set arrives as `undefined`, whatever the
+	 * type says: the binding is created by `wrangler secret put`, and nothing makes that
+	 * happen before the first request.
+	 */
+	PLAYGROUND_TOKEN?: string | undefined;
+	PLAYGROUND_TENANT?: string | undefined;
 }
 
-/** Tenant to token, exactly as the adapter's door reads it. */
+/**
+ * Tenant to token, exactly as the adapter's door reads it.
+ *
+ * A missing or empty token binds nothing rather than binding "". The door hashes
+ * whatever string it is given, so an empty one would be a working credential nobody
+ * chose — the door would accept `Bearer ` if the header ever arrived with its space
+ * intact. Returning no tenant makes every request a `permission_denied`, which is the
+ * safe direction by construction rather than by a header being trimmed (found in review).
+ */
 export function tokensFrom(env: Env): Readonly<Record<string, string>> {
-	return { [env.PLAYGROUND_TENANT]: env.PLAYGROUND_TOKEN };
+	const tenant = env.PLAYGROUND_TENANT;
+	const token = env.PLAYGROUND_TOKEN;
+	if (typeof tenant !== "string" || tenant === "" || typeof token !== "string" || token === "") {
+		return {};
+	}
+	return { [tenant]: token };
 }
 
 /** The host's half of the session, which is what a later slice varies by model source. */
