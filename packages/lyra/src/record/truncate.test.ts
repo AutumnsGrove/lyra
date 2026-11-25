@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import { loadRecord } from "./load.js";
-import type { RecordEntry, RecordHeader } from "./entries.js";
+import type { AssistantMessageEntry, RecordEntry, RecordHeader } from "./entries.js";
 import { encodeEntry, encodeHeader } from "./entries.js";
 import type { JsonValue } from "../core/json.js";
 import { cutText, fitEntry, utf8Length } from "./truncate.js";
@@ -232,8 +232,12 @@ test("CMP18 a cap smaller than the marker still keeps the result inside it", () 
  * long id, a big details block -- where that check passed, no amount of text fitted
  * with the marker, and the function returned the marker on top of an empty field:
  * a line one byte over its cap.
+ *
+ * The line this test leans on is still "never over the cap". Its refusal claim did
+ * not survive #77: with every cutoff field gone the structure is 165 bytes, so at 200
+ * the save fits and refusing it failed a run for size, which REC04 forbids.
  */
-test("REC04 an entry that cannot fit even when cut is refused, never over the cap", () => {
+test("REC04 an entry cut down to nothing is saved, never as a line over the cap", () => {
 	const entry: RecordEntry = {
 		type: "tool_message",
 		id: "e8",
@@ -248,10 +252,15 @@ test("REC04 an entry that cannot fit even when cut is refused, never over the ca
 	// Against the pre-fix code this was a fit of 201 bytes, so this is the assertion
 	// that catches the bug: no line over the cap ever comes back as a fit.
 	expect(utf8Length(fitted.line)).toBeLessThanOrEqual(200);
-	// And the honest answer for this entry is the refusal the same rule gives any
-	// structure that is too big on its own, not a fit with the marker on an empty
-	// field.
-	expect(fitted.refused).toMatch(/structure/);
+	// And what it answers now is the save the cap allows: the details and then the
+	// content go, the entry says which field it lost and what it took with it.
+	expect(fitted.refused).toBeUndefined();
+	expect(utf8Length(fitted.line)).toBe(165);
+	if (fitted.entry.type !== "tool_message") {
+		throw new Error("the fitted entry is not a tool message");
+	}
+	expect(fitted.entry.truncated).toEqual({ field: "content", droppedBytes: 4_012 });
+	expect(loadRecord([encodeHeader(header()), fitted.line]).ok).toBe(true);
 });
 
 /**
@@ -306,4 +315,96 @@ test("REC02 a field that loses everything it held is removed, not left as an emp
 	// The bytes it lost are still counted, and the marker names the field that was cut.
 	expect(fitted.entry.truncated?.droppedBytes).toBeGreaterThan(2_000);
 	expect(fitted.entry.text).toMatch(/truncated/);
+});
+
+/**
+ * The turn from #77: a 2.2 KB assistant message whose trace is 2 KB of it. Dropping
+ * the trace whole leaves 237 bytes, and the marker that says what went brings that to
+ * 291 — so every cap from 291 up holds the turn with nothing but the trace gone.
+ */
+function traceHeavyTurn(): AssistantMessageEntry {
+	return {
+		type: "assistant_message",
+		id: "e2",
+		parent: "e1",
+		ts: START,
+		text: "Done.",
+		reasoning: "r".repeat(2_000),
+		toolCalls: [{ id: "c1", name: "finish", arguments: "{}" }],
+		model: "fake/model",
+		usage: { inputTokens: 1, outputTokens: 1 },
+		finishReason: "tool_calls",
+	};
+}
+
+test("REC04 an entry that fits once a field is dropped whole is saved, not refused", () => {
+	// The candidate loop walked largest first, dropped a field whenever emptying it
+	// could not help on its own, and refused after the loop without ever re-checking
+	// what the drops had left: 291 bytes of turn refused at every cap from 291 to 314,
+	// which is a save REC04 allows turned into a failed run (#77).
+	for (const cap of [291, 300, 310]) {
+		const fitted = fitEntry(traceHeavyTurn(), cap);
+
+		expect(fitted.refused, `cap ${cap}`).toBeUndefined();
+		expect(utf8Length(fitted.line)).toBeLessThanOrEqual(cap);
+		if (fitted.entry.type !== "assistant_message") {
+			throw new Error("the fitted entry is not an assistant message");
+		}
+		// The trace went whole rather than being cut, and the entry says so: the field
+		// it lost and the bytes it took with it.
+		expect(fitted.entry).not.toHaveProperty("reasoning");
+		expect(fitted.entry.truncated?.field).toBe("reasoning");
+		expect(fitted.entry.truncated?.droppedBytes).toBeGreaterThanOrEqual(2_000);
+		// What was saved is still a record that reads back.
+		expect(loadRecord([encodeHeader(header()), fitted.line]).ok).toBe(true);
+	}
+});
+
+test("REC04 a cap too small for the marker itself still refuses, and says why", () => {
+	// What cannot fit at 280 is the marker, not the content: the turn with the trace
+	// and its text gone is 232 bytes, and the marker naming the drop brings it to 281.
+	// REC04 refuses only the structure counting the marker it would need, so this is
+	// that case, and the refusal says so rather than failing quietly.
+	const withoutTrace = { ...traceHeavyTurn() };
+	delete withoutTrace.reasoning;
+	expect(utf8Length(encodeEntry(withoutTrace))).toBe(237);
+	const smallestMarked: AssistantMessageEntry = {
+		...withoutTrace,
+		text: "",
+		truncated: { field: "text", droppedBytes: 2_005 },
+	};
+	expect(utf8Length(encodeEntry(smallestMarked))).toBe(281);
+
+	const fitted = fitEntry(traceHeavyTurn(), 280);
+	expect(fitted.refused).toMatch(/structure/);
+});
+
+test("REC04 a refusal never hides a save: every cap that can hold the marked structure is saved", () => {
+	// The rule the loop has to keep, swept rather than sampled: refusing is the only
+	// way a save can fail for size, so a refusal is allowed only when even the
+	// smallest line that says what went — every cutoff field gone, the marker naming
+	// the cheapest one — is over the cap (#77).
+	const withoutTrace = { ...traceHeavyTurn() };
+	delete withoutTrace.reasoning;
+	const smallestMarked = utf8Length(
+		encodeEntry({
+			...withoutTrace,
+			text: "",
+			truncated: { field: "text", droppedBytes: 2_005 },
+		}),
+	);
+
+	for (let cap = 200; cap <= 320; cap += 1) {
+		const fitted = fitEntry(traceHeavyTurn(), cap);
+		if (fitted.refused === undefined) {
+			expect(utf8Length(fitted.line), `cap ${cap}`).toBeLessThanOrEqual(cap);
+		} else {
+			// A refusal's own line is the emptied structure, which may be over the cap:
+			// what could not fit was that plus the marker. That is the case to refuse.
+			expect(
+				smallestMarked,
+				`cap ${cap} refused a ${smallestMarked}-byte save`,
+			).toBeGreaterThan(cap);
+		}
+	}
 });

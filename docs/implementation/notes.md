@@ -9,6 +9,20 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## #77, a dropped field that made the entry fit, 2026-11-25
+
+- **The marker is part of the cap, so the issue's three caps still refuse.** #77 reproduced the
+  over-refusal at caps 237, 250 and 280, and REC04's clause is what answers it: a refusal is right when the
+  *structure, counting the truncation marker it would need,* is over the cap. For that turn the trace-less
+  entry is 237 bytes and the marker costs 44, so 280 cannot hold the note that says what went — the fix is
+  the range above it (291 to 314 was refusing a 291-byte save), not those three caps. The boundary is now
+  280 refused, 281 saved, and a sweep asserts a refusal never hides a save.
+- **Two tests had pinned the over-refusal as correct, and one of them was a corpus case.** At cap 200 a
+  tool result with a 4 KB body now saves with `content` gone and a marker saying so, where it used to refuse;
+  REC04 says content is content and only structure is refused, so the old expectation was the bug wearing a
+  test name. The over-cap assertion those tests existed for is kept — it is the one that catches a line over
+  its cap.
+
 ## Review pass, 2026-11-24
 
 - **Workflow actions are pinned by tag.** `release.yml` runs `softprops/action-gh-release` and
