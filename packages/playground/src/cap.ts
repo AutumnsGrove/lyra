@@ -118,37 +118,13 @@ export async function refusalFor(options: {
 	if (!response.ok) {
 		// A budget that cannot be read is not a reason to spend: the refusal names the
 		// budget rather than the cap, so the message is true about what failed.
-		return {
-			status: 429,
-			frame: {
-				type: "response",
-				id: start.id,
-				command: start.command,
-				ok: false,
-				error: {
-					code: "limit",
-					message: "the day's spend could not be read, so no run was started",
-				},
-			},
-		};
+		return unreadable(start.id);
 	}
 	const state: unknown = await response.json().catch(() => undefined);
 	const usd = isRecord(state) && typeof state["usd"] === "number" ? state["usd"] : undefined;
 	const unpriced = isRecord(state) && state["unpriced"] === true;
 	if (usd === undefined) {
-		return {
-			status: 429,
-			frame: {
-				type: "response",
-				id: start.id,
-				command: start.command,
-				ok: false,
-				error: {
-					code: "limit",
-					message: "the day's spend could not be read, so no run was started",
-				},
-			},
-		};
+		return unreadable(start.id);
 	}
 
 	if (unpriced) {
