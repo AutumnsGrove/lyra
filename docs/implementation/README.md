@@ -28,7 +28,18 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 merged ([#96](https://github.com/AutumnsGrove/lyra/pull/96)) 7a in review on `feat/playground-slice-7a-cap`, and deployed; 7b needs the Cloudflare secrets in CI, then 8, plus issue #91 (`search_web`) |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 merged ([#96](https://github.com/AutumnsGrove/lyra/pull/96)) 7a merged ([#99](https://github.com/AutumnsGrove/lyra/pull/99)) and deployed; 7b needs the Cloudflare secrets in CI, then 8, plus issue #91 (`search_web`) |
+
+### Where the last session stopped (2026-11-26, the day cap)
+
+- **C slice 7a is merged and deployed**, pull request [#99](https://github.com/AutumnsGrove/lyra/pull/99), merge
+  commit `5263ae8`: a per-tenant budget object, a `start` over the cap refused `limit`/429 at both doors (HTTP and
+  socket), the unpriced rule, `/api/cap` and `/api/spend`, and the page's spend line. Rows PGS37 to PGS40;
+  decisions 161 (the cap) and 162 (the ceiling moves to 68 KiB). Four review rounds found real defects each time:
+  a resumed run under-counted, a free failure latching the day unpriced, the socket door unguarded, and the
+  `Session` wiring untested. The live Worker is at `626aedfb`, and `GET /api/cap` plus a small reported spend
+  were driven against it. **Slice 7b is blocked on the Cloudflare repository secrets** (`CLOUDFLARE_API_TOKEN`,
+  `CLOUDFLARE_ACCOUNT_ID`), which are not in GitHub yet; then slice 8.
 
 ### Where the last session stopped (2026-11-26, the cards)
 
