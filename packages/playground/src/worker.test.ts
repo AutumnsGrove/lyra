@@ -64,6 +64,7 @@ function env(namespace: DurableObjectNamespaceLike): Env {
 		// The sidebar's object: the `/v1` rows never reach it, and the `/api` rows replace
 		// it with an index the test can read back.
 		INDEX: namespace as unknown as DurableObjectNamespace,
+		BUDGET: namespace as unknown as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: TOKEN,
 		LYRA_PLAYGROUND_TENANT: "playground",
 	};
@@ -341,6 +342,8 @@ test("PGS12 the sidebar lists conversations newest first, through the Worker", a
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: ["shell", "tool-table"],
 		now: () => now,
@@ -372,6 +375,8 @@ test("PGS13 a touch moves a conversation up, and names nothing that does not exi
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: ["shell", "tool-table"],
 		now: () => now,
@@ -403,6 +408,8 @@ test("PGS14 the playground's own routes are the only thing outside /v1 it answer
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: ["shell"],
 		now: () => 1,
@@ -421,6 +428,8 @@ test("PGS15 the picker offers exactly the recipes the session will run", async (
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: [...recipeCatalogue(fakeClock()).keys()],
 		now: () => 1,
@@ -445,6 +454,8 @@ test("PGS14 a malformed escape in a session id is a refusal, not a 500", async (
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: ["shell"],
 		now: () => 1,
@@ -465,6 +476,8 @@ test("PGS11 the body cap is bytes, not characters", async () => {
 	const door = frontDoor({
 		namespace: recordingNamespace().namespace,
 		index: index.namespace,
+		budget: indexedNamespace().namespace,
+		cap: null,
 		tokens: { playground: TOKEN },
 		recipes: ["shell"],
 		now: () => 1,

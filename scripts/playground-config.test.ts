@@ -89,6 +89,7 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 	expect(durable?.bindings).toEqual([
 		{ name: "SESSION", class_name: "Session" },
 		{ name: "INDEX", class_name: "SessionIndex" },
+		{ name: "BUDGET", class_name: "Budget" },
 	]);
 	// The index arrives in a migration of its own (slice 3): a binding whose class no
 	// migration creates is a deploy that answers its first request with an error about a
@@ -96,11 +97,14 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 	expect(wrangler["migrations"]).toEqual([
 		{ tag: "v1", new_sqlite_classes: ["Session"] },
 		{ tag: "v2", new_sqlite_classes: ["SessionIndex"] },
+		{ tag: "v3", new_sqlite_classes: ["Budget"] },
 	]);
 
 	// The tenant is configuration; the token is a secret, so it must not be here.
 	const vars = wrangler["vars"] as Record<string, string> | undefined;
 	expect(vars?.["LYRA_PLAYGROUND_TENANT"]).toBe("playground");
+	// The day's cap is a policy number the page shows, so it is a var and not a secret.
+	expect(vars?.["LYRA_PLAYGROUND_DAY_CAP_USD"]).toBe("1");
 	expect(Object.keys(vars ?? {})).not.toContain("LYRA_PLAYGROUND_TOKEN");
 	// The unprefixed names are what the playground shipped with before slice 2. A config
 	// that kept one would bind a tenant nobody reads, which is a deployment that refuses

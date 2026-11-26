@@ -17,6 +17,7 @@ import {
 	type DurableObjectNamespaceLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
+import { capFrom, utcDay } from "./cap.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 import { tokensFrom, type Env } from "./session.js";
 
@@ -25,6 +26,10 @@ export interface FrontDoor {
 	namespace: DurableObjectNamespaceLike;
 	/** The per-tenant conversation index (decision 158). */
 	index: DurableObjectNamespaceLike;
+	/** The per-tenant day's spend (decision 161). */
+	budget: DurableObjectNamespaceLike;
+	/** The day's cap in dollars, or `null` when the deployment set none. */
+	cap: number | null;
 	/** Tenant to token, from a secret binding. */
 	tokens: Readonly<Record<string, string>>;
 	/** The recipe names this Worker runs, in the picker's order. */
@@ -156,6 +161,46 @@ async function api(
 		return json({ recipes: door.recipes });
 	}
 
+	if (url.pathname === "/api/cap" || url.pathname === "/api/spend") {
+		const budget = door.budget.get(door.budget.idFromName(tenant.value));
+		const day = utcDay(door.now());
+
+		if (request.method === "GET" && url.pathname === "/api/cap") {
+			const status = await budget.fetch(
+				new Request(`https://budget.invalid/status?day=${encodeURIComponent(day)}`),
+			);
+			const state = (await status.json()) as Record<string, unknown>;
+			return json({ ...state, cap: door.cap }, status.status);
+		}
+
+		if (request.method === "POST" && url.pathname === "/api/spend") {
+			const body = await readJson(request);
+			if (body === undefined) {
+				return refuse("bad_request", "a spend holds one object of JSON");
+			}
+			const unpriced = body["unpriced"] === true;
+			const amount = body["amount"];
+			if (
+				!unpriced &&
+				(typeof amount !== "number" || !Number.isFinite(amount) || amount < 0)
+			) {
+				return refuse("bad_request", "a spend is a number of dollars, zero or more");
+			}
+			// The day is the Worker's, never the page's: a client that chose the day could
+			// spread its spend across days it was never in.
+			const spent = await budget.fetch(
+				new Request(`https://budget.invalid/${unpriced ? "unpriced" : "spend"}`, {
+					method: "POST",
+					body: JSON.stringify(unpriced ? { day } : { day, amount }),
+				}),
+			);
+			const state = (await spent.json()) as Record<string, unknown>;
+			return json({ ...state, cap: door.cap }, spent.status);
+		}
+
+		return refuse("not_found", `there is nothing at ${url.pathname}`);
+	}
+
 	if (url.pathname !== "/api/sessions" && !url.pathname.startsWith("/api/sessions/")) {
 		return refuse("not_found", `there is nothing at ${url.pathname}`);
 	}
@@ -248,6 +293,8 @@ export default {
 		return frontDoor({
 			namespace: env.SESSION,
 			index: env.INDEX,
+			budget: env.BUDGET,
+			cap: capFrom(env),
 			tokens: tokensFrom(env),
 			recipes: [...recipeCatalogue(clock).keys()],
 			now: () => clock.now(),
@@ -257,3 +304,4 @@ export default {
 
 export { Session } from "./session.js";
 export { SessionIndex } from "./index-do.js";
+export { Budget } from "./budget.js";

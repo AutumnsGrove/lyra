@@ -38,10 +38,13 @@
 	import {
 		createConversation,
 		listConversations,
+		readCap,
 		recipes,
+		reportSpend,
 		sessionFromSearch,
 		touchConversation,
 		withSession,
+		type CapState,
 		type Conversation,
 	} from "../lib/sessions.js";
 	import { transcriptFrom } from "../lib/transcript.js";
@@ -66,6 +69,10 @@
 	let record: string[] = [];
 	/** The note or answer typed into a card, by request id. */
 	let drafts: Record<string, string> = {};
+	/** Today's spend and the cap, as the deployment counts them (slice 7). */
+	let cap: CapState | undefined = undefined;
+	/** The runs whose cost has already been reported, so a replay is not counted twice. */
+	let reported = new Set<string>();
 
 	const fetched: Fetcher = (url, init) => fetch(url, init);
 
@@ -120,10 +127,16 @@
 			return;
 		}
 		problem = "";
-		const [list, names] = await Promise.all([
+		const [list, names, spend] = await Promise.all([
 			listConversations({ base: "", token, fetcher: fetched }),
 			recipes({ base: "", token, fetcher: fetched }),
+			readCap({ base: "", token, fetcher: fetched }),
 		]);
+		if (spend.ok) {
+			cap = spend.value;
+		} else if (!refused(spend.error.status)) {
+			problem = spend.error.message;
+		}
 		if (!list.ok) {
 			if (refused(list.error.status)) {
 				return;
@@ -372,6 +385,7 @@
 				...(after === undefined ? {} : { lastEventId: after }),
 				onEvent: (event: StreamEvent) => {
 					transcript = reduce(transcript, event);
+					void reportRun(event);
 				},
 			});
 			if (me.signal.aborted) {
@@ -391,6 +405,42 @@
 			}
 			problem = watched.error.message;
 			return;
+		}
+	}
+
+	/**
+	 * Tell the deployment what a run cost, once, when its end arrives.
+	 *
+	 * `run_end` is where the cost is known, and the page is the client that sees it. A run
+	 * that reported no cost marks the day unpriced, which stops new runs until UTC
+	 * midnight rather than undercounting (decision 161).
+	 */
+	async function reportRun(event: StreamEvent): Promise<void> {
+		if (event["type"] !== "run_end" || token === undefined) {
+			return;
+		}
+		const run = typeof event["run"] === "string" ? event["run"] : "";
+		if (run !== "" && reported.has(run)) {
+			return;
+		}
+		if (run !== "") {
+			reported = new Set([...reported, run]);
+		}
+		const usage = event["usage"];
+		const cost =
+			typeof usage === "object" && usage !== null && !Array.isArray(usage)
+				? (usage as Record<string, unknown>)["cost"]
+				: undefined;
+		const amount =
+			typeof cost === "object" && cost !== null && !Array.isArray(cost)
+				? (cost as Record<string, unknown>)["amount"]
+				: undefined;
+		const spent =
+			typeof amount === "number" && Number.isFinite(amount)
+				? await reportSpend({ base: "", token, fetcher: fetched, amount })
+				: await reportSpend({ base: "", token, fetcher: fetched, unpriced: true });
+		if (spent.ok) {
+			cap = spent.value;
 		}
 	}
 
@@ -743,6 +793,14 @@
 							{/if}
 						{/each}
 					</ol>
+				{/if}
+
+				{#if cap !== undefined && cap.cap !== null}
+					<p class="status" class:error={cap.unpriced || cap.usd >= cap.cap}>
+						{cap.unpriced
+							? "today is unpriced: a reply reported no cost, so no new run starts until UTC midnight"
+							: `spend $${cap.usd.toFixed(4)} of $${cap.cap.toFixed(2)} today (UTC)`}
+					</p>
 				{/if}
 
 				{#if transcript.status.state !== "idle"}
