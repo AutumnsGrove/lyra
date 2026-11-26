@@ -37,8 +37,14 @@ test("PGS43 the playground deploys from main, after the gate, and writes nothing
 
 	const deploy = jobOf(workflow, "deploy");
 	// The condition that makes "after the gate" true, spelled out rather than implied.
-	expect(String(deploy["if"])).toContain("conclusion == 'success'");
-	expect(String(deploy["if"])).toContain("workflow_dispatch");
+	const condition = String(deploy["if"]);
+	expect(condition).toContain("conclusion == 'success'");
+	expect(condition).toContain("workflow_dispatch");
+	// A `pull_request` run's head branch is the PR's source branch, so a fork could name its
+	// branch `main`, pass its own gate and have this job deploy its code with the Cloudflare
+	// credential. The run has to be a push, in this repository (found in review on #103).
+	expect(condition).toContain("event == 'push'");
+	expect(condition).toContain("repository.full_name == github.repository");
 	// The commit `ci` passed on, not whatever main points at now.
 	expect(stepTexts(deploy)).toContain("workflow_run.head_sha");
 

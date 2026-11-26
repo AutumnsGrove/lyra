@@ -24,12 +24,19 @@ permissions:
 
 jobs:
   deploy:
-    # Only a green `ci` on `main`, or a person asking by hand. The workflow event itself
-    # has no conclusion, so both conditions are spelled out rather than left to the
-    # trigger.
+    # Only a green `ci` **push** run in this repository, or a person asking by hand.
+    #
+    # `head_branch == 'main'` alone is not enough: for a `pull_request` run, the head
+    # branch is the PR's *source* branch, so a fork could open a PR from a branch called
+    # `main`, pass its own gate, and this job would check out the fork's commit and deploy
+    # it with the Cloudflare credential. `event == 'push'` restricts it to a run started by
+    # a push (which needs write access to this repository), and the repository check keeps
+    # the run in this repository at all.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 15

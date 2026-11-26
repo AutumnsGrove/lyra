@@ -15,6 +15,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   `workflow_run` that concluded `success` on `main`, and checks out the commit `ci` passed on, so the
   Worker is the tree the gate checked even if `main` moved. A raw `push` trigger would have deployed
   whatever arrived, including a merge whose gate had not finished.
+- **The gate had to name the *kind* of run, not just the branch.** `workflow_run.head_branch` is the PR's source
+  branch for a `pull_request` run, so a fork that named its branch `main` and passed its own `ci` would have had
+  this job check out its commit and deploy it with the Cloudflare credential. The condition now also requires
+  `event == 'push'` and the run's repository to be this one, and the workflow test asserts both — the first version
+  of that test only checked the conclusion and the branch, which is why the hole survived it.
 - **One deploy at a time, and never cancelled.** A cancelled deploy can leave a Worker half updated; a
   queued one is a deploy that starts a minute later. The workflow holds no write permission at all.
 - **`wrangler deploy` preserves the Worker's secrets, so the workflow does not set them.** The model key,
