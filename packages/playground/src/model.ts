@@ -156,6 +156,33 @@ function unrunnableSmokeSession(): ModelSlot {
 	};
 }
 
+/**
+ * A slot that re-checks the session's tenant on **every call**, not at build time.
+ *
+ * The tenant is learned from a request's bearer, and an object can be built by a request
+ * that carried none — an unauthenticated direct hit, which the door refuses but which still
+ * built and cached the session. That cached model would then answer a later smoke-tenant
+ * follow-up on the real provider, which is the spend path the guard exists to close. Asking
+ * on each call is what makes the guarantee independent of which request arrived first
+ * (review on #101).
+ */
+export function smokeGuardedModel(options: {
+	tenant: () => string | undefined;
+	smokeTenant: string | undefined;
+	script: () => ModelSlot | undefined;
+	inner: ModelSlot;
+}): ModelSlot {
+	return {
+		async complete(request) {
+			const tenant = options.tenant();
+			if (tenant !== undefined && tenant === options.smokeTenant) {
+				return (options.script() ?? unrunnableSmokeSession()).complete(request);
+			}
+			return options.inner.complete(request);
+		},
+	};
+}
+
 export function modelFor(env: Env, deps: ModelDeps): ModelSlot {
 	// A script wins over the configured source: the header was accepted only from the smoke
 	// tenant, and a smoke run must spend nothing on a provider.

@@ -34,6 +34,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   a smoke job silently asserted less; either spelling is now read and checked. And a script header on a steer or a
   follow-up replaced a live scripted session's turns mid-run, so a script is accepted only on a `start` and
   anything else is `bad_request`. Both have tests.
+- **The tenant is asked per call, not at build time.** A session can be built by a request that carried no bearer
+  (the door refuses it, but the object cached the session), and a cached model built without a tenant would answer a
+  later smoke follow-up on the real provider. `smokeGuardedModel` checks the tenant on every `complete`, and the
+  test walks exactly that ordering: unknown, then smoke without a script, then smoke with one.
+- **One scripted start per object.** A second one would replace a live run's turns, so it is `conflict`. That
+  refusal is reasoned rather than test-proven: the first accepted start builds the object, which needs workerd.
 - **The accepted path still needs workerd.** Every refusal is tested against a real `Session` in Node; the
   accepted start builds the object, which is the configuration the playground has never had. The smoke job is what
   proves that half, on a real deployment — and it is the reason the job exists.

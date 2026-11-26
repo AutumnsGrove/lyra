@@ -13,12 +13,13 @@ import {
 	type CloudflareSession,
 	type CloudflareSessionOptions,
 } from "@autumnsgrove/lyra/cloudflare";
+import type { ModelSlot } from "@autumnsgrove/lyra";
 import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
 import { refusalResponse } from "@autumnsgrove/lyra";
 import { capFrom, refusalFor, socketRefusal, utcDay } from "./cap.js";
-import { modelFor } from "./model.js";
-import { decodeScript, tokenMatches, type ScriptTurn } from "./script.js";
+import { modelFor, smokeGuardedModel } from "./model.js";
+import { decodeScript, scriptedSlot, tokenMatches, type ScriptTurn } from "./script.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
@@ -132,6 +133,8 @@ export class Session implements DurableObject {
 	#tenantName: string | undefined;
 	/** The turns a scripted smoke run asks in place of a model, held for the run it started. */
 	#script: ScriptTurn[] | undefined;
+	/** The model those turns answer through, kept so its place in the script survives a call. */
+	#scriptSlot: ModelSlot | undefined;
 
 	constructor(
 		private readonly ctx: DurableObjectState,
@@ -139,13 +142,21 @@ export class Session implements DurableObject {
 	) {}
 
 	#build(): CloudflareSession {
-		this.#session ??= createCloudflareSession(
-			this.ctx,
-			sessionOptions(this.env, {
+		if (this.#session === undefined) {
+			const options = sessionOptions(this.env, {
 				script: () => this.#script,
 				...(this.#tenantName === undefined ? {} : { tenant: this.#tenantName }),
-			}),
-		);
+			});
+			// The tenant is asked per call, so a session built before the tenant was known
+			// still cannot spend as the smoke tenant (review on #101).
+			options.model = smokeGuardedModel({
+				tenant: () => this.#tenantName,
+				smokeTenant: this.env.LYRA_PLAYGROUND_SMOKE_TENANT,
+				script: () => this.#scriptSlot,
+				inner: options.model,
+			});
+			this.#session = createCloudflareSession(this.ctx, options);
+		}
 		return this.#session;
 	}
 
@@ -232,9 +243,18 @@ export class Session implements DurableObject {
 		if (!script.ok) {
 			return refusalResponse("bad_request", script.error.message);
 		}
+		// One scripted start per object: a second would replace a live run's turns, so it is
+		// a conflict with what this session is already doing rather than a silent reset.
+		if (this.#script !== undefined) {
+			return refusalResponse(
+				"conflict",
+				"this smoke session has already started; use a fresh session id for another script",
+			);
+		}
+		this.#script = script.value;
+		this.#scriptSlot = scriptedSlot(script.value);
 		// A fresh session, so the model this request runs is the script rather than one the
 		// object already built for a real run.
-		this.#script = script.value;
 		this.#session = undefined;
 		return undefined;
 	}

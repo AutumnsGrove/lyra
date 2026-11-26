@@ -8,8 +8,10 @@ import {
 	PLACEHOLDER_MODEL_NAME,
 	modelsFrom,
 	modelFor,
+	smokeGuardedModel,
 	type ModelDeps,
 } from "./model.js";
+import { scriptedSlot } from "./script.js";
 
 /**
  * The rows are in `docs/playground.md`: PGS04 and PGS05.
@@ -259,5 +261,59 @@ test("PGS42 a smoke tenant with no script has no model that can spend", async ()
 	if (!reply.ok) {
 		expect(reply.error.retryable).toBe(false);
 		expect(reply.error.code).toBe("permission_denied");
+	}
+});
+
+test("PGS42 a session built before the tenant was known still cannot spend as smoke", async () => {
+	// The ordering the review found: an unauthenticated request builds and caches the session
+	// with no tenant, and a later smoke follow-up must still hit the guard, which is why the
+	// tenant is asked on every call rather than at build time.
+	let tenant: string | undefined = undefined;
+	let script: ReturnType<typeof scriptedSlot> | undefined = undefined;
+	const guarded = smokeGuardedModel({
+		tenant: () => tenant,
+		smokeTenant: "smoke",
+		script: () => script,
+		inner: {
+			async complete() {
+				return {
+					ok: false as const,
+					error: {
+						code: "internal" as const,
+						message: "the real model was asked",
+						retryable: false,
+					},
+				};
+			},
+		},
+	});
+	const request = {
+		system: "s",
+		messages: [],
+		tools: [],
+		signal: new AbortController().signal,
+	} as never;
+
+	// First call, before the tenant is known: the inner slot (the refusal above).
+	const before = await guarded.complete(request);
+	expect(before.ok).toBe(false);
+	if (!before.ok) {
+		expect(before.error.message).toBe("the real model was asked");
+	}
+
+	// Now the tenant is the smoke tenant with no script: the inner slot must not be reached.
+	tenant = "smoke";
+	const after = await guarded.complete(request);
+	expect(after.ok).toBe(false);
+	if (!after.ok) {
+		expect(after.error.code).toBe("permission_denied");
+	}
+
+	// And with a script, it answers the script's turns.
+	script = scriptedSlot([{ text: "scripted" }]);
+	const withScript = await guarded.complete(request);
+	expect(withScript.ok).toBe(true);
+	if (withScript.ok) {
+		expect(withScript.value.text).toBe("scripted");
 	}
 });
