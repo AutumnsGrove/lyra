@@ -1,14 +1,13 @@
 # Notes for the reviewer
 
-Guidance for `pi-review`. `claude-review` reads this pull request too, and the two are
-deliberately not doing the same job: that one reads the diff and the files, this one can run
-them. Read `AGENTS.md` and the spec row the change cites first; this file says only where
-your turns are worth spending.
+Guidance for the reviewer with a shell. That is `pi-review` in CI, and it is also
+`claude-review` since it was given one (2026-11-26). Read `AGENTS.md` and the spec row the
+change cites first; this file says only where your turns are worth spending.
 
-## What the other reviewer covers
+## When both readers run
 
-Do not spend turns on any of this. It is the whole of what the other reader does, and it
-reads faster than you do.
+While `claude-review` reads the pull request alongside you, do not spend turns on any of
+this. It is the whole of what the other reader does, and it reads faster than you do.
 
 - `CHANGELOG.md` and docs prose, and whether the paperwork a change owes is present.
 - Whether a spec row exists, and whether a test name cites its ID as a whole component.
@@ -18,6 +17,12 @@ reads faster than you do.
 
 It has no shell. You do. That is the difference worth paying for, so spend your turns where
 it applies.
+
+## When you are the only reader
+
+While `pi-review` is disabled, `claude-review` is the only reader, so it does that list as
+well as this one. Nothing else is looking at the paperwork, the spec rows or the workflow
+YAML, and skipping them is a silent gap rather than a saved turn.
 
 ## What to spend your turns on
 
