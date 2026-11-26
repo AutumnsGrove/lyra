@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
 	EMPTY_TRANSCRIPT,
+	callState,
 	clearToken,
 	readRecord,
 	readToken,
@@ -275,10 +276,12 @@ test("PGS10 the transcript keeps the model's text, its calls and their results i
 	});
 	transcript = reduce(transcript, {
 		type: "tool_call",
+		ts: 1_000,
 		call: { id: "c1", name: "now", arguments: "{}" },
 	});
 	transcript = reduce(transcript, {
 		type: "tool_end",
+		ts: 1_120,
 		callId: "c1",
 		name: "now",
 		isError: false,
@@ -295,15 +298,21 @@ test("PGS10 the transcript keeps the model's text, its calls and their results i
 		},
 	});
 
-	expect(transcript.rows.map((row) => row.kind)).toEqual(["assistant", "tool", "result"]);
+	// The call and its result are one row: a group of calls is a list, and a result
+	// cannot be drawn before the call it answers.
+	expect(transcript.rows.map((row) => row.kind)).toEqual(["assistant", "tool"]);
 	expect(transcript.rows[0]).toMatchObject({
 		text: "let me look",
 		reasoning: "the person asked for the time",
 	});
-	expect(transcript.rows[2]).toMatchObject({
+	expect(transcript.rows[1]).toMatchObject({
 		name: "now",
-		text: "2026-11-25T00:00:00.000Z",
+		callId: "c1",
+		arguments: "{}",
+		result: "2026-11-25T00:00:00.000Z",
 		isError: false,
+		// The two record entries' own times, so a live run and a rebuild agree (PGS25).
+		durationMs: 120,
 	});
 	expect(transcript.status).toEqual({ state: "done", turns: 2, costUsd: 0.002 });
 });
@@ -454,4 +463,152 @@ test("PGS23 the record is read one page at a time, and a malformed answer is a m
 		id: "c2",
 	});
 	expect(broken).toMatchObject({ ok: false, error: { code: "internal" } });
+});
+
+test("PGS24 a group of calls is several rows that fill in as the results arrive", () => {
+	let transcript = reduce(EMPTY_TRANSCRIPT, {
+		type: "message_end",
+		text: "",
+		toolCalls: [],
+	});
+	// One reply, two calls, and no result yet: both rows are drawn, which is what makes a
+	// group visible while it is running. The group shares its entry's time.
+	for (const call of [
+		{ id: "a", name: "now", arguments: "{}" },
+		{ id: "b", name: "calculator", arguments: '{"a":6,"b":7,"op":"*"}' },
+	]) {
+		transcript = reduce(transcript, { type: "tool_call", ts: 500, call });
+	}
+	expect(transcript.rows).toHaveLength(2);
+	expect(transcript.rows.map((row) => row.kind === "tool" && row.result)).toEqual([
+		undefined,
+		undefined,
+	]);
+
+	// The faster one answers first; the other is still open, and the page can draw that.
+	transcript = reduce(transcript, {
+		type: "tool_end",
+		ts: 560,
+		callId: "b",
+		name: "calculator",
+		isError: false,
+		content: "42",
+	});
+	expect(transcript.rows[1]).toMatchObject({ callId: "b", result: "42", durationMs: 60 });
+	expect(transcript.rows[0]).toMatchObject({ callId: "a" });
+	expect(transcript.rows[0]).not.toHaveProperty("result");
+
+	// A tool that failed fills its own row as an error rather than a second row.
+	transcript = reduce(transcript, {
+		type: "tool_end",
+		ts: 700,
+		callId: "a",
+		name: "now",
+		isError: true,
+		content: "the clock is unavailable",
+	});
+	expect(transcript.rows[0]).toMatchObject({
+		callId: "a",
+		result: "the clock is unavailable",
+		isError: true,
+		durationMs: 200,
+	});
+	expect(transcript.rows).toHaveLength(2);
+});
+
+test("PGS24 a result with no call, or a second result, changes nothing", () => {
+	const once = reduce(EMPTY_TRANSCRIPT, {
+		type: "tool_call",
+		ts: 1,
+		call: { id: "c1", name: "now" },
+	});
+	const answered = reduce(once, {
+		type: "tool_end",
+		ts: 2,
+		callId: "c1",
+		name: "now",
+		isError: false,
+		content: "first",
+	});
+
+	// A record that arrives out of order must not invent a row for a result the page
+	// never saw a call for, and a duplicate result must not overwrite the first.
+	expect(
+		reduce(EMPTY_TRANSCRIPT, {
+			type: "tool_end",
+			ts: 2,
+			callId: "ghost",
+			name: "now",
+			isError: false,
+			content: "x",
+		}),
+	).toEqual(EMPTY_TRANSCRIPT);
+	expect(
+		reduce(answered, {
+			type: "tool_end",
+			ts: 3,
+			callId: "c1",
+			name: "now",
+			isError: true,
+			content: "second",
+		}),
+	).toEqual(answered);
+});
+
+test("PGS25 a duration is the record's own times, so a live run and a reload agree", () => {
+	// The two times are the events' `ts`, which is the record entry's time. A page clock
+	// would give a different number on every render and a different one after a reload;
+	// these are the same 120 ms whichever way the run is read.
+	const live = reduce(
+		reduce(EMPTY_TRANSCRIPT, {
+			type: "tool_call",
+			ts: 4_000,
+			call: { id: "c1", name: "now", arguments: "{}" },
+		}),
+		{ type: "tool_end", ts: 4_120, callId: "c1", name: "now", isError: false, content: "x" },
+	);
+	expect(live.rows[0]).toMatchObject({ at: 4_000, durationMs: 120 });
+
+	// A call whose end carries no time is drawn without a duration rather than with a
+	// number the page made up.
+	const untimed = reduce(
+		reduce(EMPTY_TRANSCRIPT, { type: "tool_call", call: { id: "c1", name: "now" } }),
+		{ type: "tool_end", callId: "c1", name: "now", isError: false, content: "x" },
+	);
+	expect(untimed.rows[0]).toMatchObject({ result: "x" });
+	expect(untimed.rows[0]).not.toHaveProperty("durationMs");
+});
+
+test("PGS24 a call's badge says what happened, and an unfinished call says so", () => {
+	const call = reduce(EMPTY_TRANSCRIPT, {
+		type: "tool_call",
+		ts: 1,
+		call: { id: "c1", name: "now" },
+	});
+	const row = call.rows[0];
+	expect(row).toBeDefined();
+	if (row === undefined) {
+		return;
+	}
+
+	// While the run is going, the call is running; once the run has ended, a row with no
+	// result is unfinished rather than running for ever (found in review on #89).
+	expect(callState(row, "running")).toBe("running");
+	for (const ended of ["done", "parked", "failed"] as const) {
+		expect(callState(row, ended), ended).toBe("unfinished");
+	}
+
+	const answered = reduce(call, {
+		type: "tool_end",
+		ts: 2,
+		callId: "c1",
+		name: "now",
+		isError: false,
+		content: "x",
+	}).rows[0];
+	if (answered === undefined || answered.kind !== "tool") {
+		return;
+	}
+	expect(callState(answered, "running")).toBe("done");
+	expect(callState({ ...answered, isError: true }, "done")).toBe("error");
 });

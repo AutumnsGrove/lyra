@@ -92,6 +92,7 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 					}
 				}
 				const calls = Array.isArray(entry["toolCalls"]) ? entry["toolCalls"] : [];
+				const at = numberOf(entry["ts"]);
 				const toolRows: Row[] = [];
 				for (const call of calls) {
 					if (!isRecord(call)) {
@@ -106,6 +107,9 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 						name,
 						callId,
 						...(args === undefined ? {} : { arguments: args }),
+						// The assistant entry's own time, which is what the tool's entry is
+						// measured against: the record's numbers, not the page's clock.
+						...(at === undefined ? {} : { at }),
 					});
 				}
 				const text = stringOf(entry["text"]) ?? "";
@@ -122,13 +126,43 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 			}
 			case "tool_message": {
 				const callId = stringOf(entry["toolCallId"]) ?? "";
-				rows.push({
-					kind: "result",
-					name: callNames.get(callId) ?? "tool",
-					callId,
-					text: stringOf(entry["content"]) ?? "",
-					isError: entry["isError"] === true,
-				});
+				const endedAt = numberOf(entry["ts"]);
+				// The call's row, filled in: a call and its result are the same line, so a
+				// group of calls stays one list after a reload as well as during the run.
+				let matched = false;
+				// Forward, because the live reducer's `map` fills the first match: walking
+				// backward filled the last unanswered row when two shared a call id, so a
+				// reload could attach the result to a different row than the run did
+				// (found in review on #89).
+				for (let index = 0; index < rows.length; index += 1) {
+					const row = rows[index];
+					// The first unanswered row for this call, as the live reducer does: a
+					// record that holds two results for one call keeps the first, so a
+					// reload draws what the run drew (found in review on #89).
+					if (
+						row === undefined ||
+						matched ||
+						row.kind !== "tool" ||
+						row.callId !== callId ||
+						row.result !== undefined
+					) {
+						continue;
+					}
+					matched = true;
+					const durationMs =
+						endedAt === undefined || row.at === undefined
+							? undefined
+							: endedAt - row.at;
+					rows[index] = {
+						...row,
+						// A tool message names no tool, so the name comes from the call it
+						// answers; a record with no such call is drawn under its id.
+						name: callNames.get(callId) ?? row.name,
+						result: stringOf(entry["content"]) ?? "",
+						isError: entry["isError"] === true,
+						...(durationMs === undefined ? {} : { durationMs }),
+					};
+				}
 				break;
 			}
 			case "status": {

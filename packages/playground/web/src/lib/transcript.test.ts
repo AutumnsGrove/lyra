@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { EMPTY_TRANSCRIPT } from "./playground.js";
+import { EMPTY_TRANSCRIPT, reduce } from "./playground.js";
 import { transcriptFrom } from "./transcript.js";
 
 /**
@@ -12,22 +12,25 @@ import { transcriptFrom } from "./transcript.js";
  * page rather than a silently empty transcript.
  */
 
+const AT = 1_000;
 const USER = (text: string): Record<string, unknown> => ({
 	type: "user_message",
 	label: "task",
 	text,
 });
-const ASSISTANT = (text: string, toolCalls: unknown[] = [], reasoning?: string) => ({
+const ASSISTANT = (text: string, toolCalls: unknown[] = [], reasoning?: string, ts = AT) => ({
 	type: "assistant_message",
 	text,
+	ts,
 	...(reasoning === undefined ? {} : { reasoning }),
 	toolCalls,
 	model: "a-model",
 	usage: { inputTokens: 1, outputTokens: 2, ...(text === "" ? {} : { cost: { amount: 0.5 } }) },
 	finishReason: "tool_calls",
 });
-const TOOL = (content: string, callId = "c1", isError = false) => ({
+const TOOL = (content: string, callId = "c1", isError = false, ts = AT + 120) => ({
 	type: "tool_message",
+	ts,
 	toolCallId: callId,
 	isError,
 	content,
@@ -48,22 +51,26 @@ test("PGS18 a record rebuilds into the conversation a person had", () => {
 		STATUS("done"),
 	]);
 
+	// A call and its result are one row, so the transcript is the conversation rather
+	// than a second list of answers.
 	expect(transcript.rows.map((row) => row.kind)).toEqual([
 		"person",
 		"assistant",
 		"tool",
-		"result",
 		"assistant",
 	]);
 	expect(transcript.rows[0]).toEqual({ kind: "person", text: "what time is it?" });
 	// A tool's own entry names only the call id, so the name comes from the assistant
-	// entry that made the call. A result with no name would be drawn as "tool answered".
-	expect(transcript.rows[3]).toEqual({
-		kind: "result",
+	// entry that made the call. The duration is the two entries' own times.
+	expect(transcript.rows[2]).toEqual({
+		kind: "tool",
 		name: "now",
 		callId: "c1",
-		text: "2026-11-25T00:00:00.000Z",
+		arguments: "{}",
+		at: AT,
+		result: "2026-11-25T00:00:00.000Z",
 		isError: false,
+		durationMs: 120,
 	});
 	expect(transcript.status).toEqual({ state: "done", turns: 2, costUsd: 1 });
 });
@@ -109,17 +116,83 @@ test("PGS23 a tool that failed is drawn as an error, and a blank answer makes no
 		ASSISTANT("", [{ id: "c2", name: "now" }]),
 	]);
 	expect(transcript.rows).toEqual([
-		{ kind: "tool", name: "calculator", callId: "c1", arguments: '{"a":1}' },
 		{
-			kind: "result",
+			kind: "tool",
 			name: "calculator",
 			callId: "c1",
-			text: "cannot divide by zero",
+			arguments: '{"a":1}',
+			at: AT,
+			result: "cannot divide by zero",
 			isError: true,
+			durationMs: 120,
 		},
-		{ kind: "tool", name: "now", callId: "c2" },
+		// A call with no result keeps its row and says so, rather than disappearing: the
+		// record holds the call, and a stop or a kill is what explains the gap.
+		{ kind: "tool", name: "now", callId: "c2", at: AT },
 	]);
 	// No assistant row was pushed for either empty message, so the tool rows are the
 	// whole of what the record says.
 	expect(transcript.rows.some((row) => row.kind === "assistant")).toBe(false);
+});
+
+test("PGS25 a rebuilt call carries the same duration the live stream did", () => {
+	// The live path measures `tool_end.ts - tool_call.ts`; the rebuild measures
+	// `tool_message.ts - assistant_message.ts`. Both are the record's entry times, so a
+	// reload shows the number the run showed.
+	const transcript = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 7_000),
+		TOOL("now", "c1", false, 7_045),
+	]);
+	expect(transcript.rows[0]).toMatchObject({ at: 7_000, durationMs: 45 });
+});
+
+test("PGS24 a rebuild keeps the first result when a record holds two", () => {
+	// The live reducer fills the first unanswered row and never overwrites it; the
+	// rebuild must do the same, or a reload could draw a different answer from the run
+	// that produced it (found in review on #89).
+	const transcript = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }]),
+		TOOL("first", "c1", false, 1_100),
+		TOOL("second", "c1", false, 1_200),
+	]);
+	expect(transcript.rows).toHaveLength(1);
+	expect(transcript.rows[0]).toMatchObject({ result: "first", durationMs: 100 });
+});
+
+test("PGS25 a repeated call id fills the same row a reload as it did live", () => {
+	// A provider can reuse a call id across turns, and a run stopped before the first
+	// answer leaves two unanswered rows with that id. The live reducer fills the first;
+	// the rebuild walked backward and filled the last, so the two paths could attach a
+	// result — and its duration — to different rows (found in review on #89).
+	const rebuilt = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 1_000),
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 2_000),
+		TOOL("answer", "c1", false, 2_500),
+	]);
+
+	const live = [
+		{ type: "tool_call", ts: 1_000, call: { id: "c1", name: "now" } },
+		{ type: "tool_call", ts: 2_000, call: { id: "c1", name: "now" } },
+		{
+			type: "tool_end",
+			ts: 2_500,
+			callId: "c1",
+			name: "now",
+			isError: false,
+			content: "answer",
+		},
+	].reduce((transcript, event) => reduce(transcript, event), EMPTY_TRANSCRIPT);
+
+	// The first row answers, with the duration measured from its own entry; the second is
+	// still open. Both paths agree, which is what PGS25 claims.
+	expect(rebuilt.rows.map((row) => row.kind === "tool" && row.result)).toEqual([
+		"answer",
+		undefined,
+	]);
+	expect(rebuilt.rows[0]).toMatchObject({ at: 1_000, durationMs: 1_500 });
+	expect(live.rows.map((row) => row.kind === "tool" && row.result)).toEqual([
+		"answer",
+		undefined,
+	]);
+	expect(live.rows[0]).toMatchObject({ at: 1_000, durationMs: 1_500 });
 });

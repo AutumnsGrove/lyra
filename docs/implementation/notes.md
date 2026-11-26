@@ -9,6 +9,31 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 4, tool calls and traces, 2026-11-26
+
+- **A call is one row that fills in, not a call row and a result row.** Several calls in a group arrive
+  before any result does, and separate rows would draw the group as two lists a page then has to pair by call
+  id; the component would get that wrong before a test did. `tool_end` finds the first unanswered row for its
+  call and fills it, and the same rule runs in the rebuild (`transcript.ts`), so the live page and a reload
+  draw the same shape.
+- **A duration is the record's own two timestamps, not the page's clock.** `tool_end.ts - tool_call.ts` live,
+  and `tool_message.ts - assistant_message.ts` on a rebuild: both are the record entries' own times, so one
+  run shows one number however it is read. A page clock would give a different duration per render and a
+  different one after a reload, which is the kind of number nobody can check.
+- **A result with no call the page saw, and a second result for one call, change nothing.** The event stream
+  cannot produce either today, but the page is a client of a protocol, and a client that invents a row for an
+  unknown call id or lets a duplicate overwrite an answer is a client that will draw nonsense the first time
+  a replay and a live run interleave.
+- **Review found the two places where the row could lie about itself.** The rebuild matched any row with the
+  call id, so a record holding two results for one call drew the second where the live run drew the first; it
+  now skips answered rows exactly as the reducer does. And an unanswered call was labelled `running` for ever,
+  even after a parked run: the badge now reads the run's own state (`callState`), so a run that has ended says
+  `unfinished`, and the component tests assert the badges rather than only the result text.
+- **The bundle was measured before and after:** the Worker is unchanged at 56.4 KiB of 60 (this slice is page
+  code, and the budget counts `wrangler --dry-run`'s worker JS only, not the assets). The page's own assets
+  grew by a few hundred bytes, which nothing measures; that is worth saying rather than implying the 60 KiB
+  ceiling covers them.
+
 ## C slice 3, the conversation, 2026-11-26
 
 - **The index is a Durable Object of its own, per tenant, over key-value storage** (decision 158). D1 would
