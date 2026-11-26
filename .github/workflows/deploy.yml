@@ -1,0 +1,87 @@
+name: deploy
+
+# The playground deploys from `main` and nowhere else: a pull request runs the gate,
+# and a merge is the only thing that reaches the live Worker. It waits for `ci` to
+# finish green on the merged commit rather than deploying on its own trigger, so a
+# red merge can never be the version a person is using (issue #60, slice 7).
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  # A person can run it by hand, which is how a deploy is rehearsed without a merge.
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one in progress: a cancelled deploy can leave
+# a Worker half updated, while a queued one is just a deploy that starts a minute later.
+concurrency:
+  group: deploy-playground
+  cancel-in-progress: false
+
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    # Only a green `ci` **push** run in this repository, or a person asking by hand.
+    #
+    # `head_branch == 'main'` alone is not enough: for a `pull_request` run, the head
+    # branch is the PR's *source* branch, so a fork could open a PR from a branch called
+    # `main`, pass its own gate, and this job would check out the fork's commit and deploy
+    # it with the Cloudflare credential. `event == 'push'` restricts it to a run started by
+    # a push (which needs write access to this repository), and the repository check keeps
+    # the run in this repository at all.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The commit `ci` passed on, not whatever `main` points at by now: the Worker
+          # should be the tree the gate checked.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:playground
+      # `wrangler deploy` keeps the Worker's existing secrets: they are not in this
+      # workflow and are not re-set by it.
+      - run: pnpm exec wrangler deploy --config packages/playground/wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  smoke:
+    # The job that proves the deployment, on the deployment. It runs only after a deploy,
+    # and it drives the live Worker with a scripted model, so the assertions are exact and
+    # the run costs nothing. A failed smoke is information rather than an outage, and it
+    # does not roll anything back (docs/playground.md).
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      # No install: the driver uses `fetch` and nothing else, which is also a check that
+      # the smoke job needs no dependencies to fail.
+      - run: node scripts/playground-smoke.mjs
+        env:
+          PLAYGROUND_URL: https://lyra-playground.m7jv4v7npb.workers.dev
+          PLAYGROUND_SMOKE_TOKEN: ${{ secrets.LYRA_PLAYGROUND_SMOKE_TOKEN }}
+          PLAYGROUND_SCRIPT_TOKEN: ${{ secrets.LYRA_PLAYGROUND_SCRIPT_TOKEN }}
+          PLAYGROUND_SMOKE_TENANT: ${{ vars.PLAYGROUND_SMOKE_TENANT }}

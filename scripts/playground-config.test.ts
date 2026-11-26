@@ -105,6 +105,9 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 	expect(vars?.["LYRA_PLAYGROUND_TENANT"]).toBe("playground");
 	// The day's cap is a policy number the page shows, so it is a var and not a secret.
 	expect(vars?.["LYRA_PLAYGROUND_DAY_CAP_USD"]).toBe("1");
+	// The smoke tenant is a name, not a secret: the code needs it to know which tenant a
+	// script may run as, and the token that reaches it is a secret of its own (slice 7b).
+	expect(vars?.["LYRA_PLAYGROUND_SMOKE_TENANT"]).toBe("smoke");
 	expect(Object.keys(vars ?? {})).not.toContain("LYRA_PLAYGROUND_TOKEN");
 	// The unprefixed names are what the playground shipped with before slice 2. A config
 	// that kept one would bind a tenant nobody reads, which is a deployment that refuses

@@ -17,6 +17,9 @@
 		// The day's cap in dollars (issue #60, slice 7). A var rather than a secret: it is
 		// a policy number, and the page shows it. Unset would mean no cap.
 		"LYRA_PLAYGROUND_DAY_CAP_USD": "1",
+		// The tenant a scripted smoke run may use (slice 7b). Its bearer is a secret; the name
+		// is a var, because the code needs it to know which tenant scripts are allowed for.
+		"LYRA_PLAYGROUND_SMOKE_TENANT": "smoke",
 	},
 	"assets": {
 		// The SvelteKit app, built by `pnpm build` into this directory. `public/` held
