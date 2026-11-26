@@ -439,3 +439,44 @@ test("PGS15 the picker offers exactly the recipes the session will run", async (
 	const refused = await door(api("/api/recipes"));
 	expect(refused.status).toBe(403);
 });
+
+test("PGS14 a malformed escape in a session id is a refusal, not a 500", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	// `%E0%A4%A` is not a UTF-8 escape sequence, and `decodeURIComponent` throws on it.
+	// A throw across the boundary is a 500 with no code a page can act on, which is the
+	// one thing AGENTS.md says a refusal must never be (errors are data).
+	const response = await door(api("/api/sessions/%E0%A4%A", { method: "PUT", token: TOKEN }));
+	expect(response.status).toBe(400);
+	expect(((await response.json()) as { error: { code: string } }).error.code).toBe("bad_request");
+	// Nothing was named, so the index was never woken.
+	expect(index.names).toEqual([]);
+});
+
+test("PGS11 the body cap is bytes, not characters", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	// 5,000 three-byte characters are 15,000 bytes and about 5,000 UTF-16 code units: a
+	// cap counted in characters would let this through while claiming to bound bytes.
+	const label = "日".repeat(5000);
+	const response = await door(
+		api("/api/sessions", { method: "POST", token: TOKEN, body: { recipe: "shell", label } }),
+	);
+	expect(response.status).toBe(400);
+	expect(((await response.json()) as { error: { code: string } }).error.code).toBe("bad_request");
+	expect(await index.index.list()).toEqual([]);
+});

@@ -53,10 +53,56 @@ function refuse(code: ErrorCode, message: string): Response {
 	return json({ error: { code, message } }, statusForCode(code));
 }
 
+/**
+ * The body, read through the cap rather than after it, so an oversized request stops
+ * being read instead of being read and then refused.
+ *
+ * The cap is bytes: a string's `length` is UTF-16 code units, so a body of three-byte
+ * characters would pass a character count while carrying three times the bytes the
+ * constant names (found in review).
+ */
+async function readCapped(request: Request): Promise<string | undefined> {
+	const body = request.body;
+	if (body === null) {
+		return "";
+	}
+	const reader = body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			size += value.byteLength;
+			if (size > MAX_API_BODY_BYTES) {
+				// Past the cap: stop reading rather than buffer what nobody will parse.
+				await reader.cancel().catch(() => undefined);
+				return undefined;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		// A body that fails while it is read is a refusal, not an exception across the
+		// route: a client that drops its connection must not become a 500.
+		return undefined;
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(size);
+	let at = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, at);
+		at += chunk.byteLength;
+	}
+	return new TextDecoder().decode(bytes);
+}
+
 /** The body as JSON, or nothing when it is too large, unreadable, or not an object. */
 async function readJson(request: Request): Promise<Record<string, unknown> | undefined> {
-	const text = await request.text();
-	if (text.length > MAX_API_BODY_BYTES) {
+	const text = await readCapped(request);
+	if (text === undefined) {
 		return undefined;
 	}
 	if (text.trim() === "") {
@@ -114,10 +160,12 @@ async function api(
 		return refuse("not_found", `there is nothing at ${url.pathname}`);
 	}
 
-	const index = door.index.get(door.index.idFromName(tenant.value));
+	// Named when a route actually needs it, so a request refused for its path or its
+	// body never reaches the object at all: naming it is what a test counts as waking it.
+	const index = () => door.index.get(door.index.idFromName(tenant.value));
 
 	if (request.method === "GET" && url.pathname === "/api/sessions") {
-		const listed = await index.fetch(new Request("https://index.invalid/list"));
+		const listed = await index().fetch(new Request("https://index.invalid/list"));
 		return json(await listed.json(), listed.status);
 	}
 
@@ -143,7 +191,7 @@ async function api(
 		// The id comes from the sessions namespace, so the `start` the page sends next
 		// lands on the object this entry names rather than on a second, empty one.
 		const session = door.namespace.newUniqueId().toString();
-		const created = await index.fetch(
+		const created = await index().fetch(
 			new Request("https://index.invalid/create", {
 				method: "POST",
 				body: JSON.stringify({ session, label, recipe, lastUsed: door.now() }),
@@ -156,7 +204,14 @@ async function api(
 	}
 
 	if (request.method === "PUT" && url.pathname.startsWith("/api/sessions/")) {
-		const session = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
+		// A path is untrusted bytes: `%E0%A4%A` is not a UTF-8 escape, and decoding it
+		// throws. A malformed id is a bad request, never a 500 (found in review).
+		let session: string;
+		try {
+			session = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
+		} catch {
+			return refuse("bad_request", "a session id in the path is not a valid escape");
+		}
 		if (session === "") {
 			return refuse("not_found", "there is no such conversation");
 		}
@@ -168,7 +223,7 @@ async function api(
 		if (label !== undefined && typeof label !== "string") {
 			return refuse("bad_request", "a label is text");
 		}
-		const touched = await index.fetch(
+		const touched = await index().fetch(
 			new Request("https://index.invalid/touch", {
 				method: "POST",
 				body: JSON.stringify({

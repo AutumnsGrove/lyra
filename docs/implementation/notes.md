@@ -36,6 +36,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **The playground's bundle is now 56.4 KiB of its 60 KiB budget** (from 45.6 KiB when the shell first built).
   The index and the page's own logic are the growth. Slice 4's tool-call view and slice 5's dozen tools land in
   the same budget, so the next slice that grows it should measure before it is written rather than after.
+- **Review found two things worth keeping.** A malformed percent-escape in a session id
+  (`/api/sessions/%E0%A4%A`) threw out of `decodeURIComponent` and became a 500, which is a refusal with no code
+  a page can act on; the decode is now a `bad_request`, and the object is named only when a route needs it, so a
+  refused request never reaches the index. And the `/api/*` body cap compared `length` — UTF-16 code units —
+  against a constant named in bytes, so a body of three-byte characters passed at three times the size; it now
+  reads through the cap as bytes and stops reading past it.
 - **Unfinished, and stated in the PR:** `Session` still has no workerd test, the index's own object has no
   workerd test either (the same second-configuration reason applies to it now), and the page's tests stay
   outside the coverage floor.
