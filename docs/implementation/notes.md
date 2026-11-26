@@ -9,6 +9,26 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 7b-ii, the deploy and the smoke job, 2026-11-26
+
+- **The deploy waits on `ci`, rather than running the gate again.** `deploy.yml` triggers on a `ci`
+  `workflow_run` that concluded `success` on `main`, and checks out the commit `ci` passed on, so the
+  Worker is the tree the gate checked even if `main` moved. A raw `push` trigger would have deployed
+  whatever arrived, including a merge whose gate had not finished.
+- **One deploy at a time, and never cancelled.** A cancelled deploy can leave a Worker half updated; a
+  queued one is a deploy that starts a minute later. The workflow holds no write permission at all.
+- **`wrangler deploy` preserves the Worker's secrets, so the workflow does not set them.** The model key,
+  the playground token, the script token and the smoke tenant's token live on the Worker; putting copies in
+  the workflow would be four more places to rotate. What the workflow does need is the Cloudflare credential
+  itself, which is the repository secret the secret flow added.
+- **The smoke driver is dependency-free and asserts in its own words.** It creates a conversation as the
+  smoke tenant, proves both refusals, runs the scripted `now`+`finish`, follows the stream to `done`, and
+  reads the record back. Every failure throws with the thing that went wrong, so the job log says what
+  broke rather than "assertion failed", and no secret is printed.
+- **The smoke tenant's bearer is generated and stored like the others.** `LYRA_PLAYGROUND_SMOKE_TOKEN` on
+  the Worker (whose name is a var), the same value in the repository for the job, and `PLAYGROUND_SMOKE_TENANT`
+  as a repository variable. The values never passed through a command line or this transcript.
+
 ## C slice 7b-i, the script boundary, 2026-11-26
 
 - **The plan names one header and needs two.** "A `start` carrying `x-lyra-script` is accepted only when the token
