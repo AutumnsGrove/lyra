@@ -29,6 +29,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   now skips answered rows exactly as the reducer does. And an unanswered call was labelled `running` for ever,
   even after a parked run: the badge now reads the run's own state (`callState`), so a run that has ended says
   `unfinished`, and the component tests assert the badges rather than only the result text.
+- **The third review round found the case the first two did not name.** The rebuild filled the last of two
+  rows sharing a call id, because it scanned backward, while the live reducer's `map` fills the first; the two
+  paths could therefore attach a result and its duration to different rows, which is exactly what PGS25 says
+  cannot happen. The fix iterates forward, and the test compares both paths' rows against each other rather
+  than counting them, so the property is asserted rather than described.
 - **The bundle was measured before and after:** the Worker is unchanged at 56.4 KiB of 60 (this slice is page
   code, and the budget counts `wrangler --dry-run`'s worker JS only, not the assets). The page's own assets
   grew by a few hundred bytes, which nothing measures; that is worth saying rather than implying the 60 KiB

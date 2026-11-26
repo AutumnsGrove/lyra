@@ -28,7 +28,17 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 3 merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87)) and deployed; slice 4 in review on `feat/playground-slice-4-tools`; slices 5 to 8 open |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 4 merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89)) and deployed; slices 5 to 8 open |
+
+### Where the last session stopped (2026-11-26, tool calls)
+
+- **C slice 4 is merged and deployed**, pull request [#89](https://github.com/AutumnsGrove/lyra/pull/89), merge
+  commit `e0593e6`: a tool call is one row that fills in, with its state, its result and a duration measured
+  from the record's own two timestamps, so a live run and a reload agree. Rows PGS24 and PGS25. It took three
+  review rounds, all on real gaps: a rebuild that overwrote a call's first result, an unanswered call that said
+  `running` after the run had ended, and a rebuild that filled the last of two rows sharing a call id while the
+  live reducer fills the first. The deploy is assets only; the page and a deep link answer `200`. Slices 5 to 8
+  are next, then the Lumen half of step 5.
 
 ### Where the last session stopped (2026-11-26, later)
 

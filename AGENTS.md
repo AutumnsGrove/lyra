@@ -38,7 +38,9 @@ workerd test, stated in PGS01. Slice 3, the conversation, is merged (pull reques
 per-tenant index object (decision 158), the session id in the query string (decision 159), the sidebar and
 the recipe picker, the transcript rebuilt from the record because `user_message` is not a protocol event, the
 record panel, and steer, follow-up and stop, with rows PGS11 to PGS23. It is deployed, and a real run through
-a listed conversation proved the index on the live Worker. Slices 4 to 8 are next. What is left of step 5 is its
+a listed conversation proved the index on the live Worker. Slice 4, tool calls and traces, is merged and
+deployed too (pull request #89, `e0593e6`): a call is one row that fills in with its state, its result and a
+duration from the record's own timestamps, rows PGS24 and PGS25. Slices 5 to 8 are next. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both
