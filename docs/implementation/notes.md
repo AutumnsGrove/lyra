@@ -38,6 +38,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **`search_web` is out of this slice and is issue #91.** It needs a provider, the rig has none, and Autumn's
   call was to use Parallel later rather than to fake one now. The tool table is otherwise #60's list; the
   network tools are 5b.
+- **The deploy was driven by hand through the approval path.** A conversation was created, the model was asked
+  to keep a note and read it back, and the run parked on `notes_write` with an `approve` request; the answer
+  went to `/v1/ui_response`, the note read back as "two pints" (so state survived the park), and the run
+  finished `done` for $0.00043. That is the one acceptance a test cannot do, and it is recorded in
+  `docs/playground.md`.
 - **The playground bundle is 59.0 KiB of 60** after this slice (56.7 before it). Slice 5b's two network tools
   and slice 6's cards land in that headroom, so the next thing that grows it should either measure first or
   raise the ceiling with a decision; Autumn has said a raise is acceptable.
