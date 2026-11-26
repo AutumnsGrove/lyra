@@ -130,7 +130,11 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 				// The call's row, filled in: a call and its result are the same line, so a
 				// group of calls stays one list after a reload as well as during the run.
 				let matched = false;
-				for (let index = rows.length - 1; index >= 0; index -= 1) {
+				// Forward, because the live reducer's `map` fills the first match: walking
+				// backward filled the last unanswered row when two shared a call id, so a
+				// reload could attach the result to a different row than the run did
+				// (found in review on #89).
+				for (let index = 0; index < rows.length; index += 1) {
 					const row = rows[index];
 					// The first unanswered row for this call, as the live reducer does: a
 					// record that holds two results for one call keeps the first, so a

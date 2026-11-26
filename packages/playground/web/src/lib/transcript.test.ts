@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { EMPTY_TRANSCRIPT } from "./playground.js";
+import { EMPTY_TRANSCRIPT, reduce } from "./playground.js";
 import { transcriptFrom } from "./transcript.js";
 
 /**
@@ -157,4 +157,42 @@ test("PGS24 a rebuild keeps the first result when a record holds two", () => {
 	]);
 	expect(transcript.rows).toHaveLength(1);
 	expect(transcript.rows[0]).toMatchObject({ result: "first", durationMs: 100 });
+});
+
+test("PGS25 a repeated call id fills the same row a reload as it did live", () => {
+	// A provider can reuse a call id across turns, and a run stopped before the first
+	// answer leaves two unanswered rows with that id. The live reducer fills the first;
+	// the rebuild walked backward and filled the last, so the two paths could attach a
+	// result — and its duration — to different rows (found in review on #89).
+	const rebuilt = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 1_000),
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 2_000),
+		TOOL("answer", "c1", false, 2_500),
+	]);
+
+	const live = [
+		{ type: "tool_call", ts: 1_000, call: { id: "c1", name: "now" } },
+		{ type: "tool_call", ts: 2_000, call: { id: "c1", name: "now" } },
+		{
+			type: "tool_end",
+			ts: 2_500,
+			callId: "c1",
+			name: "now",
+			isError: false,
+			content: "answer",
+		},
+	].reduce((transcript, event) => reduce(transcript, event), EMPTY_TRANSCRIPT);
+
+	// The first row answers, with the duration measured from its own entry; the second is
+	// still open. Both paths agree, which is what PGS25 claims.
+	expect(rebuilt.rows.map((row) => row.kind === "tool" && row.result)).toEqual([
+		"answer",
+		undefined,
+	]);
+	expect(rebuilt.rows[0]).toMatchObject({ at: 1_000, durationMs: 1_500 });
+	expect(live.rows.map((row) => row.kind === "tool" && row.result)).toEqual([
+		"answer",
+		undefined,
+	]);
+	expect(live.rows[0]).toMatchObject({ at: 1_000, durationMs: 1_500 });
 });
