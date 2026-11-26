@@ -18,6 +18,7 @@ export const WORKFLOWS = join(ROOT, ".github/workflows");
 export interface Step {
 	uses?: string;
 	run?: string;
+	env?: Record<string, string>;
 }
 
 export interface Job {

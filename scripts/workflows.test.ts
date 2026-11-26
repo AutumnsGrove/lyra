@@ -209,6 +209,28 @@ describe("pull request runs", () => {
 	});
 });
 
+describe("the reviewer's guidance", () => {
+	/**
+	 * `REVIEW.md` says where a reviewer with a shell spends its turns, so a pull
+	 * request that could rewrite it would be writing its own reviewer's
+	 * instructions. The file is therefore lifted out of the base commit, the one
+	 * version a pull request cannot edit, and the step has to fetch that commit to
+	 * do it. Reading the checkout's copy instead leaves a case that passes while
+	 * the guard is gone — the file is in the checkout either way — so the fetch is
+	 * what is asserted, not the file's contents (`pi-review` reads the same file
+	 * the same way, and for the same reason).
+	 */
+	test("claude-review reads REVIEW.md from the base commit", async () => {
+		const workflow = await readWorkflow("claude-code-review.yml");
+		const step = Object.values(workflow.jobs ?? {})
+			.flatMap((job) => job.steps ?? [])
+			.find((candidate) => (candidate.run ?? "").includes("REVIEW.md"));
+		expect(step, "no step lifts REVIEW.md out of the base commit").toBeDefined();
+		expect(step?.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha }}");
+		expect(collapse(step?.run ?? "")).toContain("git show FETCH_HEAD:.github/REVIEW.md");
+	});
+});
+
 /**
  * `pi-review.yml` is generated from `.github/pi-review.json` by that extension's
  * `pi-review:sync`, in another repository, so nothing here notices the two
