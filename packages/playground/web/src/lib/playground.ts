@@ -10,6 +10,21 @@
  * as server-sent events for a named session. Nothing here invents a field.
  */
 
+/** One counter for every frame id the page makes, so two in a millisecond differ. */
+let idCounter = 0;
+
+/**
+ * A frame id for a command or an answer.
+ *
+ * `Date.now()` alone can repeat within a millisecond, and a host that dedupes on the id
+ * would drop the second frame silently; the counter is what makes two answers in the same
+ * tick two frames (found in review on #96).
+ */
+export function nextId(prefix: string): string {
+	idCounter += 1;
+	return `${prefix}${Date.now()}-${idCounter}`;
+}
+
 /** Where the bearer lives, so a person types it once. */
 export const TOKEN_KEY = "lyra-playground-token";
 
@@ -103,7 +118,7 @@ export async function startRun(options: {
 			},
 			body: JSON.stringify({
 				type: "command",
-				id: `c${Date.now()}`,
+				id: nextId("c"),
 				command: "start",
 				task: options.task,
 				input: options.input,
@@ -732,7 +747,12 @@ export function reduce(state: Transcript, event: StreamEvent): Transcript {
 			return {
 				...state,
 				rows: state.rows.map((row) =>
-					row.kind === "card" && row.request === request && row.state === "open"
+					row.kind === "card" &&
+					row.request === request &&
+					// A timeout is projected as `ui_resolved` (deny) and then `ui_expired`
+					// (events.ts), so this has to correct the deny it just wrote; nothing
+					// else sends an expired event for a card that was answered.
+					(row.state === "open" || row.state === "denied")
 						? { ...row, state: "expired" }
 						: row,
 				),

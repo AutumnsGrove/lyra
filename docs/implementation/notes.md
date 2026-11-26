@@ -28,6 +28,14 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   card. Waiting for `Note`/`Answer`/`Accept` is the assertion that means something anyway.
 - **The question card's button is "Send answer", not "Send".** The follow-up form already has a "Send", and two
   accessible names for two different actions is a page that reads badly to a person and to a test.
+- **A timed-out card is corrected, not decided.** The projection sends `ui_resolved` (deny) and then
+  `ui_expired` for the same entry, so the live page marked a timeout denied while a reload said expired; the
+  `ui_expired` case now also corrects a card that is already `denied`, and a test feeds the real pair.
+- **`mergePending` compares `selected` before it writes, and that guard is reasoned rather than test-proven.**
+  A read for a conversation the person has left must not append its cards to the one they are reading; the
+  happy-dom harness could not be made to reproduce the interleaving (the test passed with the guard removed),
+  so the test was dropped rather than kept as one that cannot fail. The same check is in `select` after the
+  record read, which is the same race.
 - **No Lyra change.** `ui_request`, `ui_resolved`, `ui_expired`, `proposal`, `proposal_decided`,
   `list_pending`, `POST /v1/ui_response` and `decide_proposal` were all built; this slice is the page's half.
   The Worker bundle does not move; the page's assets are outside the budget.

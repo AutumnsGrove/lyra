@@ -6,6 +6,7 @@ import {
 	callState,
 	clearToken,
 	decideProposal,
+	nextId,
 	pendingCards,
 	readRecord,
 	readToken,
@@ -885,4 +886,33 @@ test("PGS35 list_pending returns the cards the page has to show", async () => {
 		id: "l2",
 	});
 	expect(broken).toMatchObject({ ok: false, error: { code: "internal" } });
+});
+
+test("PGS32 a timeout's own pair reads expired, not denied", () => {
+	// A timed-out answer is projected as `ui_resolved` (deny) and then `ui_expired`
+	// (events.ts), so the page marks it denied and then has to correct itself. A reload
+	// from the record says expired for the same entry, and the live path must agree
+	// (found in review on #96).
+	const transcript = [
+		{
+			type: "ui_request",
+			request: "r1",
+			kind: "approve",
+			title: "keep it?",
+			message: "keep a note",
+		},
+		{ type: "ui_resolved", request: "r1", decision: "deny" },
+		{ type: "ui_expired", request: "r1" },
+	].reduce((state, event) => reduce(state, event), EMPTY_TRANSCRIPT);
+
+	expect(transcript.rows[0]).toMatchObject({ kind: "card", state: "expired" });
+});
+
+test("PGS33 two frames made in the same millisecond are two ids", () => {
+	const first = nextId("a");
+	const second = nextId("a");
+	expect(first).not.toBe(second);
+	// Same prefix, so a log reads which kind of frame it was; the counter is the part
+	// that makes them distinct.
+	expect(first.startsWith("a")).toBe(true);
 });

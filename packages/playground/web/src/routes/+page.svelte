@@ -21,6 +21,7 @@
 		callState,
 		clearToken,
 		decideProposal,
+		nextId,
 		pendingCards,
 		readRecord,
 		readToken,
@@ -160,6 +161,11 @@
 		record = [];
 		problem = "";
 		const entries = await loadEntries(session);
+		// A person can switch conversations while the record is in flight; a read for the
+		// one they left must not write into the one they are reading now.
+		if (selected !== session) {
+			return;
+		}
 		if (entries !== undefined) {
 			// The record is the truth on load: it holds both sides of the conversation,
 			// which the event stream does not (`user_message` is not a protocol event).
@@ -185,8 +191,12 @@
 			token,
 			fetcher: fetched,
 			session,
-			id: `p${Date.now()}`,
+			id: nextId("p"),
 		});
+		// The same race the record read has: this may resolve after a switch.
+		if (selected !== session) {
+			return;
+		}
 		if (!pending.ok) {
 			if (!refused(pending.error.status)) {
 				problem = pending.error.message;
@@ -249,7 +259,7 @@
 			ok,
 			...(row.asks === "question" ? { text } : {}),
 			...(row.asks === "approve" && text !== "" ? { note: text } : {}),
-			id: `a${Date.now()}`,
+			id: nextId("a"),
 		});
 		if (!answered.ok) {
 			if (refused(answered.error.status)) {
@@ -280,7 +290,7 @@
 			request: row.request,
 			ok: true,
 			ids: [id],
-			id: `a${Date.now()}`,
+			id: nextId("a"),
 		});
 		if (!answered.ok) {
 			if (refused(answered.error.status)) {
@@ -308,8 +318,10 @@
 			session: selected,
 			proposal: row.proposal,
 			decision,
-			id: `d${Date.now()}`,
+			...(draftOf(row.proposal).trim() === "" ? {} : { note: draftOf(row.proposal).trim() }),
+			id: nextId("d"),
 		});
+		drafts = { ...drafts, [row.proposal]: "" };
 		if (!decided.ok) {
 			if (!refused(decided.error.status)) {
 				problem = decided.error.message;
@@ -400,7 +412,7 @@
 				session,
 				limit: RECORD_PAGE,
 				cursor,
-				id: `m${Date.now()}-${page}`,
+				id: nextId("m"),
 			});
 			if (!read.ok) {
 				if (!refused(read.error.status)) {
@@ -509,7 +521,7 @@
 			command: "follow_up",
 			session: selected,
 			text,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok) {
 			if (!refused(sent.error.status)) {
@@ -533,7 +545,7 @@
 			command: "steer",
 			session: selected,
 			text,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok && !refused(sent.error.status)) {
 			problem = sent.error.message;
@@ -550,7 +562,7 @@
 			fetcher: fetched,
 			command: "abort",
 			session: selected,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok && !refused(sent.error.status)) {
 			problem = sent.error.message;
@@ -714,6 +726,12 @@
 										<p class="state">evidence: {row.evidence.join(", ")}</p>
 									{/if}
 									{#if row.state === "open"}
+										<input
+											aria-label="Proposal note"
+											value={draftOf(row.proposal)}
+											oninput={(event) => setDraft(row.proposal, event)}
+											placeholder="a note the model will read (optional)"
+										/>
 										<button type="button" onclick={() => void decide(row, "accept")}>Accept</button>
 										<button type="button" onclick={() => void decide(row, "reject")}>Reject</button>
 									{:else}

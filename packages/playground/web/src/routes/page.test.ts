@@ -710,12 +710,20 @@ test("PGS34 a proposal is accepted from the page", async () => {
 	);
 	render(Page);
 
+	await fireEvent.input(await screen.findByLabelText("Proposal note"), {
+		target: { value: "ship it" },
+	});
 	await fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
 	await waitFor(() => {
 		const decided = stubbed.calls.find(
 			(call) => (call.body as { command?: string })?.command === "decide_proposal",
 		);
-		expect(decided?.body).toMatchObject({ proposal: "p1", decision: "accept", session: "s_1" });
+		expect(decided?.body).toMatchObject({
+			proposal: "p1",
+			decision: "accept",
+			note: "ship it",
+			session: "s_1",
+		});
 	});
 	await waitFor(() => expect(screen.getByText(/^accepted/)).toBeTruthy());
 });
