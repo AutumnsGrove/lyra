@@ -67,7 +67,9 @@ export function sessionOptions(
 	// One clock for the loop and the model, so a deadline and a record timestamp agree.
 	const clock = systemClock();
 	return {
-		recipes: recipeCatalogue(clock),
+		// The same `fetch` the model uses: a test supplies one, and a deployment gets the
+		// Worker's own, so a run's network is whatever the host chose and nothing else.
+		recipes: recipeCatalogue(clock, deps.fetch === undefined ? {} : { fetch: deps.fetch }),
 		model: modelFor(env, { clock, ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }) }),
 		clock,
 		ids: systemIds(),

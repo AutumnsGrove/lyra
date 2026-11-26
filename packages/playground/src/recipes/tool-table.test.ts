@@ -32,7 +32,7 @@ test("PGS06 tool-table is the recipe the page starts, and its tools divide by po
 
 	expect(recipe.name).toBe("tool-table");
 	// Slice 5 is a changed tool set, so the pin's version moves with it (decision 91).
-	expect(recipe.version).toBe(2);
+	expect(recipe.version).toBe(3);
 	expect(recipe.tools.map((tool) => tool.spec.name)).toEqual([
 		"now",
 		"calculator",
@@ -41,6 +41,8 @@ test("PGS06 tool-table is the recipe the page starts, and its tools divide by po
 		"flaky",
 		"slow",
 		"big_result",
+		"fetch_page",
+		"hostile_page",
 		"notes_write",
 		"notes_delete",
 		"ask_person",
@@ -56,7 +58,17 @@ test("PGS06 tool-table is the recipe the page starts, and its tools divide by po
 	// Reads are allowed and parallel, so several calls from one reply show up as several
 	// rows in flight (decision 154); an `apply` would make `defineTool` refuse the
 	// pairing, and none of them has one.
-	const reads = ["now", "calculator", "notes_read", "notes_list", "flaky", "slow", "big_result"];
+	const reads = [
+		"now",
+		"calculator",
+		"notes_read",
+		"notes_list",
+		"flaky",
+		"slow",
+		"big_result",
+		"fetch_page",
+		"hostile_page",
+	];
 	for (const name of reads) {
 		const tool = recipe.tools.find((candidate) => candidate.spec.name === name);
 		expect(tool?.policy, name).toBe("allow");

@@ -16,6 +16,8 @@ import { toolTableRecipe } from "./tool-table.js";
 export interface CatalogueOptions {
 	/** The wait `slow` uses; a test passes one that returns at once. */
 	sleep?: (ms: number) => Promise<void>;
+	/** The `fetch` the page tools use; a test passes a fake. */
+	fetch?: import("./network.js").PageFetch;
 }
 
 export function recipeCatalogue(
@@ -27,6 +29,7 @@ export function recipeCatalogue(
 	const toolTable = toolTableRecipe({
 		clock,
 		...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+		...(options.fetch === undefined ? {} : { fetch: options.fetch }),
 	});
 	return new Map([
 		[shellRecipe.name, shellRecipe],

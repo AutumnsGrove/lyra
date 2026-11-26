@@ -9,6 +9,39 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 5b, the page tools, 2026-11-26
+
+- **`fetch_page` refuses more than it fetches, on purpose.** A model that has just been handed a hostile page
+  is the last thing that should be able to point the Worker's egress anywhere, so the tool refuses every scheme
+  but http(s) and every host on a private network or a cloud metadata range before it calls `fetch`. That is a
+  guard against the model, not against the page: the page's text is passed through unharmed, because a tool
+  that sanitised it would hide whether the run obeys it.
+- **Review found two ways around that guard, and both were real.** A host's `fetch` follows redirects by default,
+  so a public URL answering `302 Location: http://169.254.169.254/` reached the metadata service anyway; the tool
+  now asks for `redirect: "manual"` and refuses a 3xx as an error result, because it can only check the address
+  it was given. And the host rule was a list of prefixes that missed `localhost.`, `100.64.0.0/10`, and every
+  IPv6 literal including IPv4-mapped loopback; it now strips trailing dots, refuses any bracketed IPv6 address
+  outside `2000::/3`, and includes CGNAT. The tests name each form, which is what would have caught the list.
+- **The body is read through the cap, not cut after it.** A third review round pointed out that `response.text()`
+  buffers the whole page before the 200,000-character slice, and the URL is the model's. The read now stops when
+  the decoded text passes the cap and cancels the rest of the stream; the test's page never closes, so it fails
+  by timing out rather than by asserting, which is the honest failure for "this held everything".
+- **The one that would have broken it on the deployment was `this`.** `options.fetch(...)` calls the Worker's
+  native `fetch` as a property of `options`, which the runtime refuses with `Illegal invocation`; every test here
+  passed a fake that ignored `this`, so Node would never have shown it. The tool now holds the fetch in a bare
+  local, the way the model adapter does, and a fake that throws when `this` is set is what proves it. The same
+  round added the whole of `0.0.0.0/8` and 6to4 to the guard, and made the hostile scenario assert the denied
+  call's own error result instead of leaving "the delete never ran" to an absence the runner cannot look for.
+- **`hostile_page` is a fixture and the notes say so.** It does not fetch, it does not clean anything, and it
+  has no `apply`: its whole job is to be the text that a scenario puts in front of a scripted model, so the
+  record can show the delete asking for approval and the person denying it. The protection is PGS26's policy.
+- **The recipe is version 3.** The pin's tool set changed again, so a conversation that predates this deploy
+  parks `stuck`/`recipe_changed` on its next follow-up, exactly as after 5a. Two deploys in one day is a rig
+  settling rather than a pattern; the notes say it because the deploy is where it shows.
+- **The playground bundle is 60,099 B of 61,440** — 1.3 KiB of headroom. Slice 6's cards are page code, which
+  the budget does not count, so it may fit; the next Worker-side tool does not. If it goes over, the ceiling
+  moves with a decision and Autumn has already said a raise is fine.
+
 ## C slice 5a, the local tools, 2026-11-26
 
 - **The notes are the recipe's state, not a store.** Decision 112 already rebuilds state from the record's own

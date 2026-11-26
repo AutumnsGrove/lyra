@@ -64,6 +64,8 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 		"flaky",
 		"slow",
 		"big_result",
+		"fetch_page",
+		"hostile_page",
 		"notes_write",
 		"notes_delete",
 		"ask_person",
