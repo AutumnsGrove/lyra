@@ -578,6 +578,26 @@ So `limit` joins the stable set, mapping to **429**. It is deliberately the host
 
 What it costs is a published API addition: an `ErrorCode` a consumer's exhaustive switch must handle. Under the changelog's rule that is a minor bump, and it is the smallest honest way to answer "the host's cap is reached" without pretending to be something else. What would reverse it is a host needing a limit refusal that is not about a quota — a capacity refusal, say — at which point `busy` and `limit` are the two words and this one stays the quota's.
 
+### 161. The playground's day cap is the host's, checked at the door, and a spend the page reports
+
+Decided 2026-11-26, with issue #60 and slice 7a. The plan asks for a hard per-tenant, per-UTC-day cap where a new run over it is refused, a run already going finishes, and a reply that reported no cost marks the day **unpriced**. Four things settle it.
+
+**It is the host's refusal, not a run's park.** A run that hits one of the core's own limits parks with `limit` as its reason and a detail naming the step, token, time or cost; that is a status and the record says so. A host refusing to start work because a quota is spent has to say so before anything runs, so it answers the command with the `limit` code at 429 (decision 160). The check happens in the playground's `Session` object — on `POST /v1/commands`, reading a clone of the body, and on a frame that arrives over an upgraded socket, which never passes through `fetch` at all — before the command reaches the session: nothing starts, no record is written and no model is asked.
+
+**Only a `start` is checked.** A follow-up or a resume continues a run that was already allowed to spend, and stopping a conversation mid-sentence for a cap it did not cross would be the cap punishing the wrong thing. A deployment with no cap set refuses nothing: `LYRA_PLAYGROUND_DAY_CAP_USD` unset, blank or not money means no cap, and the page says so, because a cap of zero would read as "nothing may run" rather than "there is no cap".
+
+**The day is UTC and the Worker's.** The object is asked about a day and answers for that day, so a write for a new day starts at zero and a read for a past day is zero: a cap that rolled over at each person's local midnight would be a different number for the same spend. The page never names the day it is spending in, because a client that chose the day could spread its spend across days it was never in.
+
+**The spend comes from the page, and that is stated rather than implied.** The cost of a run is known at its `run_end`, and the page is the client that sees it, so the page reports each run's cost once (keyed by the run id) and reports `unpriced` when the run reported none. That makes the cap a **spend guardrail behind the token**, not an authorization boundary: a token holder that never reports is not counted. The alternative — the session reconciling its own record after every run — is the tighter design, and it needs the object to watch its own runs to their end rather than answer commands, which is a seam this rig does not have and did not need. That gap is written down here and in `docs/playground.md` rather than left for someone to discover from a bill.
+
+**Money is rounded to a millionth of a dollar as it is added**, because a reply's cost is a fraction of a cent and a float sum of them drifts (`0.2 + 0.1` is not `0.3`); a micro-dollar is the rig's smallest unit. What would reverse any of this is a cap that has to be authoritative against a hostile client, at which point the reporting moves into the session and the page's number becomes a display.
+
+### 162. The playground's ceiling moves to 68 KiB
+
+Decided 2026-11-26, with issue #60 and slice 7a, on Autumn's word that raising it was fine. The playground's Worker measured 60,296 B against its 60 KiB (61,440 B) ceiling before slice 7a, and the budget object, the cap check and the `/api/cap` and `/api/spend` routes took it to 62,376 B. The ceiling is now 68 KiB (69,632 B), which leaves room for slice 7b's scripted model without a second move.
+
+This is the deployment's own number and not the published package's: `@autumnsgrove/lyra` keeps its 176 KiB, the example Worker its 48 KiB. Decision 156 gave the playground a budget of its own precisely so a rig's growth does not hide inside a library's, and moving it here is that budget doing its job rather than being ignored. What would make it wrong is a reason to care about the rig's bundle size the way a consumer cares about the library's — a phone on a slow connection loading it, say — at which point the cut is scope (fewer tools in the table, not a smaller cap) rather than a smaller ceiling.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

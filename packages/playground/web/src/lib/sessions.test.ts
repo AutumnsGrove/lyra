@@ -4,7 +4,9 @@ import type { Fetcher } from "./playground.js";
 import {
 	createConversation,
 	listConversations,
+	readCap,
 	recipes,
+	reportSpend,
 	sessionFromSearch,
 	touchConversation,
 	withSession,
@@ -132,4 +134,49 @@ test("PGS20 the session id travels in the query, and nothing else is read from i
 	expect(withSession("/", "?x=1", "s_1")).toBe("/?x=1&session=s_1");
 	expect(withSession("/", "?session=old", "new")).toBe("/?session=new");
 	expect(withSession("/", "?session=old", undefined)).toBe("/");
+});
+
+test("PGS40 the cap is read, and spend is reported as money or as unpriced", async () => {
+	const asked: { path: string; body?: unknown }[] = [];
+	const fetcher: Fetcher = async (url, init) => {
+		const path = new URL(String(url), "http://localhost").pathname;
+		asked.push({
+			path,
+			...(typeof init?.body === "string" ? { body: JSON.parse(init.body) } : {}),
+		});
+		if (path === "/api/cap") {
+			return json({ day: "2026-11-26", usd: 0.25, unpriced: false, cap: 1 });
+		}
+		return json({ day: "2026-11-26", usd: 0.3, unpriced: true });
+	};
+
+	const cap = await readCap({ base: "", token: "t", fetcher });
+	expect(cap).toEqual({
+		ok: true,
+		value: { day: "2026-11-26", usd: 0.25, unpriced: false, cap: 1 },
+	});
+
+	// A cap the deployment did not set is `null`, not zero: zero would read as "nothing
+	// may run", which is a different statement.
+	const uncapped = await readCap({
+		base: "",
+		token: "t",
+		fetcher: async () => json({ day: "2026-11-26", usd: 0, unpriced: false, cap: null }),
+	});
+	expect(uncapped).toMatchObject({ ok: true, value: { cap: null } });
+
+	await reportSpend({ base: "", token: "t", fetcher, amount: 0.05 });
+	await reportSpend({ base: "", token: "t", fetcher, unpriced: true });
+	expect(asked).toEqual([
+		{ path: "/api/cap" },
+		{ path: "/api/spend", body: { amount: 0.05 } },
+		{ path: "/api/spend", body: { unpriced: true } },
+	]);
+
+	const broken = await readCap({
+		base: "",
+		token: "t",
+		fetcher: async () => json({ usd: "a lot" }),
+	});
+	expect(broken).toMatchObject({ ok: false, error: { code: "internal" } });
 });

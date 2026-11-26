@@ -15,6 +15,7 @@ import {
 } from "@autumnsgrove/lyra/cloudflare";
 import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
+import { capFrom, refusalFor, socketRefusal, utcDay } from "./cap.js";
 import { modelFor } from "./model.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 
@@ -23,6 +24,10 @@ export interface Env {
 	SESSION: DurableObjectNamespace;
 	/** The per-tenant conversation index the sidebar reads (issue #60, slice 3). */
 	INDEX: DurableObjectNamespace;
+	/** The per-tenant day's spend (issue #60, slice 7; decision 161). */
+	BUDGET: DurableObjectNamespace;
+	/** The day's cap in dollars. Unset means no cap. */
+	LYRA_PLAYGROUND_DAY_CAP_USD?: string | undefined;
 	/**
 	 * Optional because a secret that was never set arrives as `undefined`, whatever the
 	 * type says: the binding is created by `wrangler secret put`, and nothing makes that
@@ -92,7 +97,74 @@ export class Session implements DurableObject {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// The cap is checked before the command reaches the session: nothing starts, no
+		// record is written and no model is asked when the day is over (decision 161).
+		const refused = await this.#capRefusal(request);
+		if (refused !== undefined) {
+			return refused;
+		}
 		return this.#build().fetch(request);
+	}
+
+	/**
+	 * The tenant this deployment serves, for the budget's object name.
+	 *
+	 * `tokensFrom` builds **exactly one** entry or none, from the two prefixed bindings, so
+	 * the first key is the tenant the door resolves for every request — the same one
+	 * `/api/cap` uses. A map with more than one entry is a change to `tokensFrom` and to this
+	 * method together; the budget would otherwise be filed under one tenant and checked
+	 * under another (raised in review on #99, and the map is why it cannot happen today).
+	 */
+	#tenant(): string {
+		return Object.keys(tokensFrom(this.env))[0] ?? "";
+	}
+
+	/** The cap refusal for a socket frame, as the frame to send, or nothing. */
+	async #socketCapRefusal(message: string | ArrayBuffer): Promise<string | undefined> {
+		const cap = capFrom(this.env);
+		if (cap === null) {
+			return undefined;
+		}
+		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(this.#tenant()));
+		return socketRefusal({
+			message,
+			budget: { fetch: (budgetRequest) => budget.fetch(budgetRequest) },
+			cap,
+			day: utcDay(systemClock().now()),
+		});
+	}
+
+	/** The host's `limit` refusal for a start, or nothing to send it on. */
+	async #capRefusal(request: Request): Promise<Response | undefined> {
+		const cap = capFrom(this.env);
+		if (cap === null || request.method !== "POST") {
+			return undefined;
+		}
+		if (new URL(request.url).pathname !== "/v1/commands") {
+			return undefined;
+		}
+		let body: unknown;
+		try {
+			// A clone, so the request the session sees is the one the client sent; a body
+			// that will not parse here is left for the session to refuse in its own words.
+			body = await request.clone().json();
+		} catch {
+			return undefined;
+		}
+		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(this.#tenant()));
+		const refusal = await refusalFor({
+			body,
+			budget: { fetch: (budgetRequest) => budget.fetch(budgetRequest) },
+			cap,
+			day: utcDay(systemClock().now()),
+		});
+		if (refusal === undefined) {
+			return undefined;
+		}
+		return new Response(JSON.stringify(refusal.frame), {
+			status: refusal.status,
+			headers: { "content-type": "application/json" },
+		});
 	}
 
 	async alarm(): Promise<void> {
@@ -101,6 +173,14 @@ export class Session implements DurableObject {
 
 	/** A socket accepted here hibernates with the object, and a frame wakes it. */
 	async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		// A socket command never passes through `fetch`, so the cap is checked here too;
+		// the refusal is the same response frame the socket already reads, and the socket
+		// stays open (found in review on #99).
+		const refused = await this.#socketCapRefusal(message);
+		if (refused !== undefined) {
+			socket.send(refused);
+			return;
+		}
 		await this.#build().webSocketMessage(socket, message);
 	}
 

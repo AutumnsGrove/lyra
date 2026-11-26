@@ -21,6 +21,7 @@ function env(): Env {
 	return {
 		SESSION: {} as DurableObjectNamespace,
 		INDEX: {} as DurableObjectNamespace,
+		BUDGET: {} as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
 		LYRA_PLAYGROUND_TENANT: "playground",
 		// The placeholder source, so the run is driven by the loop without a key or a
@@ -37,6 +38,7 @@ test("PGS01 the playground's old binding names bind nothing", () => {
 	const stale = {
 		SESSION: {} as DurableObjectNamespace,
 		INDEX: {} as DurableObjectNamespace,
+		BUDGET: {} as DurableObjectNamespace,
 		PLAYGROUND_TOKEN: "an-old-token-for-a-test",
 		PLAYGROUND_TENANT: "playground",
 	} as unknown as Env;

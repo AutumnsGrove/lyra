@@ -9,6 +9,6 @@
 	},
 	"packages/playground": {
 		"dir": "packages/playground/.wrangler/dry-run",
-		"gzipBytes": 61440
+		"gzipBytes": 69632
 	}
 }

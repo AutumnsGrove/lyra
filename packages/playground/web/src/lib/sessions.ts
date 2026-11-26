@@ -237,3 +237,92 @@ export function withSession(path: string, search: string, session: string | unde
 	const query = params.toString();
 	return query === "" ? path : `${path}?${query}`;
 }
+
+/** What the deployment says about today's spend (issue #60, slice 7). */
+export interface CapState {
+	day: string;
+	usd: number;
+	unpriced: boolean;
+	/** The cap in dollars, or `null` when the deployment set none. */
+	cap: number | null;
+}
+
+/** The day's spend and the cap it is measured against. */
+export async function readCap(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+}): Promise<ApiResult<CapState>> {
+	const answer = await call({ ...options, path: "/api/cap" });
+	if (!answer.ok) {
+		return answer;
+	}
+	if (!isRecord(answer.value)) {
+		return {
+			ok: false,
+			error: { code: "internal", message: "the answer had no spend", status: 200 },
+		};
+	}
+	const { day, usd, unpriced, cap } = answer.value;
+	if (
+		typeof day !== "string" ||
+		typeof usd !== "number" ||
+		typeof unpriced !== "boolean" ||
+		(cap !== null && typeof cap !== "number")
+	) {
+		return {
+			ok: false,
+			error: { code: "internal", message: "the answer had no spend", status: 200 },
+		};
+	}
+	return { ok: true, value: { day, usd, unpriced, cap } };
+}
+
+/**
+ * Tell the deployment what a run cost, or that it did not say.
+ *
+ * A run's `run_end` is where the cost is known, and the page is the client that sees it.
+ * That makes the cap a spend guardrail behind the token rather than an authorization
+ * boundary — the decision says so — and an unpriced reply is reported as itself so the day
+ * can stop taking work rather than quietly undercount.
+ */
+export async function reportSpend(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	amount?: number;
+	unpriced?: boolean;
+}): Promise<ApiResult<CapState>> {
+	const answer = await call({
+		base: options.base,
+		token: options.token,
+		fetcher: options.fetcher,
+		path: "/api/spend",
+		method: "POST",
+		body: options.unpriced === true ? { unpriced: true } : { amount: options.amount ?? 0 },
+	});
+	if (!answer.ok) {
+		return answer;
+	}
+	const value = answer.value;
+	if (
+		!isRecord(value) ||
+		typeof value["day"] !== "string" ||
+		typeof value["usd"] !== "number" ||
+		typeof value["unpriced"] !== "boolean"
+	) {
+		return {
+			ok: false,
+			error: { code: "internal", message: "the answer had no spend", status: 200 },
+		};
+	}
+	return {
+		ok: true,
+		value: {
+			day: value["day"],
+			usd: value["usd"],
+			unpriced: value["unpriced"],
+			cap: typeof value["cap"] === "number" ? value["cap"] : null,
+		},
+	};
+}

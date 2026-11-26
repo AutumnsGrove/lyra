@@ -28,6 +28,7 @@
 		reduce,
 		saveToken,
 		sendCommand,
+		spendOf,
 		startRun,
 		watchEvents,
 		type Fetcher,
@@ -38,10 +39,13 @@
 	import {
 		createConversation,
 		listConversations,
+		readCap,
 		recipes,
+		reportSpend,
 		sessionFromSearch,
 		touchConversation,
 		withSession,
+		type CapState,
 		type Conversation,
 	} from "../lib/sessions.js";
 	import { transcriptFrom } from "../lib/transcript.js";
@@ -66,6 +70,10 @@
 	let record: string[] = [];
 	/** The note or answer typed into a card, by request id. */
 	let drafts: Record<string, string> = {};
+	/** Today's spend and the cap, as the deployment counts them (slice 7). */
+	let cap: CapState | undefined = undefined;
+	/** The last total reported for each run, so a parked run's resume is counted once. */
+	let reported = new Map<string, number>();
 
 	const fetched: Fetcher = (url, init) => fetch(url, init);
 
@@ -120,10 +128,16 @@
 			return;
 		}
 		problem = "";
-		const [list, names] = await Promise.all([
+		const [list, names, spend] = await Promise.all([
 			listConversations({ base: "", token, fetcher: fetched }),
 			recipes({ base: "", token, fetcher: fetched }),
+			readCap({ base: "", token, fetcher: fetched }),
 		]);
+		if (spend.ok) {
+			cap = spend.value;
+		} else if (!refused(spend.error.status)) {
+			problem = spend.error.message;
+		}
 		if (!list.ok) {
 			if (refused(list.error.status)) {
 				return;
@@ -372,6 +386,7 @@
 				...(after === undefined ? {} : { lastEventId: after }),
 				onEvent: (event: StreamEvent) => {
 					transcript = reduce(transcript, event);
+					void reportRun(event);
 				},
 			});
 			if (me.signal.aborted) {
@@ -391,6 +406,35 @@
 			}
 			problem = watched.error.message;
 			return;
+		}
+	}
+
+	/**
+	 * Tell the deployment what a run cost, once per segment's worth, when its end arrives.
+	 *
+	 * A `run_end` reports the whole run's usage, so a run that parks and resumes carries a
+	 * cumulative total each time; `spendOf` gives the difference, which is also why a
+	 * replayed end adds nothing. A run that made no call and reported no cost adds nothing,
+	 * rather than latching the day unpriced (findings on #99).
+	 */
+	async function reportRun(event: StreamEvent): Promise<void> {
+		if (token === undefined) {
+			return;
+		}
+		const run = typeof event["run"] === "string" ? event["run"] : "";
+		const report = spendOf(event, run === "" ? undefined : reported.get(run));
+		if (report === undefined) {
+			return;
+		}
+		if (report.amount !== undefined) {
+			reported = new Map(reported).set(report.run, (reported.get(report.run) ?? 0) + report.amount);
+		}
+		const spent =
+			report.amount === undefined
+				? await reportSpend({ base: "", token, fetcher: fetched, unpriced: true })
+				: await reportSpend({ base: "", token, fetcher: fetched, amount: report.amount });
+		if (spent.ok) {
+			cap = spent.value;
 		}
 	}
 
@@ -743,6 +787,14 @@
 							{/if}
 						{/each}
 					</ol>
+				{/if}
+
+				{#if cap !== undefined && cap.cap !== null}
+					<p class="status" class:error={cap.unpriced || cap.usd >= cap.cap}>
+						{cap.unpriced
+							? "today is unpriced: a reply reported no cost, so no new run starts until UTC midnight"
+							: `spend $${cap.usd.toFixed(4)} of $${cap.cap.toFixed(2)} today (UTC)`}
+					</p>
 				{/if}
 
 				{#if transcript.status.state !== "idle"}

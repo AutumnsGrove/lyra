@@ -17,6 +17,7 @@ import {
 	type DurableObjectNamespaceLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
+import { capFrom, utcDay } from "./cap.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 import { tokensFrom, type Env } from "./session.js";
 
@@ -25,6 +26,10 @@ export interface FrontDoor {
 	namespace: DurableObjectNamespaceLike;
 	/** The per-tenant conversation index (decision 158). */
 	index: DurableObjectNamespaceLike;
+	/** The per-tenant day's spend (decision 161). */
+	budget: DurableObjectNamespaceLike;
+	/** The day's cap in dollars, or `null` when the deployment set none. */
+	cap: number | null;
 	/** Tenant to token, from a secret binding. */
 	tokens: Readonly<Record<string, string>>;
 	/** The recipe names this Worker runs, in the picker's order. */
@@ -46,6 +51,38 @@ function json(value: unknown, status = 200): Response {
 		status,
 		headers: { "content-type": "application/json" },
 	});
+}
+
+/**
+ * One budget call, decoded rather than cast.
+ *
+ * The response is outside data even though this Worker owns the object: a version skew or
+ * an exception produces a body that is not the state, and a cast would carry it to the page
+ * as fields that are not there. Anything that is not a readable state is `undefined`, which
+ * the routes turn into a refusal (found in review on #99).
+ */
+async function readBudget(
+	budget: { fetch(request: Request): Promise<Response> },
+	path: string,
+	body?: string,
+): Promise<Record<string, unknown> | undefined> {
+	try {
+		const response = await budget.fetch(
+			new Request(`https://budget.invalid${path}`, {
+				...(body === undefined ? { method: "GET" } : { method: "POST", body }),
+			}),
+		);
+		if (!response.ok) {
+			return undefined;
+		}
+		const value: unknown = await response.json();
+		if (!isRecord(value) || typeof value["usd"] !== "number") {
+			return undefined;
+		}
+		return value;
+	} catch {
+		return undefined;
+	}
 }
 
 /** A refusal the page reads the way it reads the protocol's: a code and a message. */
@@ -156,6 +193,45 @@ async function api(
 		return json({ recipes: door.recipes });
 	}
 
+	if (url.pathname === "/api/cap" || url.pathname === "/api/spend") {
+		const budget = door.budget.get(door.budget.idFromName(tenant.value));
+		const day = utcDay(door.now());
+
+		if (request.method === "GET" && url.pathname === "/api/cap") {
+			const status = await readBudget(budget, `/status?day=${encodeURIComponent(day)}`);
+			return status === undefined
+				? refuse("internal", "the day's spend could not be read")
+				: json({ ...status, cap: door.cap });
+		}
+
+		if (request.method === "POST" && url.pathname === "/api/spend") {
+			const body = await readJson(request);
+			if (body === undefined) {
+				return refuse("bad_request", "a spend holds one object of JSON");
+			}
+			const unpriced = body["unpriced"] === true;
+			const amount = body["amount"];
+			if (
+				!unpriced &&
+				(typeof amount !== "number" || !Number.isFinite(amount) || amount < 0)
+			) {
+				return refuse("bad_request", "a spend is a number of dollars, zero or more");
+			}
+			// The day is the Worker's, never the page's: a client that chose the day could
+			// spread its spend across days it was never in.
+			const spent = await readBudget(
+				budget,
+				`/${unpriced ? "unpriced" : "spend"}`,
+				JSON.stringify(unpriced ? { day } : { day, amount }),
+			);
+			return spent === undefined
+				? refuse("internal", "the spend could not be recorded")
+				: json({ ...spent, cap: door.cap });
+		}
+
+		return refuse("not_found", `there is nothing at ${url.pathname}`);
+	}
+
 	if (url.pathname !== "/api/sessions" && !url.pathname.startsWith("/api/sessions/")) {
 		return refuse("not_found", `there is nothing at ${url.pathname}`);
 	}
@@ -248,6 +324,8 @@ export default {
 		return frontDoor({
 			namespace: env.SESSION,
 			index: env.INDEX,
+			budget: env.BUDGET,
+			cap: capFrom(env),
 			tokens: tokensFrom(env),
 			recipes: [...recipeCatalogue(clock).keys()],
 			now: () => clock.now(),
@@ -257,3 +335,4 @@ export default {
 
 export { Session } from "./session.js";
 export { SessionIndex } from "./index-do.js";
+export { Budget } from "./budget.js";

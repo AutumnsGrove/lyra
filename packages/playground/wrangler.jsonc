@@ -12,7 +12,12 @@
 	// it is never in this file. `wrangler dev` reads it from `.dev.vars`. Both are
 	// prefixed, because the `gw secret` vault is shared and a name there says which
 	// project it belongs to (issue #60, slice 2).
-	"vars": { "LYRA_PLAYGROUND_TENANT": "playground" },
+	"vars": {
+		"LYRA_PLAYGROUND_TENANT": "playground",
+		// The day's cap in dollars (issue #60, slice 7). A var rather than a secret: it is
+		// a policy number, and the page shows it. Unset would mean no cap.
+		"LYRA_PLAYGROUND_DAY_CAP_USD": "1",
+	},
 	"assets": {
 		// The SvelteKit app, built by `pnpm build` into this directory. `public/` held
 		// slice 1's placeholder page and is gone.
@@ -28,10 +33,13 @@
 			{ "name": "SESSION", "class_name": "Session" },
 			// One index object per tenant, holding the conversation list (decision 158).
 			{ "name": "INDEX", "class_name": "SessionIndex" },
+			// One budget object per tenant, holding the day's spend (decision 161).
+			{ "name": "BUDGET", "class_name": "Budget" },
 		],
 	},
 	"migrations": [
 		{ "tag": "v1", "new_sqlite_classes": ["Session"] },
 		{ "tag": "v2", "new_sqlite_classes": ["SessionIndex"] },
+		{ "tag": "v3", "new_sqlite_classes": ["Budget"] },
 	],
 }

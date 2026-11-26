@@ -9,6 +9,38 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 7a, the day cap, 2026-11-26
+
+- **The refusal is a cloned body and a 429 before the session sees anything.** The `Session` object reads a
+  clone of a `POST /v1/commands`, and only when the command is `start`; a body that will not parse is left to
+  the session to refuse in its own words, and the original request is forwarded untouched. That is the smallest
+  seam that refuses without writing a record or asking a model.
+- **The cap has no meaning without a binding, and no binding means no cap.** Unset, blank or not money is
+  `null` rather than zero, because a cap of zero would read "nothing may run" — a different and much worse
+  statement than "there is no cap". The deployed rig sets `"1"` in `wrangler.jsonc` so the feature is on where
+  it matters.
+- **Money is rounded as it is added.** `0.2 + 0.1` is `0.30000000000000004`, and a cap compared against that
+  is a cap that flickers; the budget keeps a millionth of a dollar as its smallest unit.
+- **Review found the undercount that decision 161's own design made easy.** A `run_end` carries the whole
+  run's usage, so a run that parks on an approval and resumes sends a cumulative total at each end; keying the
+  report "once per run" dropped everything spent after the answer. The page now reports the **difference** from
+  the last total per run, which is also why a replayed end adds nothing. The same round found a free failure
+  (no reply, no cost) latching the day unpriced — now only a run that made a model call and reported no cost
+  does — and the budget calls decoded rather than cast, so an object that throws is a refusal instead of a 500.
+- **The socket was a second door, and the review found it.** `#capRefusal` only ran in `fetch`, so a `start` sent
+  over an upgraded socket skipped the cap entirely — a token holder could start runs after the day was done by
+  using the transport the dev client also speaks. The check now runs in `webSocketMessage` too, sending the same
+  `response` frame the socket already reads and leaving the socket open; the frame builder is shared so the two
+  doors cannot drift. The logic is tested as `socketRefusal`; the one line that sends it needs workerd, which
+  the playground has no configuration for (the disclosed gap since slice 1).
+- **The spend is reported by the page, and the decision says so.** The tighter design is the session
+  reconciling its record after each run, which needs the object to watch runs to their end; that is a real seam
+  and not one this rig has. The cost is stated in decision 161 and in `docs/playground.md` rather than hidden:
+  a token holder that never reports is not counted.
+- **The cap check has its own module (`src/cap.ts`) so it is testable without a Durable Object.** The policy —
+  a start only, a start refused at 429, a budget that cannot be read refused rather than trusted — is a
+  function of a body, a budget-like and a cap; the session is three lines around it.
+
 ## C slice 6, the cards, 2026-11-26
 
 - **A card is one row that fills in, like a call.** The request arrives, the person (or another client) answers,

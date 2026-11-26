@@ -750,3 +750,57 @@ test("PGS35 a card the record read missed is asked for and drawn", async () => {
 	// `list_pending` knows the run is waiting — and it is drawn.
 	expect(await screen.findByText(/a card from list_pending/)).toBeTruthy();
 });
+
+test("PGS40 a run's cost is reported, and the cap is shown", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	const stubbed = stubFetch(
+		[
+			{
+				method: "GET",
+				path: "/api/cap",
+				answer: () => json({ day: "2026-11-26", usd: 0.1, unpriced: false, cap: 1 }),
+			},
+			{ method: "POST", path: "/api/sessions", answer: () => json({ session: "s_1" }, 201) },
+			{
+				method: "POST",
+				path: "/v1/commands",
+				answer: () =>
+					json({ type: "response", ok: true, data: { session: "s_1", run: "r_1" } }),
+			},
+			{
+				method: "POST",
+				path: "/api/spend",
+				answer: (body: unknown) => json({ day: "2026-11-26", ...(body as object), cap: 1 }),
+			},
+			{
+				method: "GET",
+				path: "/v1/events",
+				answer: () =>
+					sse([
+						{ type: "run_start", run: "r_1" },
+						{
+							type: "run_end",
+							run: "r_1",
+							reason: "done",
+							turn: 1,
+							usage: { inputTokens: 1, outputTokens: 1, cost: { amount: 0.002 } },
+						},
+					]),
+			},
+		].concat(loaded()),
+	);
+	render(Page);
+
+	// The cap is a line on the page before anything runs, so a person knows the budget.
+	expect(await screen.findByText(/spend \$0\.1000 of \$1\.00 today \(UTC\)/)).toBeTruthy();
+
+	await screen.findByRole("option", { name: "tool-table" });
+	await fireEvent.input(await screen.findByLabelText("Ask Lyra"), { target: { value: "hi" } });
+	await fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+	// The run's own cost is reported once, from the `run_end` the page saw.
+	await waitFor(() => {
+		const spent = stubbed.calls.find((call) => call.path === "/api/spend");
+		expect(spent?.body).toEqual({ amount: 0.002 });
+	});
+});

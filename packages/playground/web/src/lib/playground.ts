@@ -1034,3 +1034,47 @@ export async function pendingCards(options: {
 	}
 	return { ok: true, value: { cards } };
 }
+
+/** What a `run_end` adds to the day's spend, or nothing when it adds nothing. */
+export interface SpendReport {
+	run: string;
+	/** The dollars this end adds over the last total reported for the run. */
+	amount?: number;
+	/** The run made a model call and reported no cost, so the day can no longer be priced. */
+	unpriced?: boolean;
+}
+
+/**
+ * The spend a `run_end` reports, given what has already been counted for that run.
+ *
+ * A `run_end` reports the whole run's usage rather than the segment it ended, so a run that
+ * parks and resumes sends a cumulative total each time: what is due is the difference from
+ * the last one, which is also why a replayed end adds nothing. A run that never made a model
+ * call has no cost and needs no price — marking the day unpriced for it would let a free
+ * failure latch the cap for the rest of the day.
+ */
+export function spendOf(event: StreamEvent, last: number | undefined): SpendReport | undefined {
+	if (event["type"] !== "run_end") {
+		return undefined;
+	}
+	const run = stringOf(event["run"]);
+	if (run === undefined) {
+		return undefined;
+	}
+	const usage = event["usage"];
+	if (!isRecord(usage)) {
+		return undefined;
+	}
+	const cost = usage["cost"];
+	const amount = isRecord(cost) ? numberOf(cost["amount"]) : undefined;
+	const inputTokens = numberOf(usage["inputTokens"]) ?? 0;
+	const outputTokens = numberOf(usage["outputTokens"]) ?? 0;
+
+	if (amount === undefined) {
+		// Nothing to price and nothing that needed a price: a run that failed or was stopped
+		// before its first reply.
+		return inputTokens === 0 && outputTokens === 0 ? undefined : { run, unpriced: true };
+	}
+	const delta = amount - (last ?? 0);
+	return delta > 0 ? { run, amount: delta } : undefined;
+}
