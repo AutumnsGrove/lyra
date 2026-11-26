@@ -55,6 +55,9 @@ export function statusForCode(code: ErrorCode): number {
 		case "busy":
 		case "conflict":
 			return 409;
+		// A limit a host enforces is a "come back later", not a client mistake.
+		case "limit":
+			return 429;
 		case "unsupported":
 			return 501;
 		case "timeout":

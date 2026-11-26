@@ -570,6 +570,14 @@ A path segment (`/c/<id>`) was the other option, and it is prettier. It is also 
 
 The id is read rather than validated: a session the index does not know is still opened, because a run that predates the index is a record a person can still read, and the stream and the record are the two things that decide whether it is there. The page's own `/api/sessions` list is only the sidebar.
 
+### 160. A host's own limit is an error code, `limit`, and 429
+
+Decided 2026-11-26, with issue #60 and slice 7. The playground has a hard per-tenant, per-UTC-day spend cap, and a run over it must be refused before it starts. Nova's eight codes and `conflict` have no word for that: `busy` says a session is working, `conflict` says two writes disagree, and `permission_denied` says the caller may not. None of them is "the host is not taking more work today", and a client that reads the code to decide whether to retry would get the wrong answer from all three.
+
+So `limit` joins the stable set, mapping to **429**. It is deliberately the host's, not the core's: a run that hits one of the core's own limits **parks** with `limit` as its reason and a detail naming steps, tokens, time or cost, and that is not an error at all. The two share a word because they share a meaning — an allowance ran out — and they differ in who decided and whether work can continue, which is what a status code and a parked status already say.
+
+What it costs is a published API addition: an `ErrorCode` a consumer's exhaustive switch must handle. Under the changelog's rule that is a minor bump, and it is the smallest honest way to answer "the host's cap is reached" without pretending to be something else. What would reverse it is a host needing a limit refusal that is not about a quota — a capacity refusal, say — at which point `busy` and `limit` are the two words and this one stays the quota's.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

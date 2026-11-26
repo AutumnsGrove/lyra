@@ -10,6 +10,10 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- A new stable error code, **`limit`**, for a host refusing work because a limit it enforces has been reached
+  (a day's spend, a tenant's quota). It maps to **429**, so a client retries later. It is not a run parked on
+  the core's own limit: that is a `parked` status with a limit's detail, and no error at all. **Upgrading:** an
+  `ErrorCode` switch that is exhaustive over the old nine now has a tenth arm to handle.
 - A scenario file can describe a conversation rather than one run: a `runs:` list whose first step starts
   the run and whose later steps answer the request the run parked on or carry the person's follow-up, each
   with its own script (issues #60 and #73, SCN07 to SCN09). A single-run file is unchanged, and every level
