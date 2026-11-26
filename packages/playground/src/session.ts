@@ -106,14 +106,26 @@ export class Session implements DurableObject {
 		return this.#build().fetch(request);
 	}
 
+	/**
+	 * The tenant this deployment serves, for the budget's object name.
+	 *
+	 * `tokensFrom` builds **exactly one** entry or none, from the two prefixed bindings, so
+	 * the first key is the tenant the door resolves for every request — the same one
+	 * `/api/cap` uses. A map with more than one entry is a change to `tokensFrom` and to this
+	 * method together; the budget would otherwise be filed under one tenant and checked
+	 * under another (raised in review on #99, and the map is why it cannot happen today).
+	 */
+	#tenant(): string {
+		return Object.keys(tokensFrom(this.env))[0] ?? "";
+	}
+
 	/** The cap refusal for a socket frame, as the frame to send, or nothing. */
 	async #socketCapRefusal(message: string | ArrayBuffer): Promise<string | undefined> {
 		const cap = capFrom(this.env);
 		if (cap === null) {
 			return undefined;
 		}
-		const tenant = Object.keys(tokensFrom(this.env))[0] ?? "";
-		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(tenant));
+		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(this.#tenant()));
 		return socketRefusal({
 			message,
 			budget: { fetch: (budgetRequest) => budget.fetch(budgetRequest) },
@@ -139,8 +151,7 @@ export class Session implements DurableObject {
 		} catch {
 			return undefined;
 		}
-		const tenant = Object.keys(tokensFrom(this.env))[0] ?? "";
-		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(tenant));
+		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(this.#tenant()));
 		const refusal = await refusalFor({
 			body,
 			budget: { fetch: (budgetRequest) => budget.fetch(budgetRequest) },
