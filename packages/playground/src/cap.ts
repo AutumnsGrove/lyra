@@ -87,9 +87,16 @@ export async function refusalFor(options: {
 		return undefined;
 	}
 
-	const response = await options.budget.fetch(
-		new Request(`https://budget.invalid/status?day=${encodeURIComponent(options.day)}`),
-	);
+	let response: Response;
+	try {
+		response = await options.budget.fetch(
+			new Request(`https://budget.invalid/status?day=${encodeURIComponent(options.day)}`),
+		);
+	} catch {
+		// A Durable Object that throws is the same answer as one that refuses: the spend
+		// cannot be read, so nothing is started (found in review on #99).
+		response = new Response(null, { status: 500 });
+	}
 	if (!response.ok) {
 		// A budget that cannot be read is not a reason to spend: the refusal names the
 		// budget rather than the cap, so the message is true about what failed.

@@ -13,6 +13,7 @@ import {
 	reduce,
 	saveToken,
 	sendCommand,
+	spendOf,
 	startRun,
 	watchEvents,
 	type Fetcher,
@@ -915,4 +916,67 @@ test("PGS33 two frames made in the same millisecond are two ids", () => {
 	// Same prefix, so a log reads which kind of frame it was; the counter is the part
 	// that makes them distinct.
 	expect(first.startsWith("a")).toBe(true);
+});
+
+test("PGS40 a run that parks and resumes reports each segment's spend once", () => {
+	// A `run_end` reports the whole run's usage, not the segment's, so a parked end and the
+	// final end carry cumulative totals. Reporting the delta against the last total is what
+	// counts a resumed run's spend exactly once (found in review on #99).
+	expect(
+		spendOf(
+			{ type: "run_end", run: "r1", reason: "parked", usage: { cost: { amount: 0.001 } } },
+			undefined,
+		),
+	).toEqual({
+		run: "r1",
+		amount: 0.001,
+	});
+	expect(
+		spendOf(
+			{ type: "run_end", run: "r1", reason: "done", usage: { cost: { amount: 0.003 } } },
+			0.001,
+		),
+	).toEqual({
+		run: "r1",
+		amount: 0.002,
+	});
+	// A replay of an end already counted is nothing, not a second charge.
+	expect(
+		spendOf(
+			{ type: "run_end", run: "r1", reason: "done", usage: { cost: { amount: 0.003 } } },
+			0.003,
+		),
+	).toBeUndefined();
+
+	// A run that failed or stopped before its first reply cost nothing and priced nothing,
+	// so it must not mark the day unpriced: that would be a one-way latch a free failure
+	// could spring.
+	expect(
+		spendOf(
+			{
+				type: "run_end",
+				run: "r2",
+				reason: "failed",
+				usage: { inputTokens: 0, outputTokens: 0 },
+			},
+			undefined,
+		),
+	).toBeUndefined();
+	// But a run that did make a call and reported no cost is exactly the unpriced case.
+	expect(
+		spendOf(
+			{
+				type: "run_end",
+				run: "r3",
+				reason: "done",
+				usage: { inputTokens: 10, outputTokens: 2 },
+			},
+			undefined,
+		),
+	).toEqual({ run: "r3", unpriced: true });
+
+	// Anything that is not a run's end is not a spend.
+	expect(
+		spendOf({ type: "message_end", usage: { cost: { amount: 1 } } }, undefined),
+	).toBeUndefined();
 });

@@ -53,6 +53,38 @@ function json(value: unknown, status = 200): Response {
 	});
 }
 
+/**
+ * One budget call, decoded rather than cast.
+ *
+ * The response is outside data even though this Worker owns the object: a version skew or
+ * an exception produces a body that is not the state, and a cast would carry it to the page
+ * as fields that are not there. Anything that is not a readable state is `undefined`, which
+ * the routes turn into a refusal (found in review on #99).
+ */
+async function readBudget(
+	budget: { fetch(request: Request): Promise<Response> },
+	path: string,
+	body?: string,
+): Promise<Record<string, unknown> | undefined> {
+	try {
+		const response = await budget.fetch(
+			new Request(`https://budget.invalid${path}`, {
+				...(body === undefined ? { method: "GET" } : { method: "POST", body }),
+			}),
+		);
+		if (!response.ok) {
+			return undefined;
+		}
+		const value: unknown = await response.json();
+		if (!isRecord(value) || typeof value["usd"] !== "number") {
+			return undefined;
+		}
+		return value;
+	} catch {
+		return undefined;
+	}
+}
+
 /** A refusal the page reads the way it reads the protocol's: a code and a message. */
 function refuse(code: ErrorCode, message: string): Response {
 	return json({ error: { code, message } }, statusForCode(code));
@@ -166,11 +198,10 @@ async function api(
 		const day = utcDay(door.now());
 
 		if (request.method === "GET" && url.pathname === "/api/cap") {
-			const status = await budget.fetch(
-				new Request(`https://budget.invalid/status?day=${encodeURIComponent(day)}`),
-			);
-			const state = (await status.json()) as Record<string, unknown>;
-			return json({ ...state, cap: door.cap }, status.status);
+			const status = await readBudget(budget, `/status?day=${encodeURIComponent(day)}`);
+			return status === undefined
+				? refuse("internal", "the day's spend could not be read")
+				: json({ ...status, cap: door.cap });
 		}
 
 		if (request.method === "POST" && url.pathname === "/api/spend") {
@@ -188,14 +219,14 @@ async function api(
 			}
 			// The day is the Worker's, never the page's: a client that chose the day could
 			// spread its spend across days it was never in.
-			const spent = await budget.fetch(
-				new Request(`https://budget.invalid/${unpriced ? "unpriced" : "spend"}`, {
-					method: "POST",
-					body: JSON.stringify(unpriced ? { day } : { day, amount }),
-				}),
+			const spent = await readBudget(
+				budget,
+				`/${unpriced ? "unpriced" : "spend"}`,
+				JSON.stringify(unpriced ? { day } : { day, amount }),
 			);
-			const state = (await spent.json()) as Record<string, unknown>;
-			return json({ ...state, cap: door.cap }, spent.status);
+			return spent === undefined
+				? refuse("internal", "the spend could not be recorded")
+				: json({ ...spent, cap: door.cap });
 		}
 
 		return refuse("not_found", `there is nothing at ${url.pathname}`);

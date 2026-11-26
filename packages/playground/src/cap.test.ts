@@ -106,3 +106,27 @@ test("PGS38 the binding is read as money or not at all, and the day is UTC", () 
 	expect(utcDay(Date.UTC(2026, 10, 26, 23, 59, 59))).toBe("2026-11-26");
 	expect(utcDay(Date.UTC(2026, 10, 27, 0, 0, 1))).toBe("2026-11-27");
 });
+
+test("PGS38 a budget that throws or answers nonsense refuses the start", async () => {
+	const throwing = {
+		fetch: async () => {
+			throw new Error("the object is gone");
+		},
+	};
+	const refused = await refusalFor({
+		body: startFrame(),
+		budget: throwing,
+		cap: 1,
+		day: "2026-11-26",
+	});
+	expect(refused?.status).toBe(429);
+	expect((refused?.frame.error as { message?: string }).message).toContain("could not be read");
+
+	const nonsense = await refusalFor({
+		body: startFrame(),
+		budget: { fetch: async () => new Response("not json", { status: 200 }) },
+		cap: 1,
+		day: "2026-11-26",
+	});
+	expect(nonsense?.status).toBe(429);
+});

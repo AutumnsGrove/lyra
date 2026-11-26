@@ -493,3 +493,35 @@ test("PGS11 the body cap is bytes, not characters", async () => {
 	expect(((await response.json()) as { error: { code: string } }).error.code).toBe("bad_request");
 	expect(await index.index.list()).toEqual([]);
 });
+
+test("PGS40 a budget that cannot be read is a refusal, not a 500 with a stack", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		budget: {
+			idFromName: (name) => ({ toString: () => name }),
+			idFromString: (hex) => ({ toString: () => hex }),
+			newUniqueId: () => ({ toString: () => "b" }),
+			get: () => ({
+				fetch: async () => {
+					throw new Error("the object is gone");
+				},
+			}),
+		},
+		cap: 1,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	const status = await door(api("/api/cap", { token: TOKEN }));
+	expect(status.status).toBe(500);
+	expect(((await status.json()) as { error: { code: string } }).error.code).toBe("internal");
+
+	const spent = await door(
+		api("/api/spend", { method: "POST", token: TOKEN, body: { amount: 0.1 } }),
+	);
+	expect(spent.status).toBe(500);
+	expect(((await spent.json()) as { error: { code: string } }).error.code).toBe("internal");
+});

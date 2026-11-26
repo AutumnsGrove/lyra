@@ -21,6 +21,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   it matters.
 - **Money is rounded as it is added.** `0.2 + 0.1` is `0.30000000000000004`, and a cap compared against that
   is a cap that flickers; the budget keeps a millionth of a dollar as its smallest unit.
+- **Review found the undercount that decision 161's own design made easy.** A `run_end` carries the whole
+  run's usage, so a run that parks on an approval and resumes sends a cumulative total at each end; keying the
+  report "once per run" dropped everything spent after the answer. The page now reports the **difference** from
+  the last total per run, which is also why a replayed end adds nothing. The same round found a free failure
+  (no reply, no cost) latching the day unpriced — now only a run that made a model call and reported no cost
+  does — and the budget calls decoded rather than cast, so an object that throws is a refusal instead of a 500.
 - **The spend is reported by the page, and the decision says so.** The tighter design is the session
   reconciling its record after each run, which needs the object to watch runs to their end; that is a real seam
   and not one this rig has. The cost is stated in decision 161 and in `docs/playground.md` rather than hidden:

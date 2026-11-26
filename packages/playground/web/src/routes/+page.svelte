@@ -28,6 +28,7 @@
 		reduce,
 		saveToken,
 		sendCommand,
+		spendOf,
 		startRun,
 		watchEvents,
 		type Fetcher,
@@ -71,8 +72,8 @@
 	let drafts: Record<string, string> = {};
 	/** Today's spend and the cap, as the deployment counts them (slice 7). */
 	let cap: CapState | undefined = undefined;
-	/** The runs whose cost has already been reported, so a replay is not counted twice. */
-	let reported = new Set<string>();
+	/** The last total reported for each run, so a parked run's resume is counted once. */
+	let reported = new Map<string, number>();
 
 	const fetched: Fetcher = (url, init) => fetch(url, init);
 
@@ -409,36 +410,29 @@
 	}
 
 	/**
-	 * Tell the deployment what a run cost, once, when its end arrives.
+	 * Tell the deployment what a run cost, once per segment's worth, when its end arrives.
 	 *
-	 * `run_end` is where the cost is known, and the page is the client that sees it. A run
-	 * that reported no cost marks the day unpriced, which stops new runs until UTC
-	 * midnight rather than undercounting (decision 161).
+	 * A `run_end` reports the whole run's usage, so a run that parks and resumes carries a
+	 * cumulative total each time; `spendOf` gives the difference, which is also why a
+	 * replayed end adds nothing. A run that made no call and reported no cost adds nothing,
+	 * rather than latching the day unpriced (findings on #99).
 	 */
 	async function reportRun(event: StreamEvent): Promise<void> {
-		if (event["type"] !== "run_end" || token === undefined) {
+		if (token === undefined) {
 			return;
 		}
 		const run = typeof event["run"] === "string" ? event["run"] : "";
-		if (run !== "" && reported.has(run)) {
+		const report = spendOf(event, run === "" ? undefined : reported.get(run));
+		if (report === undefined) {
 			return;
 		}
-		if (run !== "") {
-			reported = new Set([...reported, run]);
+		if (report.amount !== undefined) {
+			reported = new Map(reported).set(report.run, (reported.get(report.run) ?? 0) + report.amount);
 		}
-		const usage = event["usage"];
-		const cost =
-			typeof usage === "object" && usage !== null && !Array.isArray(usage)
-				? (usage as Record<string, unknown>)["cost"]
-				: undefined;
-		const amount =
-			typeof cost === "object" && cost !== null && !Array.isArray(cost)
-				? (cost as Record<string, unknown>)["amount"]
-				: undefined;
 		const spent =
-			typeof amount === "number" && Number.isFinite(amount)
-				? await reportSpend({ base: "", token, fetcher: fetched, amount })
-				: await reportSpend({ base: "", token, fetcher: fetched, unpriced: true });
+			report.amount === undefined
+				? await reportSpend({ base: "", token, fetcher: fetched, unpriced: true })
+				: await reportSpend({ base: "", token, fetcher: fetched, amount: report.amount });
 		if (spent.ok) {
 			cap = spent.value;
 		}
