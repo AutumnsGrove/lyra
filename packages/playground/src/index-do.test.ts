@@ -205,3 +205,24 @@ test("PGS16 a rebuilt object lists what the one before it wrote", async () => {
 		sessions: [{ session: "abc", label: "kept", recipe: "shell", lastUsed: 7 }],
 	});
 });
+
+test("PGS13 a touch cannot blank the label the sidebar draws", async () => {
+	const { storage } = memoryIndex();
+	const index = new SessionIndex({ storage });
+	await index.fetch(
+		request("/create", { session: "a", label: "one", recipe: "shell", lastUsed: 1 }),
+	);
+
+	// A touch that carries a label means to change it, and a label that trims to nothing
+	// would draw a blank row nobody could click on purpose. The create path already
+	// refuses that, and a later route reaching the same field must refuse it too
+	// (found in review).
+	const blank = await index.fetch(request("/touch", { session: "a", lastUsed: 2, label: "   " }));
+	expect(blank.status).toBe(400);
+	expect((await body(blank))["error"]).toMatchObject({ code: "bad_request" });
+
+	// The label the conversation had is still the one it has.
+	const listed = await index.fetch(request("/list", undefined, "GET"));
+	const sessions = (await body(listed))["sessions"] as { label: string; lastUsed: number }[];
+	expect(sessions[0]).toMatchObject({ label: "one", lastUsed: 1 });
+});

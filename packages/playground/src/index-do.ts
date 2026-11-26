@@ -189,6 +189,12 @@ export class SessionIndex {
 			if (body["label"] !== undefined && label === undefined) {
 				return refusal(400, "bad_request", "a label is text");
 			}
+			// A label that trims to nothing is a blank sidebar row, which is the same
+			// refusal the create path makes rather than a value a page cannot click on
+			// purpose (found in review).
+			if (label === "") {
+				return refusal(400, "bad_request", "a label needs something to draw");
+			}
 			const touched = await this.touch({
 				session,
 				lastUsed,
