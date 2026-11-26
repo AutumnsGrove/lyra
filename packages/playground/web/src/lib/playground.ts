@@ -480,7 +480,40 @@ export type Row =
 			isError?: boolean;
 			durationMs?: number;
 	  }
+	/**
+	 * A person's card: an approval, a question or a choice (issue #60, slice 6).
+	 *
+	 * One row that fills in, like a call: the request arrives, the person answers (or
+	 * another client does), and the same row says what was decided. A card and its answer
+	 * as two rows would draw the question twice.
+	 */
+	| {
+			kind: "card";
+			request: string;
+			asks: RequestKind;
+			title: string;
+			message: string;
+			tool?: string;
+			args?: string;
+			options?: { id: string; label: string }[];
+			state: CardState;
+			/** What the person said, when there was something to say. */
+			answer?: string;
+	  }
+	/** A finished run's result for a person to decide (decision 52). */
+	| {
+			kind: "proposal";
+			proposal: string;
+			/** The payload as JSON text, because it is the task's shape and not the page's. */
+			payload: string;
+			evidence: string[];
+			state: "open" | "accepted" | "rejected";
+			note?: string;
+	  }
 	| { kind: "problem"; text: string };
+
+export type RequestKind = "approve" | "question" | "choice";
+export type CardState = "open" | "approved" | "denied" | "expired";
 
 /** What the page shows under the transcript. */
 export interface Status {
@@ -524,6 +557,40 @@ function stringOf(value: unknown): string | undefined {
 
 function numberOf(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function requestKindOf(value: unknown): RequestKind | undefined {
+	return value === "approve" || value === "question" || value === "choice" ? value : undefined;
+}
+
+function optionsOf(value: unknown): { id: string; label: string }[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+	const options: { id: string; label: string }[] = [];
+	for (const option of value) {
+		if (!isRecord(option)) {
+			continue;
+		}
+		const id = stringOf(option["id"]);
+		const label = stringOf(option["label"]);
+		if (id !== undefined && label !== undefined) {
+			options.push({ id, label });
+		}
+	}
+	return options.length === 0 ? undefined : options;
+}
+
+/** A proposal's payload as the page can draw it: the task's JSON, as text. */
+function payloadOf(value: unknown): string {
+	return JSON.stringify(value) ?? "null";
+}
+
+function evidenceOf(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.map((item) => (typeof item === "string" ? item : JSON.stringify(item)));
 }
 
 /**
@@ -610,6 +677,102 @@ export function reduce(state: Transcript, event: StreamEvent): Transcript {
 			});
 			return matched ? { ...state, rows } : state;
 		}
+		case "ui_request": {
+			const request = stringOf(event["request"]);
+			const asks = requestKindOf(event["kind"]);
+			if (request === undefined || asks === undefined) {
+				return state;
+			}
+			const tool = stringOf(event["tool"]);
+			const args = stringOf(event["args"]);
+			const options = optionsOf(event["options"]);
+			return {
+				...state,
+				rows: [
+					...state.rows,
+					{
+						kind: "card",
+						request,
+						asks,
+						title: stringOf(event["title"]) ?? "the run needs you",
+						message: stringOf(event["message"]) ?? "",
+						...(tool === undefined ? {} : { tool }),
+						...(args === undefined ? {} : { args }),
+						...(options === undefined ? {} : { options }),
+						state: "open",
+					},
+				],
+			};
+		}
+		case "ui_resolved": {
+			const request = stringOf(event["request"]);
+			if (request === undefined) {
+				return state;
+			}
+			const decision = event["decision"] === "approve" ? "approved" : "denied";
+			const note = stringOf(event["note"]);
+			return {
+				...state,
+				rows: state.rows.map((row) =>
+					row.kind === "card" && row.request === request && row.state === "open"
+						? {
+								...row,
+								state: decision,
+								...(note === undefined ? {} : { answer: note }),
+							}
+						: row,
+				),
+			};
+		}
+		case "ui_expired": {
+			const request = stringOf(event["request"]);
+			if (request === undefined) {
+				return state;
+			}
+			return {
+				...state,
+				rows: state.rows.map((row) =>
+					row.kind === "card" && row.request === request && row.state === "open"
+						? { ...row, state: "expired" }
+						: row,
+				),
+			};
+		}
+		case "proposal": {
+			const proposal = stringOf(event["proposal"]);
+			if (proposal === undefined) {
+				return state;
+			}
+			return {
+				...state,
+				rows: [
+					...state.rows,
+					{
+						kind: "proposal",
+						proposal,
+						payload: payloadOf(event["payload"]),
+						evidence: evidenceOf(event["evidence"]),
+						state: "open",
+					},
+				],
+			};
+		}
+		case "proposal_decided": {
+			const proposal = stringOf(event["proposal"]);
+			if (proposal === undefined) {
+				return state;
+			}
+			const decision = event["decision"] === "accept" ? "accepted" : "rejected";
+			const note = stringOf(event["note"]);
+			return {
+				...state,
+				rows: state.rows.map((row) =>
+					row.kind === "proposal" && row.proposal === proposal && row.state === "open"
+						? { ...row, state: decision, ...(note === undefined ? {} : { note }) }
+						: row,
+				),
+			};
+		}
 		case "run_end": {
 			const reason = stringOf(event["reason"]) ?? "failed";
 			const parked = stringOf(event["parkedReason"]);
@@ -653,4 +816,201 @@ export function reduce(state: Transcript, event: StreamEvent): Transcript {
 		default:
 			return state;
 	}
+}
+
+/** One POST to the protocol's surface, with the frame's answer decoded the same way. */
+async function postFrame(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	path: string;
+	frame: Record<string, unknown>;
+}): Promise<{ ok: true; data: unknown } | { ok: false; error: Refusal }> {
+	let response: Response;
+	try {
+		response = await options.fetcher(`${options.base}${options.path}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${options.token}`,
+				"x-lyra-version": "1",
+			},
+			body: JSON.stringify(options.frame),
+		});
+	} catch (error) {
+		return {
+			ok: false,
+			error: {
+				code: "network_error",
+				message: error instanceof Error ? error.message : "the request could not be sent",
+				status: 0,
+			},
+		};
+	}
+
+	const body: unknown = await response.json().catch(() => undefined);
+	const frame: ResponseFrame = isRecord(body) ? body : {};
+	if (!response.ok || frame.ok !== true) {
+		const code =
+			isRecord(frame.error) && typeof frame.error.code === "string"
+				? frame.error.code
+				: "internal";
+		const message =
+			isRecord(frame.error) && typeof frame.error.message === "string"
+				? frame.error.message
+				: `the server answered ${response.status}`;
+		return { ok: false, error: { code, message, status: response.status } };
+	}
+	return { ok: true, data: frame.data };
+}
+
+/**
+ * Answer a request: an approval's yes or no, a question's text, or a choice's ids.
+ *
+ * One frame, because that is the whole of what an answer is. The refusals are what a page
+ * has to draw honestly: `conflict` is a second answer (somebody got there first),
+ * `not_found` is an id that expired, and both mean the card should close rather than
+ * nag.
+ */
+export async function answerRequest(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	session: string;
+	request: string;
+	ok: boolean;
+	note?: string;
+	text?: string;
+	ids?: string[];
+	id: string;
+}): Promise<{ ok: true } | { ok: false; error: Refusal }> {
+	const answered = await postFrame({
+		base: options.base,
+		token: options.token,
+		fetcher: options.fetcher,
+		path: "/v1/ui_response",
+		frame: {
+			type: "ui_response",
+			id: options.id,
+			request: options.request,
+			session: options.session,
+			ok: options.ok,
+			...(options.note === undefined ? {} : { note: options.note }),
+			...(options.text === undefined ? {} : { text: options.text }),
+			...(options.ids === undefined ? {} : { ids: options.ids }),
+		},
+	});
+	return answered.ok ? { ok: true } : answered;
+}
+
+/** Decide a proposal: accept or reject, with the note the model would read. */
+export async function decideProposal(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	session: string;
+	proposal: string;
+	decision: "accept" | "reject";
+	note?: string;
+	id: string;
+}): Promise<{ ok: true } | { ok: false; error: Refusal }> {
+	const decided = await postFrame({
+		base: options.base,
+		token: options.token,
+		fetcher: options.fetcher,
+		path: "/v1/commands",
+		frame: {
+			type: "command",
+			id: options.id,
+			command: "decide_proposal",
+			proposal: options.proposal,
+			decision: options.decision,
+			...(options.note === undefined ? {} : { note: options.note }),
+			session: options.session,
+		},
+	});
+	return decided.ok ? { ok: true } : decided;
+}
+
+/**
+ * The cards a session can answer right now (CMD09).
+ *
+ * The record already holds every request, so a rebuild shows them; this is the other
+ * half, and the one that matters when the page's record read stopped at its page cap or
+ * the object was rebuilt under it: the server is asked what can be answered *now*.
+ */
+export async function pendingCards(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	session: string;
+	id: string;
+}): Promise<{ ok: true; value: { cards: Row[] } } | { ok: false; error: Refusal }> {
+	const listed = await postFrame({
+		base: options.base,
+		token: options.token,
+		fetcher: options.fetcher,
+		path: "/v1/commands",
+		frame: {
+			type: "command",
+			id: options.id,
+			command: "list_pending",
+			session: options.session,
+		},
+	});
+	if (!listed.ok) {
+		return listed;
+	}
+	const data = isRecord(listed.data) ? listed.data : undefined;
+	const requests = data?.["requests"];
+	const proposals = data?.["proposals"];
+	if (!Array.isArray(requests) || !Array.isArray(proposals)) {
+		return {
+			ok: false,
+			error: { code: "internal", message: "the answer had no pending list", status: 200 },
+		};
+	}
+
+	const cards: Row[] = [];
+	for (const entry of requests) {
+		if (!isRecord(entry)) {
+			continue;
+		}
+		const request = stringOf(entry["request"]);
+		const asks = requestKindOf(entry["kind"]);
+		if (request === undefined || asks === undefined) {
+			continue;
+		}
+		const tool = stringOf(entry["tool"]);
+		const args = stringOf(entry["args"]);
+		const options = optionsOf(entry["options"]);
+		cards.push({
+			kind: "card",
+			request,
+			asks,
+			title: stringOf(entry["title"]) ?? "the run needs you",
+			message: stringOf(entry["message"]) ?? "",
+			...(tool === undefined ? {} : { tool }),
+			...(args === undefined ? {} : { args }),
+			...(options === undefined ? {} : { options }),
+			state: "open",
+		});
+	}
+	for (const entry of proposals) {
+		if (!isRecord(entry)) {
+			continue;
+		}
+		const proposal = stringOf(entry["proposal"]);
+		if (proposal === undefined) {
+			continue;
+		}
+		cards.push({
+			kind: "proposal",
+			proposal,
+			payload: payloadOf(entry["payload"]),
+			evidence: evidenceOf(entry["evidence"]),
+			state: "open",
+		});
+	}
+	return { ok: true, value: { cards } };
 }

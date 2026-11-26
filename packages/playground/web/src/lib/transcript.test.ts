@@ -196,3 +196,67 @@ test("PGS25 a repeated call id fills the same row a reload as it did live", () =
 	]);
 	expect(live.rows[0]).toMatchObject({ at: 1_000, durationMs: 1_500 });
 });
+
+test("PGS36 a reload shows the cards the record holds, answered or not", () => {
+	// The page's rebuild is from the record, so a card raised while the tab was closed is
+	// drawn on load — open if nobody answered, and closed with the answer if somebody did.
+	const transcript = transcriptFrom([
+		{ type: "header" },
+		{
+			type: "request",
+			request: "r1",
+			kind: "approve",
+			title: "keep it?",
+			message: "keep a note",
+			tool: "notes_write",
+			args: "{}",
+		},
+		{ type: "request_answered", request: "r1", decision: "deny", note: "no" },
+		{
+			type: "request",
+			request: "r2",
+			kind: "choice",
+			title: "which?",
+			message: "pick one",
+			options: [{ id: "a", label: "the first" }],
+		},
+		{
+			type: "proposal",
+			proposal: "p1",
+			payload: { summary: "x" },
+			evidence: ["one"],
+			state: "open",
+		},
+		{ type: "proposal_decided", proposal: "p1", decision: "accept", note: "good" },
+	]);
+
+	expect(transcript.rows.map((row) => row.kind)).toEqual(["card", "card", "proposal"]);
+	expect(transcript.rows[0]).toMatchObject({
+		request: "r1",
+		asks: "approve",
+		tool: "notes_write",
+		state: "denied",
+		answer: "no",
+	});
+	expect(transcript.rows[1]).toMatchObject({
+		request: "r2",
+		asks: "choice",
+		state: "open",
+		options: [{ id: "a", label: "the first" }],
+	});
+	expect(transcript.rows[2]).toMatchObject({
+		proposal: "p1",
+		payload: '{"summary":"x"}',
+		evidence: ["one"],
+		state: "accepted",
+		note: "good",
+	});
+});
+
+test("PGS36 a request the clock answered reads expired, not open", () => {
+	const transcript = transcriptFrom([
+		{ type: "request", request: "r1", kind: "question", title: "which?", message: "which?" },
+		{ type: "request_answered", request: "r1", decision: "deny", timedOut: true },
+	]);
+	expect(transcript.rows[0]).toMatchObject({ kind: "card", state: "expired" });
+});

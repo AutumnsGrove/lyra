@@ -165,6 +165,104 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 				}
 				break;
 			}
+			case "request": {
+				const request = stringOf(entry["request"]);
+				const asks = stringOf(entry["kind"]);
+				if (request === undefined || asks === undefined) {
+					break;
+				}
+				const tool = stringOf(entry["tool"]);
+				const args = stringOf(entry["args"]);
+				const options = Array.isArray(entry["options"])
+					? entry["options"].flatMap((option) => {
+							if (!isRecord(option)) {
+								return [];
+							}
+							const id = stringOf(option["id"]);
+							const label = stringOf(option["label"]);
+							return id === undefined || label === undefined ? [] : [{ id, label }];
+						})
+					: undefined;
+				rows.push({
+					kind: "card",
+					request,
+					asks: asks === "approve" || asks === "choice" ? asks : "question",
+					title: stringOf(entry["title"]) ?? "the run needs you",
+					message: stringOf(entry["message"]) ?? "",
+					...(tool === undefined ? {} : { tool }),
+					...(args === undefined ? {} : { args }),
+					...(options === undefined || options.length === 0 ? {} : { options }),
+					state: "open",
+				});
+				break;
+			}
+			case "request_answered": {
+				const request = stringOf(entry["request"]);
+				if (request === undefined) {
+					break;
+				}
+				const state =
+					entry["timedOut"] === true
+						? "expired"
+						: entry["decision"] === "approve"
+							? "approved"
+							: "denied";
+				const answer = stringOf(entry["text"]) ?? stringOf(entry["note"]);
+				for (let index = 0; index < rows.length; index += 1) {
+					const row = rows[index];
+					if (
+						row !== undefined &&
+						row.kind === "card" &&
+						row.request === request &&
+						row.state === "open"
+					) {
+						rows[index] = {
+							...row,
+							state,
+							...(answer === undefined ? {} : { answer }),
+						};
+					}
+				}
+				break;
+			}
+			case "proposal": {
+				const proposal = stringOf(entry["proposal"]);
+				if (proposal === undefined) {
+					break;
+				}
+				rows.push({
+					kind: "proposal",
+					proposal,
+					payload: JSON.stringify(entry["payload"]) ?? "null",
+					evidence: Array.isArray(entry["evidence"])
+						? entry["evidence"].map((item) =>
+								typeof item === "string" ? item : JSON.stringify(item),
+							)
+						: [],
+					state: "open",
+				});
+				break;
+			}
+			case "proposal_decided": {
+				const proposal = stringOf(entry["proposal"]);
+				if (proposal === undefined) {
+					break;
+				}
+				const state = entry["decision"] === "accept" ? "accepted" : "rejected";
+				const note = stringOf(entry["note"]);
+				for (let index = 0; index < rows.length; index += 1) {
+					const row = rows[index];
+					if (
+						row !== undefined &&
+						row.kind === "proposal" &&
+						row.proposal === proposal &&
+						row.state === "open"
+					) {
+						rows[index] = { ...row, state, ...(note === undefined ? {} : { note }) };
+					}
+				}
+				break;
+			}
 			case "status": {
 				const state = stateOf(stringOf(entry["state"]));
 				const detail = detailOf(entry);

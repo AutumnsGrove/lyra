@@ -559,3 +559,186 @@ test("PGS24 a call with no result reads unfinished once the run has ended", asyn
 	});
 	expect(await screen.findByText(/no result: the run moved on or was stopped/)).toBeTruthy();
 });
+
+/**
+ * The cards (issue #60, slice 6). A parked run is a dead end until a person can answer
+ * it, which is what these prove through the page a person actually loads.
+ */
+function parkedSession(entries: readonly Record<string, unknown>[], pending?: unknown): Route[] {
+	return loaded([
+		{
+			method: "GET",
+			path: "/api/sessions",
+			answer: () =>
+				json({
+					sessions: [
+						{
+							session: "s_1",
+							label: "a parked run",
+							recipe: "tool-table",
+							lastUsed: 1,
+						},
+					],
+				}),
+		},
+		{
+			method: "POST",
+			path: "/v1/commands",
+			answer: (body) => {
+				const command = (body as { command?: string }).command;
+				if (command === "get_messages") {
+					return json({ type: "response", ok: true, data: { entries, cursor: null } });
+				}
+				if (command === "list_pending") {
+					return json({
+						type: "response",
+						ok: true,
+						data: pending ?? { requests: [], proposals: [] },
+					});
+				}
+				return frame();
+			},
+		},
+		{ method: "POST", path: "/v1/ui_response", answer: () => frame() },
+		{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+	]);
+}
+
+test("PGS33 an approval is approved or denied from the page, with its note", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	const stubbed = stubFetch(
+		parkedSession([
+			{
+				type: "request",
+				request: "r1",
+				kind: "approve",
+				title: "keep a note?",
+				message: "notes_write wants to keep a note",
+				tool: "notes_write",
+				args: "{}",
+			},
+			{ type: "status", state: "parked", reason: "waiting_for_person" },
+		]),
+	);
+	render(Page);
+
+	// The card is on load, from the record: the run parked while the page was closed and
+	// the person can still answer it (REQ02).
+	// Wait on the card itself, not on its title: the record panel holds the same text in
+	// its JSON, so a text match can resolve before the transcript has been drawn.
+	await fireEvent.input(await screen.findByLabelText("Note"), {
+		target: { value: "only this one" },
+	});
+	await fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+	await waitFor(() => {
+		const answer = stubbed.calls.find((call) => call.path === "/v1/ui_response");
+		expect(answer?.body).toMatchObject({
+			type: "ui_response",
+			request: "r1",
+			session: "s_1",
+			ok: true,
+			note: "only this one",
+		});
+	});
+	// The card closes in place rather than staying a live button.
+	await waitFor(() => expect(screen.getByText(/^approved/)).toBeTruthy());
+});
+
+test("PGS33 a question is answered with text, and a choice with an id", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	const stubbed = stubFetch(
+		parkedSession([
+			{
+				type: "request",
+				request: "r1",
+				kind: "question",
+				title: "which?",
+				message: "which note should I read?",
+			},
+			{
+				type: "request",
+				request: "r2",
+				kind: "choice",
+				title: "pick one",
+				message: "pick a shelf",
+				options: [{ id: "a", label: "the first" }],
+			},
+		]),
+	);
+	render(Page);
+
+	await fireEvent.input(await screen.findByLabelText("Answer"), {
+		target: { value: "the milk one" },
+	});
+	await fireEvent.click(screen.getByRole("button", { name: "Send answer" }));
+	await waitFor(() => {
+		const answer = stubbed.calls.find(
+			(call) =>
+				call.path === "/v1/ui_response" &&
+				(call.body as { request?: string })?.request === "r1",
+		);
+		expect(answer?.body).toMatchObject({ ok: true, text: "the milk one" });
+	});
+
+	await fireEvent.click(await screen.findByRole("button", { name: "the first" }));
+	await waitFor(() => {
+		const answer = stubbed.calls.find(
+			(call) =>
+				call.path === "/v1/ui_response" &&
+				(call.body as { request?: string })?.request === "r2",
+		);
+		expect(answer?.body).toMatchObject({ ok: true, ids: ["a"] });
+	});
+});
+
+test("PGS34 a proposal is accepted from the page", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	const stubbed = stubFetch(
+		parkedSession([
+			{
+				type: "proposal",
+				proposal: "p1",
+				payload: { summary: "the notes are kept" },
+				evidence: ["the record"],
+				state: "open",
+			},
+		]),
+	);
+	render(Page);
+
+	await fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+	await waitFor(() => {
+		const decided = stubbed.calls.find(
+			(call) => (call.body as { command?: string })?.command === "decide_proposal",
+		);
+		expect(decided?.body).toMatchObject({ proposal: "p1", decision: "accept", session: "s_1" });
+	});
+	await waitFor(() => expect(screen.getByText(/^accepted/)).toBeTruthy());
+});
+
+test("PGS35 a card the record read missed is asked for and drawn", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	stubFetch(
+		parkedSession([], {
+			requests: [
+				{
+					request: "r9",
+					kind: "question",
+					title: "still here",
+					message: "a card from list_pending",
+				},
+			],
+			proposals: [],
+		}),
+	);
+	render(Page);
+
+	// The record held no request (its read may have stopped at a page cap), so only
+	// `list_pending` knows the run is waiting — and it is drawn.
+	expect(await screen.findByText(/a card from list_pending/)).toBeTruthy();
+});

@@ -2,8 +2,11 @@ import { expect, test } from "vitest";
 
 import {
 	EMPTY_TRANSCRIPT,
+	answerRequest,
 	callState,
 	clearToken,
+	decideProposal,
+	pendingCards,
 	readRecord,
 	readToken,
 	reduce,
@@ -611,4 +614,275 @@ test("PGS24 a call's badge says what happened, and an unfinished call says so", 
 	}
 	expect(callState(answered, "running")).toBe("done");
 	expect(callState({ ...answered, isError: true }, "done")).toBe("error");
+});
+
+test("PGS32 a request and a proposal arrive as cards, and are closed by their answers", () => {
+	let transcript = reduce(EMPTY_TRANSCRIPT, {
+		type: "ui_request",
+		request: "r1",
+		kind: "approve",
+		title: "keep a note?",
+		message: "notes_write wants to keep a note",
+		tool: "notes_write",
+		args: '{"name":"milk"}',
+	});
+	transcript = reduce(transcript, {
+		type: "proposal",
+		proposal: "p1",
+		payload: { summary: "done" },
+		evidence: ["the record"],
+		state: "open",
+	});
+
+	expect(transcript.rows).toEqual([
+		{
+			kind: "card",
+			request: "r1",
+			asks: "approve",
+			title: "keep a note?",
+			message: "notes_write wants to keep a note",
+			tool: "notes_write",
+			args: '{"name":"milk"}',
+			state: "open",
+		},
+		{
+			kind: "proposal",
+			proposal: "p1",
+			payload: '{"summary":"done"}',
+			evidence: ["the record"],
+			state: "open",
+		},
+	]);
+
+	// A second client's answer, and the person's own decision, both close the card in
+	// place: a card is one row, like a call, not a card and a result.
+	transcript = reduce(transcript, {
+		type: "ui_resolved",
+		request: "r1",
+		decision: "deny",
+		note: "not that note",
+	});
+	transcript = reduce(transcript, {
+		type: "proposal_decided",
+		proposal: "p1",
+		decision: "accept",
+		note: "good",
+	});
+	expect(transcript.rows[0]).toMatchObject({ state: "denied", answer: "not that note" });
+	expect(transcript.rows[1]).toMatchObject({ state: "accepted", note: "good" });
+
+	// An expired request is closed too, and a request or decision the page does not hold
+	// changes nothing rather than inventing a row.
+	transcript = reduce(transcript, { type: "ui_expired", request: "r2" });
+	expect(transcript.rows).toHaveLength(2);
+});
+
+test("PGS33 an answer is one ui_response frame, and a refusal keeps its code", async () => {
+	const sent: unknown[] = [];
+	const fetcher: Fetcher = async (_url, init) => {
+		sent.push(JSON.parse(String(init?.body)));
+		return frameResponse({ type: "response", ok: true, data: {} });
+	};
+
+	const approved = await answerRequest({
+		base: "",
+		token: "t",
+		fetcher,
+		session: "s_1",
+		request: "r1",
+		ok: true,
+		id: "a1",
+	});
+	expect(approved).toEqual({ ok: true });
+
+	const denied = await answerRequest({
+		base: "",
+		token: "t",
+		fetcher,
+		session: "s_1",
+		request: "r1",
+		ok: false,
+		note: "no, keep it",
+		id: "a2",
+	});
+	expect(denied).toEqual({ ok: true });
+
+	expect(sent).toEqual([
+		{ type: "ui_response", id: "a1", request: "r1", session: "s_1", ok: true },
+		{
+			type: "ui_response",
+			id: "a2",
+			request: "r1",
+			session: "s_1",
+			ok: false,
+			note: "no, keep it",
+		},
+	]);
+
+	const conflict = await answerRequest({
+		base: "",
+		token: "t",
+		fetcher: async () =>
+			frameResponse(
+				{
+					type: "response",
+					ok: false,
+					error: { code: "conflict", message: "already answered" },
+				},
+				409,
+			),
+		session: "s_1",
+		request: "r1",
+		ok: true,
+		id: "a3",
+	});
+	expect(conflict).toEqual({
+		ok: false,
+		error: { code: "conflict", message: "already answered", status: 409 },
+	});
+});
+
+test("PGS33 a question's answer is its text, and a choice's is its ids", async () => {
+	const sent: unknown[] = [];
+	const fetcher: Fetcher = async (_url, init) => {
+		sent.push(JSON.parse(String(init?.body)));
+		return frameResponse({ type: "response", ok: true, data: {} });
+	};
+
+	await answerRequest({
+		base: "",
+		token: "t",
+		fetcher,
+		session: "s_1",
+		request: "r2",
+		ok: true,
+		text: "the second one",
+		id: "a1",
+	});
+	await answerRequest({
+		base: "",
+		token: "t",
+		fetcher,
+		session: "s_1",
+		request: "r3",
+		ok: true,
+		ids: ["b"],
+		id: "a2",
+	});
+	expect(sent).toEqual([
+		{
+			type: "ui_response",
+			id: "a1",
+			request: "r2",
+			session: "s_1",
+			ok: true,
+			text: "the second one",
+		},
+		{ type: "ui_response", id: "a2", request: "r3", session: "s_1", ok: true, ids: ["b"] },
+	]);
+});
+
+test("PGS34 a proposal is decided by id, once, and a second decision is a conflict", async () => {
+	const sent: unknown[] = [];
+	const fetcher: Fetcher = async (_url, init) => {
+		sent.push(JSON.parse(String(init?.body)));
+		return frameResponse({ type: "response", ok: true, data: {} });
+	};
+	const decided = await decideProposal({
+		base: "",
+		token: "t",
+		fetcher,
+		session: "s_1",
+		proposal: "p1",
+		decision: "reject",
+		note: "not yet",
+		id: "d1",
+	});
+	expect(decided).toEqual({ ok: true });
+	expect(sent[0]).toEqual({
+		type: "command",
+		id: "d1",
+		command: "decide_proposal",
+		proposal: "p1",
+		decision: "reject",
+		note: "not yet",
+		session: "s_1",
+	});
+});
+
+test("PGS35 list_pending returns the cards the page has to show", async () => {
+	const asked: unknown[] = [];
+	const pending = await pendingCards({
+		base: "",
+		token: "t",
+		fetcher: async (_url, init) => {
+			asked.push(JSON.parse(String(init?.body)));
+			return frameResponse({
+				type: "response",
+				ok: true,
+				data: {
+					requests: [
+						{
+							request: "r1",
+							kind: "question",
+							title: "which?",
+							message: "which note?",
+							options: [{ id: "a", label: "the first" }],
+						},
+					],
+					proposals: [
+						{
+							proposal: "p1",
+							payload: { summary: "x" },
+							evidence: ["one"],
+							state: "open",
+						},
+					],
+				},
+			});
+		},
+		session: "s_1",
+		id: "l1",
+	});
+
+	expect(asked[0]).toEqual({
+		type: "command",
+		id: "l1",
+		command: "list_pending",
+		session: "s_1",
+	});
+	expect(pending).toMatchObject({
+		ok: true,
+		value: {
+			cards: [
+				{
+					kind: "card",
+					request: "r1",
+					asks: "question",
+					title: "which?",
+					message: "which note?",
+					options: [{ id: "a", label: "the first" }],
+					state: "open",
+				},
+				{
+					kind: "proposal",
+					proposal: "p1",
+					payload: '{"summary":"x"}',
+					evidence: ["one"],
+					state: "open",
+				},
+			],
+		},
+	});
+
+	// A reply with neither list is a message rather than a page with no cards, which is
+	// the difference between "nothing to answer" and "the answer was not understood".
+	const broken = await pendingCards({
+		base: "",
+		token: "t",
+		fetcher: async () => frameResponse({ type: "response", ok: true, data: {} }),
+		session: "s_1",
+		id: "l2",
+	});
+	expect(broken).toMatchObject({ ok: false, error: { code: "internal" } });
 });
