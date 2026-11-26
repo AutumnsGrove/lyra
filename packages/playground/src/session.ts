@@ -15,8 +15,10 @@ import {
 } from "@autumnsgrove/lyra/cloudflare";
 import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
+import { refusalResponse } from "@autumnsgrove/lyra";
 import { capFrom, refusalFor, socketRefusal, utcDay } from "./cap.js";
 import { modelFor } from "./model.js";
+import { decodeScript, tokenMatches, type ScriptTurn } from "./script.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
@@ -28,6 +30,12 @@ export interface Env {
 	BUDGET: DurableObjectNamespace;
 	/** The day's cap in dollars. Unset means no cap. */
 	LYRA_PLAYGROUND_DAY_CAP_USD?: string | undefined;
+	/** The tenant a scripted smoke run may use, named so it cannot be a person's. */
+	LYRA_PLAYGROUND_SMOKE_TENANT?: string | undefined;
+	/** That tenant's bearer token, a second credential that can only run scripts. */
+	LYRA_PLAYGROUND_SMOKE_TOKEN?: string | undefined;
+	/** The token a smoke request's `x-lyra-script` header must carry. Unset refuses it. */
+	LYRA_PLAYGROUND_SCRIPT_TOKEN?: string | undefined;
 	/**
 	 * Optional because a secret that was never set arrives as `undefined`, whatever the
 	 * type says: the binding is created by `wrangler secret put`, and nothing makes that
@@ -61,13 +69,44 @@ export function tokensFrom(env: Env): Readonly<Record<string, string>> {
 	if (typeof tenant !== "string" || tenant === "" || typeof token !== "string" || token === "") {
 		return {};
 	}
-	return { [tenant]: token };
+	const tokens: Record<string, string> = { [tenant]: token };
+
+	// A smoke run gets its own tenant and its own token, so a script cannot reach a person's
+	// conversation: the tenant is never taken from the header, and this is the only tenant
+	// scripts are allowed for (PGS42). A smoke tenant that is the person's tenant, or a pair
+	// with one half missing, binds nothing extra rather than widening the door.
+	const smokeTenant = env.LYRA_PLAYGROUND_SMOKE_TENANT;
+	const smokeToken = env.LYRA_PLAYGROUND_SMOKE_TOKEN;
+	if (
+		typeof smokeTenant === "string" &&
+		smokeTenant !== "" &&
+		smokeTenant !== tenant &&
+		typeof smokeToken === "string" &&
+		smokeToken !== ""
+	) {
+		tokens[smokeTenant] = smokeToken;
+	}
+	return tokens;
+}
+
+/**
+ * The tenant this request may run a script as, or nothing.
+ *
+ * A script is only ever for the smoke tenant, and only when the header carries the script
+ * token exactly. The tenant is the one the bearer token resolved to, never a header.
+ */
+export function smokeTenantOf(env: Env, tenant: string): string | undefined {
+	const smokeTenant = env.LYRA_PLAYGROUND_SMOKE_TENANT;
+	if (typeof smokeTenant !== "string" || smokeTenant === "") {
+		return undefined;
+	}
+	return tenant === smokeTenant ? tenant : undefined;
 }
 
 /** The host's half of the session, which is what a later slice varies by model source. */
 export function sessionOptions(
 	env: Env,
-	deps: { fetch?: FetchLike } = {},
+	deps: { fetch?: FetchLike; script?: () => readonly ScriptTurn[] | undefined } = {},
 ): CloudflareSessionOptions {
 	// One clock for the loop and the model, so a deadline and a record timestamp agree.
 	const clock = systemClock();
@@ -75,7 +114,11 @@ export function sessionOptions(
 		// The same `fetch` the model uses: a test supplies one, and a deployment gets the
 		// Worker's own, so a run's network is whatever the host chose and nothing else.
 		recipes: recipeCatalogue(clock, deps.fetch === undefined ? {} : { fetch: deps.fetch }),
-		model: modelFor(env, { clock, ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }) }),
+		model: modelFor(env, {
+			clock,
+			...(deps.fetch === undefined ? {} : { fetch: deps.fetch }),
+			...(deps.script === undefined ? {} : { script: deps.script }),
+		}),
 		clock,
 		ids: systemIds(),
 		tokens: tokensFrom(env),
@@ -85,6 +128,8 @@ export function sessionOptions(
 
 export class Session implements DurableObject {
 	#session: CloudflareSession | undefined;
+	/** The turns a scripted smoke run asks in place of a model, held for the run it started. */
+	#script: ScriptTurn[] | undefined;
 
 	constructor(
 		private readonly ctx: DurableObjectState,
@@ -92,11 +137,21 @@ export class Session implements DurableObject {
 	) {}
 
 	#build(): CloudflareSession {
-		this.#session ??= createCloudflareSession(this.ctx, sessionOptions(this.env));
+		this.#session ??= createCloudflareSession(
+			this.ctx,
+			sessionOptions(this.env, { script: () => this.#script }),
+		);
 		return this.#session;
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// The script boundary first: a request carrying the header is either a smoke run
+		// from the smoke tenant or a refusal, and a deployment with no token refuses it
+		// rather than quietly falling back to the real model (PGS42).
+		const scripted = await this.#scriptRefusal(request);
+		if (scripted !== undefined) {
+			return scripted;
+		}
 		// The cap is checked before the command reaches the session: nothing starts, no
 		// record is written and no model is asked when the day is over (decision 161).
 		const refused = await this.#capRefusal(request);
@@ -104,6 +159,73 @@ export class Session implements DurableObject {
 			return refused;
 		}
 		return this.#build().fetch(request);
+	}
+
+	/**
+	 * The script boundary, or nothing when the request carries no header.
+	 *
+	 * A matching token from the smoke tenant replaces the model with the header's turns; any
+	 * other request carrying the header is `permission_denied` (403, the command surface's
+	 * refusal) and malformed turns are `bad_request`, both before anything runs.
+	 */
+	async #scriptRefusal(request: Request): Promise<Response | undefined> {
+		const header = request.headers.get("x-lyra-script");
+		if (header === null) {
+			return undefined;
+		}
+		// The script travels in `x-lyra-script` and the token in `x-lyra-script-token`: one
+		// header cannot be both the turns and the secret that opens the door, and the plan's
+		// two rules — the token compared exactly, a script that is not JSON refused — both
+		// have to hold.
+		const presented = request.headers.get("x-lyra-script-token") ?? "";
+		if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/commands") {
+			return undefined;
+		}
+
+		let tenant: string | undefined;
+		try {
+			tenant = await this.#tenantFor(request);
+		} catch {
+			tenant = undefined;
+		}
+		const expected = this.env.LYRA_PLAYGROUND_SCRIPT_TOKEN;
+		const allowed =
+			typeof expected === "string" &&
+			expected !== "" &&
+			tenant !== undefined &&
+			smokeTenantOf(this.env, tenant) !== undefined &&
+			tokenMatches(expected, presented);
+		if (!allowed) {
+			return refusalResponse(
+				"permission_denied",
+				"a scripted run needs the smoke tenant and the script token",
+			);
+		}
+
+		const script = decodeScript(header);
+		if (!script.ok) {
+			return refusalResponse("bad_request", script.error.message);
+		}
+		// A fresh session, so the model this request runs is the script rather than one the
+		// object already built for a real run.
+		this.#script = script.value;
+		this.#session = undefined;
+		return undefined;
+	}
+
+	/** Which tenant the request's bearer belongs to, through the same map the door uses. */
+	async #tenantFor(request: Request): Promise<string | undefined> {
+		const header = request.headers.get("authorization");
+		if (header === null || !header.startsWith("Bearer ")) {
+			return undefined;
+		}
+		const presented = header.slice("Bearer ".length);
+		for (const [tenant, token] of Object.entries(tokensFrom(this.env))) {
+			if (tokenMatches(token, presented)) {
+				return tenant;
+			}
+		}
+		return undefined;
 	}
 
 	/**

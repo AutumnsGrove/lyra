@@ -163,3 +163,34 @@ test("PGS02 the placeholder model asks to finish rather than pretending to work"
 	expect(reply.value.usage).toStrictEqual({ inputTokens: 0, outputTokens: 0 });
 	expect(reply.value.model).toBe(PLACEHOLDER_MODEL_NAME);
 });
+
+test("PGS42 a smoke tenant has its own token, and can never be the person's tenant", () => {
+	const base = env();
+	const token = "a-playground-token-for-a-test";
+
+	expect(
+		tokensFrom({
+			...base,
+			LYRA_PLAYGROUND_SMOKE_TENANT: "smoke",
+			LYRA_PLAYGROUND_SMOKE_TOKEN: "the-smoke-token",
+		}),
+	).toEqual({ playground: token, smoke: "the-smoke-token" });
+
+	// A smoke tenant that is the person's tenant would let a script into their conversation,
+	// so the pair binds nothing extra rather than widening the door.
+	expect(
+		tokensFrom({
+			...base,
+			LYRA_PLAYGROUND_SMOKE_TENANT: "playground",
+			LYRA_PLAYGROUND_SMOKE_TOKEN: "the-smoke-token",
+		}),
+	).toEqual({ playground: token });
+
+	// And half a pair is not a pair.
+	expect(tokensFrom({ ...base, LYRA_PLAYGROUND_SMOKE_TENANT: "smoke" })).toEqual({
+		playground: token,
+	});
+	expect(tokensFrom({ ...base, LYRA_PLAYGROUND_SMOKE_TOKEN: "the-smoke-token" })).toEqual({
+		playground: token,
+	});
+});

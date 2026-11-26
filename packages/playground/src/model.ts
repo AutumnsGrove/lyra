@@ -18,6 +18,8 @@
 import type { Clock, ModelError, ModelSlot, Result, SecretsSlot } from "@autumnsgrove/lyra";
 import { openRouter, type FetchLike } from "@autumnsgrove/lyra/openai";
 
+import { scriptedSlot, type ScriptTurn } from "./script.js";
+
 import type { Env } from "./session.js";
 
 /** The name every placeholder reply reports, so the record shows which model answered. */
@@ -108,6 +110,8 @@ function secretsFrom(env: Env): SecretsSlot {
 export interface ModelDeps {
 	clock: Clock;
 	fetch?: FetchLike;
+	/** The turns a scripted smoke run asks, when this session holds one (PGS41). */
+	script?: () => readonly ScriptTurn[] | undefined;
 }
 
 /** A source nobody can build, refused by name when a run asks rather than at boot. */
@@ -134,6 +138,12 @@ function unknownSource(name: string): ModelSlot {
  * never fall through to a provider, because the thing that would fall through is a bill.
  */
 export function modelFor(env: Env, deps: ModelDeps): ModelSlot {
+	// A script wins over the configured source: the header was accepted only from the smoke
+	// tenant, and a smoke run must spend nothing on a provider.
+	const script = deps.script?.();
+	if (script !== undefined) {
+		return scriptedSlot(script);
+	}
 	const name = sourceName(env);
 	const model = modelsFrom(env)[0] ?? DEFAULT_MODELS[0] ?? "";
 

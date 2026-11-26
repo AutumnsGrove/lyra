@@ -9,6 +9,24 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 7b-i, the script boundary, 2026-11-26
+
+- **The plan names one header and needs two.** "A `start` carrying `x-lyra-script` is accepted only when the token
+  is set and the header matches it exactly" and "a script that is not JSON is refused" cannot both be true of one
+  header, so the script travels in `x-lyra-script` and the token in `x-lyra-script-token`. The boundary is the
+  token, compared without an early exit; the payload is the script, validated like any other untrusted body.
+- **A smoke run gets its own tenant.** The tenant is never taken from a header, so the plan's "scripts are allowed
+  only for the smoke token's tenant" needs a second tenant and a second bearer: `LYRA_PLAYGROUND_SMOKE_TENANT` and
+  `LYRA_PLAYGROUND_SMOKE_TOKEN`. A smoke tenant equal to the person's, or half a pair, binds nothing extra — a
+  script cannot reach a person's conversation, and a configuration mistake fails closed.
+- **The script wins over `MODEL_SOURCE` and reports no cost.** A smoke run must not spend, and a run that reported
+  a price it did not pay would be a lie in the record; `usage` is zero tokens and no cost, like the placeholder.
+  The turns are held on the session object and a fresh session is built for the scripted start, so a real run the
+  object already served is not silently replaced.
+- **The accepted path still needs workerd.** Every refusal is tested against a real `Session` in Node; the
+  accepted start builds the object, which is the configuration the playground has never had. The smoke job is what
+  proves that half, on a real deployment — and it is the reason the job exists.
+
 ## C slice 7a, the day cap, 2026-11-26
 
 - **The refusal is a cloned body and a 429 before the session sees anything.** The `Session` object reads a

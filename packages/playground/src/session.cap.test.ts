@@ -119,3 +119,71 @@ test("PGS38 a Session with no cap set refuses nothing it is asked to start", asy
 	}
 	expect(refused).toBe(false);
 });
+
+/**
+ * The script boundary through a real `Session` (issue #60, slice 7b; PGS42). The accepted
+ * path starts a run and so needs a Durable Object; every refusal happens before that, which
+ * is what these drive.
+ */
+function scriptEnv(overrides: Partial<Env> = {}): Env {
+	return {
+		...envFor(budgetNamespace().namespace, ""),
+		LYRA_PLAYGROUND_TOKEN: "the-person-token",
+		LYRA_PLAYGROUND_TENANT: "playground",
+		LYRA_PLAYGROUND_SMOKE_TENANT: "smoke",
+		LYRA_PLAYGROUND_SMOKE_TOKEN: "the-smoke-token",
+		LYRA_PLAYGROUND_SCRIPT_TOKEN: "the-script-token",
+		...overrides,
+	};
+}
+
+function scriptRequest(token: string, script: string, bearer = "the-smoke-token"): Request {
+	return new Request("https://playground.test/v1/commands", {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${bearer}`,
+			"x-lyra-script": script,
+			"x-lyra-script-token": token,
+		},
+		body: startFrame(),
+	});
+}
+
+test("PGS42 a script is refused unless it comes from the smoke tenant with the token", async () => {
+	const good = JSON.stringify([{ tool_calls: [{ id: "c1", name: "finish", arguments: "{}" }] }]);
+
+	// No script token on the deployment: the header is refused rather than falling back to
+	// the real model, because a smoke job that tested the wrong thing would pass.
+	for (const env of [
+		scriptEnv({ LYRA_PLAYGROUND_SCRIPT_TOKEN: undefined }),
+		scriptEnv({ LYRA_PLAYGROUND_SCRIPT_TOKEN: "" }),
+	]) {
+		const refused = await new Session({} as DurableObjectState, env).fetch(
+			scriptRequest("x", good),
+		);
+		expect(refused?.status).toBe(403);
+	}
+
+	// The right token, but from the person's tenant: a script cannot reach their conversation.
+	const wrongTenant = await new Session({} as DurableObjectState, scriptEnv()).fetch(
+		scriptRequest("the-script-token", good, "the-person-token"),
+	);
+	expect(wrongTenant?.status).toBe(403);
+
+	// The smoke tenant, but a token that is not the script's.
+	const wrongToken = await new Session({} as DurableObjectState, scriptEnv()).fetch(
+		scriptRequest("not-the-token", good),
+	);
+	expect(wrongToken?.status).toBe(403);
+	expect(await wrongToken?.json()).toMatchObject({ error: { code: "permission_denied" } });
+});
+
+test("PGS42 a malformed script from the smoke tenant is a bad request", async () => {
+	for (const script of ["{", "[]", JSON.stringify([{ nothing: true }])]) {
+		const refused = await new Session({} as DurableObjectState, scriptEnv()).fetch(
+			scriptRequest("the-script-token", script),
+		);
+		expect(refused?.status, script).toBe(400);
+		expect(await refused?.json()).toMatchObject({ error: { code: "bad_request" } });
+	}
+});
