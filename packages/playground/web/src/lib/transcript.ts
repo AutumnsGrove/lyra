@@ -132,11 +132,15 @@ export function transcriptFrom(entries: readonly Record<string, unknown>[]): Tra
 				let matched = false;
 				for (let index = rows.length - 1; index >= 0; index -= 1) {
 					const row = rows[index];
+					// The first unanswered row for this call, as the live reducer does: a
+					// record that holds two results for one call keeps the first, so a
+					// reload draws what the run drew (found in review on #89).
 					if (
 						row === undefined ||
 						matched ||
 						row.kind !== "tool" ||
-						row.callId !== callId
+						row.callId !== callId ||
+						row.result !== undefined
 					) {
 						continue;
 					}

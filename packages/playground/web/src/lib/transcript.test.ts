@@ -145,3 +145,16 @@ test("PGS25 a rebuilt call carries the same duration the live stream did", () =>
 	]);
 	expect(transcript.rows[0]).toMatchObject({ at: 7_000, durationMs: 45 });
 });
+
+test("PGS24 a rebuild keeps the first result when a record holds two", () => {
+	// The live reducer fills the first unanswered row and never overwrites it; the
+	// rebuild must do the same, or a reload could draw a different answer from the run
+	// that produced it (found in review on #89).
+	const transcript = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }]),
+		TOOL("first", "c1", false, 1_100),
+		TOOL("second", "c1", false, 1_200),
+	]);
+	expect(transcript.rows).toHaveLength(1);
+	expect(transcript.rows[0]).toMatchObject({ result: "first", durationMs: 100 });
+});

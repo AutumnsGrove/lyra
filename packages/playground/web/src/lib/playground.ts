@@ -498,6 +498,26 @@ export interface Transcript {
 
 export const EMPTY_TRANSCRIPT: Transcript = { rows: [], status: { state: "idle" } };
 
+/** What a call's own badge says, which depends on the run as well as the row. */
+export type CallState = "running" | "done" | "error" | "unfinished";
+
+/**
+ * A call row's state, given the run's.
+ *
+ * A row with no result is only "running" while the run is: after a stop, a kill or a
+ * reload of a finished run, the honest word is "unfinished", because the page knows the
+ * result is never coming (found in review on #89).
+ */
+export function callState(row: Row, run: Status["state"]): CallState {
+	if (row.kind !== "tool") {
+		return "unfinished";
+	}
+	if (row.result === undefined) {
+		return run === "running" ? "running" : "unfinished";
+	}
+	return row.isError === true ? "error" : "done";
+}
+
 function stringOf(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
 }

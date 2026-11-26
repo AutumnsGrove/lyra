@@ -17,6 +17,7 @@
 
 	import {
 		EMPTY_TRANSCRIPT,
+		callState,
 		clearToken,
 		readRecord,
 		readToken,
@@ -489,13 +490,7 @@
 								<li class:error={row.isError === true} class="tool">
 									<span class="call">
 										<code>{row.name}</code>
-										{#if row.result === undefined}
-											<span class="state">running</span>
-										{:else if row.isError === true}
-											<span class="state">error</span>
-										{:else}
-											<span class="state">done</span>
-										{/if}
+										<span class="state">{callState(row, transcript.status.state)}</span>
 										{#if row.durationMs !== undefined}
 											<span class="duration">{row.durationMs} ms</span>
 										{/if}
@@ -508,8 +503,10 @@
 									{/if}
 									{#if row.result !== undefined}
 										<pre>{row.result}</pre>
+									{:else if callState(row, transcript.status.state) === "running"}
+										<p class="state">waiting for the result…</p>
 									{:else}
-										<p class="state">no result yet: the run moved on or was stopped</p>
+										<p class="state">no result: the run moved on or was stopped</p>
 									{/if}
 								</li>
 							{:else}

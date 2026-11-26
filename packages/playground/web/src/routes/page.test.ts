@@ -453,3 +453,109 @@ test("PGS09 a refused token clears the box and asks for it again", async () => {
 	expect(await screen.findByLabelText("Token")).toBeTruthy();
 	expect(screen.getByRole("alert").textContent).toContain("refused");
 });
+
+test("PGS24 a call's badge is drawn from the run's state, while it is still going", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	stubFetch(
+		loaded([
+			{ method: "POST", path: "/api/sessions", answer: () => json({ session: "s_1" }, 201) },
+			{ method: "POST", path: "/v1/commands", answer: () => started() },
+			{
+				method: "GET",
+				path: "/v1/events",
+				answer: () =>
+					sse([
+						{ type: "run_start", run: "r_1" },
+						{ type: "message_end", text: "", toolCalls: [] },
+						{
+							type: "tool_call",
+							ts: 1_000,
+							call: { id: "c1", name: "now", arguments: "{}" },
+						},
+						{
+							type: "tool_call",
+							ts: 1_000,
+							call: { id: "c2", name: "calculator", arguments: "{}" },
+						},
+					]),
+			},
+		]),
+	);
+	render(Page);
+
+	await screen.findByRole("option", { name: "tool-table" });
+	await fireEvent.input(await screen.findByLabelText("Ask Lyra"), {
+		target: { value: "what time is it?" },
+	});
+	await fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+	// Two calls, no results, and the run has not ended: both rows say running, and the
+	// page says it is waiting rather than claiming there will be no result.
+	await waitFor(() => {
+		const states = [...document.querySelectorAll(".tool .call .state")].map(
+			(node) => node.textContent,
+		);
+		expect(states).toEqual(["running", "running"]);
+	});
+	// Both open calls say it, so the assertion is on the set rather than one element.
+	await waitFor(() => expect(document.querySelectorAll(".tool p.state").length).toBe(2));
+});
+
+test("PGS24 a call with no result reads unfinished once the run has ended", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	stubFetch(
+		loaded([
+			{ method: "POST", path: "/api/sessions", answer: () => json({ session: "s_1" }, 201) },
+			{ method: "POST", path: "/v1/commands", answer: () => started() },
+			{
+				method: "GET",
+				path: "/v1/events",
+				answer: () =>
+					sse([
+						{ type: "run_start", run: "r_1" },
+						{ type: "message_end", text: "", toolCalls: [] },
+						{
+							type: "tool_call",
+							ts: 1_000,
+							call: { id: "c1", name: "now", arguments: "{}" },
+						},
+						{
+							type: "tool_call",
+							ts: 1_000,
+							call: { id: "c2", name: "calculator", arguments: "{}" },
+						},
+						{
+							type: "tool_end",
+							ts: 1_030,
+							callId: "c1",
+							name: "now",
+							isError: false,
+							content: "ok",
+						},
+						{
+							type: "run_end",
+							reason: "parked",
+							turn: 1,
+							usage: { inputTokens: 1, outputTokens: 1 },
+						},
+					]),
+			},
+		]),
+	);
+	render(Page);
+
+	await screen.findByRole("option", { name: "tool-table" });
+	await fireEvent.input(await screen.findByLabelText("Ask Lyra"), {
+		target: { value: "what time is it?" },
+	});
+	await fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+	// The answered call is done; the unanswered one is unfinished, not running for ever.
+	await waitFor(() => {
+		const states = [...document.querySelectorAll(".tool .call .state")].map(
+			(node) => node.textContent,
+		);
+		expect(states).toEqual(["done", "unfinished"]);
+	});
+	expect(await screen.findByText(/no result: the run moved on or was stopped/)).toBeTruthy();
+});

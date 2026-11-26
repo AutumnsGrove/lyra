@@ -24,6 +24,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   cannot produce either today, but the page is a client of a protocol, and a client that invents a row for an
   unknown call id or lets a duplicate overwrite an answer is a client that will draw nonsense the first time
   a replay and a live run interleave.
+- **Review found the two places where the row could lie about itself.** The rebuild matched any row with the
+  call id, so a record holding two results for one call drew the second where the live run drew the first; it
+  now skips answered rows exactly as the reducer does. And an unanswered call was labelled `running` for ever,
+  even after a parked run: the badge now reads the run's own state (`callState`), so a run that has ended says
+  `unfinished`, and the component tests assert the badges rather than only the result text.
 - **The bundle was measured before and after:** the Worker is unchanged at 56.4 KiB of 60 (this slice is page
   code, and the budget counts `wrangler --dry-run`'s worker JS only, not the assets). The page's own assets
   grew by a few hundred bytes, which nothing measures; that is worth saying rather than implying the 60 KiB

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
 	EMPTY_TRANSCRIPT,
+	callState,
 	clearToken,
 	readRecord,
 	readToken,
@@ -576,4 +577,38 @@ test("PGS25 a duration is the record's own times, so a live run and a reload agr
 	);
 	expect(untimed.rows[0]).toMatchObject({ result: "x" });
 	expect(untimed.rows[0]).not.toHaveProperty("durationMs");
+});
+
+test("PGS24 a call's badge says what happened, and an unfinished call says so", () => {
+	const call = reduce(EMPTY_TRANSCRIPT, {
+		type: "tool_call",
+		ts: 1,
+		call: { id: "c1", name: "now" },
+	});
+	const row = call.rows[0];
+	expect(row).toBeDefined();
+	if (row === undefined) {
+		return;
+	}
+
+	// While the run is going, the call is running; once the run has ended, a row with no
+	// result is unfinished rather than running for ever (found in review on #89).
+	expect(callState(row, "running")).toBe("running");
+	for (const ended of ["done", "parked", "failed"] as const) {
+		expect(callState(row, ended), ended).toBe("unfinished");
+	}
+
+	const answered = reduce(call, {
+		type: "tool_end",
+		ts: 2,
+		callId: "c1",
+		name: "now",
+		isError: false,
+		content: "x",
+	}).rows[0];
+	if (answered === undefined || answered.kind !== "tool") {
+		return;
+	}
+	expect(callState(answered, "running")).toBe("done");
+	expect(callState({ ...answered, isError: true }, "done")).toBe("error");
 });
