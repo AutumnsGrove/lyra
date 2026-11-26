@@ -14,7 +14,9 @@
 	// project it belongs to (issue #60, slice 2).
 	"vars": { "LYRA_PLAYGROUND_TENANT": "playground" },
 	"assets": {
-		"directory": "./public",
+		// The SvelteKit app, built by `pnpm build` into this directory. `public/` held
+		// slice 1's placeholder page and is gone.
+		"directory": "./dist/web",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": ["/v1/*"],
 	},

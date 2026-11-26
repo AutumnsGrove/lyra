@@ -5,12 +5,22 @@
 	"description": "The Lyra playground: one Worker that serves a page and runs Lyra against a real model",
 	"type": "module",
 	"scripts": {
-		"build": "wrangler deploy --dry-run --outdir .wrangler/dry-run"
+		"build": "pnpm run build:web && pnpm run build:worker",
+		"build:web": "cd web && vite build",
+		"build:worker": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+		"test": "vitest run --config vitest.web.config.ts"
 	},
 	"dependencies": {
 		"@autumnsgrove/lyra": "workspace:*"
 	},
 	"devDependencies": {
+		"@sveltejs/adapter-static": "^4.0.1",
+		"@sveltejs/kit": "^3.4.1",
+		"@sveltejs/vite-plugin-svelte": "^7.3.2",
+		"@testing-library/svelte": "^5.4.2",
+		"happy-dom": "^21.0.4",
+		"svelte": "^5.59.2",
+		"typescript": "^6.0.0",
 		"wrangler": "4.165.0"
 	}
 }

@@ -40,7 +40,10 @@ const GATE = {
 		"build:playground",
 		"budget",
 	],
-	slow: ["test", "test:workers", "fuzz", "coverage"],
+	// `test:playground` is the page's own suite in `happy-dom` (decision 157). It sits
+	// beside `test` rather than inside it because it needs the Svelte compiler and a DOM,
+	// which the workspace suite must not have.
+	slow: ["test", "test:playground", "test:workers", "fuzz", "coverage"],
 } as const;
 
 async function scripts(): Promise<Record<string, string>> {

@@ -16,6 +16,31 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   its rule is that a name says which project it belongs to. The rename is not only tidier: a stale secret
   left on a deployment binds no tenant, so a request is refused instead of quietly opening the door with a
   name nobody chose. Both are asserted, so the safe direction is a test rather than a hope.
+- **SvelteKit 3 takes its config in `vite.config.ts`, and wants TypeScript 6.** There is no
+  `svelte.config.js` any more — Kit refuses to start if it finds one — so the adapter, the fallback and the
+  app directory live in the `sveltekit({...})` plugin call. Kit's sync also needs a TypeScript with a
+  JavaScript compiler API, which TypeScript 7 (the workspace's, and the Go port) does not have, so
+  `packages/playground` carries its own `typescript@^6` as a devDependency and the workspace's `tsc` stays 7.
+  Two compilers in one tree is a smell worth naming; the alternative was holding the whole repository back a
+  major version for one app's build step.
+- **The page's DOM in tests is `happy-dom`, and that is Autumn's call.** It renders the real component in a
+  Node document with no layout and no window manager, so a test still cannot pass because a renderer did
+  something — but the thing under test is the page, not a copy of its logic. The logic is still plain
+  TypeScript with its dependencies passed in (`web/src/lib/playground.ts`), because that is what makes the
+  token, the refusal and the stream testable without any DOM at all.
+- **The web suite has its own runner and no coverage floor.** It needs the Svelte compiler and a DOM, which
+  the Node suite must not have; `pnpm test:playground` is its own step in `ci:slow`, and the 85% floor keeps
+  measuring the Node-tested core and the Worker's own code. The gap is written down in `docs/playground.md`
+  rather than closed by counting a browser app against a number meant for the loop.
+- **`~` had a `node_modules` in it (1.2 GB, from an `npm install` in `$HOME`), and it shadowed the project's
+  own dependencies.** SvelteKit's post-build step died with "Named export 'parseCookie' not found", because
+  Node walked up past pnpm's `cookie@2.0.2` and found `cookie@1.0.2` at `~/node_modules`. It was removed on
+  Autumn's word. Any project on this box would have hit it eventually; the lesson is that a build failing on
+  a dependency's *shape* rather than its version is worth `node -e`-resolving before it is worth debugging.
+- **The `Session` class still has no workerd test.** Slice 1 disclosed it and the handoff asked for one here.
+  It needs a second workerd configuration (one wrangler `main`, one Durable Object set per config), so it is
+  an unfinished item rather than a silent omission: the deploy and a run through the Worker's `fetch` prove
+  the delegation today, and `docs/playground.md` says so in PGS01's own text.
 - **An unknown `MODEL_SOURCE` is refused by the slot, not at boot.** Throwing in `sessionOptions` would make
   every request a 500 with a stack in the log and nothing in the record; a slot that answers `bad_request`
   parks the run `model_unavailable` with the value that was typed in the detail, which is where the person

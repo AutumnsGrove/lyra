@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		// The page runs in a browser, so this project is the one place in the repository
+		// that may see DOM types. It is a separate project from the Worker's own, which
+		// declares the web platform by hand (decision 106) and must not gain `document`.
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"types": [],
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true
+	},
+	// The `.svelte` templates are compiled and checked by the SvelteKit build; `tsc` reads
+	// the modules under them, which is where the logic and its tests live.
+	"include": ["src/**/*.ts", "src/**/*.d.ts"]
+}

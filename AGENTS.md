@@ -29,7 +29,12 @@ the way a person drives it and not only the way a scenario file does. Its four p
 #59's `recipes` map, decision 154, #74's `message_end.reasoning`, and #73's conversation-shaped scenario
 (pull request #78) — so slice 1, the shell that deploys, is merged (pull request #81) and deployed at
 `https://lyra-playground.m7jv4v7npb.workers.dev` with its token in the `gw secret` vault, with its rows in
-[`docs/playground.md`](docs/playground.md). What is left of step 5 is its
+[`docs/playground.md`](docs/playground.md). Slice 2, the token box, the real model and one real run, is the
+SvelteKit page in `packages/playground/web`: the token lives in `localStorage` and a `403` clears it, the model
+is OpenRouter through the existing adapter with the key from `LYRA_PLAYGROUND_OPENROUTER_API_KEY`, and
+`tool-table` brings `now` and `calculator`. The page's logic is Node-tested, the page itself is tested in
+`happy-dom`, and the gate gained `test:playground` for it. Its unfinished item is the `Session` class's missing
+workerd test, stated in PGS01. Slices 3 to 8 are next. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both
@@ -139,6 +144,7 @@ pnpm run ci            # both halves, in this order
     budget          # the package, and the example Worker's bundle
   ci:slow
     test            # unit through scenarios, and each fuzz target's committed corpus
+    test:playground # the SvelteKit page's own suite, in happy-dom (decision 157)
     test:workers    # the Cloudflare adapter in the real runtime, and the socket suite
     fuzz            # short fuzz and property runs
     coverage        # 85% floor on the Node-tested core

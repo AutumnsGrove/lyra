@@ -63,7 +63,9 @@ test("PGS03 the protocol path is claimed by the Worker before the page can answe
 		| { directory?: string; run_worker_first?: string[]; not_found_handling?: string }
 		| undefined;
 
-	expect(assets?.directory).toBe("./public");
+	// Slice 2 replaced slice 1's placeholder page with the SvelteKit build, so the assets
+	// the Worker serves are the app's output directory and not a hand-written file.
+	expect(assets?.directory).toBe("./dist/web");
 	// The fallback that makes a deep link work is the same fallback that would answer
 	// `/v1/commands` with the page, so the two settings only make sense together.
 	expect(assets?.not_found_handling).toBe("single-page-application");
