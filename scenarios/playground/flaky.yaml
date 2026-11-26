@@ -1,0 +1,19 @@
+# PGS27: a tool that fails twice and then works. The model reads the error and calls it
+# again, which is what a rig needs a failing tool for.
+name: the playground's flaky tool fails twice and then works
+task: tool-table
+recipe: tool-table
+input: call flaky until it works, then finish
+model:
+  - tool_calls: [{ id: c1, name: flaky, args: {} }]
+  - tool_calls: [{ id: c2, name: flaky, args: {} }]
+  - tool_calls: [{ id: c3, name: flaky, args: {} }]
+  - tool_calls: [{ id: c4, name: finish, args: {} }]
+expect_events:
+  - { type: tool_end, call_id: c1, is_error: true }
+  - { type: tool_end, call_id: c2, is_error: true }
+  - { type: tool_end, call_id: c3, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: tool_message, toolCallId: c1, isError: true }
+  - { type: tool_message, toolCallId: c3, isError: false }

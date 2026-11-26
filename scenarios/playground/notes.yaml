@@ -1,0 +1,25 @@
+# PGS26 at every level: the playground's own recipe keeps a note, which asks a person,
+# and reads it back in a later segment of the same session. The note lives in the
+# recipe's state, which is why the read after the answer is the proof that matters.
+name: the playground keeps a note a person approved
+task: tool-table
+recipe: tool-table
+input: keep a note that the milk is two pints, then read it back
+runs:
+  - model:
+      - tool_calls:
+          - { id: c1, name: notes_write, args: { name: milk, text: two pints } }
+  - answer: { decision: approve }
+    model:
+      - tool_calls: [{ id: c2, name: notes_read, args: { name: milk } }]
+      - tool_calls: [{ id: c3, name: finish, args: {} }]
+expect_events:
+  - { type: run_start }
+  - { type: run_end, reason: parked, parked_reason: waiting_for_person }
+  - { type: tool_end, call_id: c2, is_error: false }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: request, kind: approve, callId: c1, tool: notes_write }
+  - { type: request_answered, decision: approve }
+  - { type: tool_message, toolCallId: c2, content: two pints }
+  - { type: status, state: done }

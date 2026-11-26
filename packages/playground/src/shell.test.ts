@@ -53,9 +53,21 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	// thing slice 2 exists for, so a map that only carried the shell would be a deploy
 	// that answers the person's first click with an unknown recipe.
 	expect([...options.recipes.keys()]).toEqual(["shell", "tool-table"]);
+	// Slice 5's whole table, in the order the recipe carries it: a tool the map lost is a
+	// model that cannot be told to use it, and a test that only checked `now` would let a
+	// dropped write through.
 	expect(options.recipes.get("tool-table")?.tools.map((tool) => tool.spec.name)).toEqual([
 		"now",
 		"calculator",
+		"notes_read",
+		"notes_list",
+		"flaky",
+		"slow",
+		"big_result",
+		"notes_write",
+		"notes_delete",
+		"ask_person",
+		"propose_summary",
 		"finish",
 	]);
 	expect(options.model).toBe(PLACEHOLDER_MODEL);
