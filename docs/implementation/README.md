@@ -28,11 +28,12 @@ Last updated: 2026-11-25. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 and 2 merged and deployed; slices 3 to 8 open |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 and 2 merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85)) and deployed; slices 3 to 8 open |
 
-### Where the last session stopped (2026-11-25, slice 2)
+### Where the last session stopped (2026-11-26)
 
-- **C slice 2, the token box and the real model, is on its branch.** `packages/playground/web` is the SvelteKit
+- **C slice 2 is merged**, pull request [#85](https://github.com/AutumnsGrove/lyra/pull/85), merge commit `ede65ee`, and
+  redeployed from `main` afterwards so the tree and the Worker agree. `packages/playground/web` is the SvelteKit
   app (static SPA served by the same Worker from `dist/web`), the two bindings are prefixed
   (`LYRA_PLAYGROUND_TOKEN`, `LYRA_PLAYGROUND_TENANT`) because the `gw secret` vault is shared, the model slot
   builds OpenRouter from `LYRA_PLAYGROUND_OPENROUTER_API_KEY` (mapped to the adapter's own `OPENROUTER_API_KEY`

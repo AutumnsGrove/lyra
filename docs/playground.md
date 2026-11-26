@@ -42,7 +42,7 @@ only afterwards, and the new token was used to read the run's record back once i
 
 ## The page
 
-Slice 2 replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
+Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
 `pnpm build` into `packages/playground/dist/web`, which is the directory `wrangler.jsonc` serves as assets. It
 is a static SPA: no server-side rendering, `adapter-static` with an `index.html` fallback, and `/v1/*` still
 claimed by the Worker before the assets layer. A person types the token once, and it is kept in

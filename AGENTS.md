@@ -29,8 +29,8 @@ the way a person drives it and not only the way a scenario file does. Its four p
 #59's `recipes` map, decision 154, #74's `message_end.reasoning`, and #73's conversation-shaped scenario
 (pull request #78) — so slice 1, the shell that deploys, is merged (pull request #81) and deployed at
 `https://lyra-playground.m7jv4v7npb.workers.dev` with its token in the `gw secret` vault, with its rows in
-[`docs/playground.md`](docs/playground.md). Slice 2, the token box, the real model and one real run, is the
-SvelteKit page in `packages/playground/web`: the token lives in `localStorage` and a `403` clears it, the model
+[`docs/playground.md`](docs/playground.md). Slice 2, the token box, the real model and one real run, is merged
+(pull request #85, `ede65ee`) and deployed: the SvelteKit page in `packages/playground/web`, where the token lives in `localStorage` and a `403` clears it, the model
 is OpenRouter through the existing adapter with the key from `LYRA_PLAYGROUND_OPENROUTER_API_KEY`, and
 `tool-table` brings `now` and `calculator`. The page's logic is Node-tested, the page itself is tested in
 `happy-dom`, and the gate gained `test:playground` for it. Its unfinished item is the `Session` class's missing
