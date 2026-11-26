@@ -41,7 +41,11 @@ function privateHost(hostname: string): boolean {
 	}
 	if (host.startsWith("[")) {
 		const inner = host.slice(1, -1);
-		// Only the global unicast range is the open web; everything else is refused.
+		// 6to4 (`2002::/16`) carries an IPv4 address inside it, so it can carry a private
+		// one; it is refused with the rest. After that, only global unicast is the open web.
+		if (/^2002/.test(inner)) {
+			return true;
+		}
 		const first = inner.split(":")[0] ?? "";
 		return !/^[23][0-9a-f]{0,3}$/.test(first);
 	}
@@ -49,12 +53,13 @@ function privateHost(hostname: string): boolean {
 		host === "localhost" ||
 		host.endsWith(".localhost") ||
 		host.endsWith(".internal") ||
-		host.endsWith(".local") ||
-		host === "0.0.0.0"
+		host.endsWith(".local")
 	) {
 		return true;
 	}
 	return (
+		// "This network", which is more than 0.0.0.0.
+		/^0\./.test(host) ||
 		/^127\./.test(host) ||
 		/^10\./.test(host) ||
 		/^192\.168\./.test(host) ||
@@ -135,6 +140,10 @@ export interface FetchPageOptions {
 }
 
 export function fetchPageTool(options: FetchPageOptions): Tool {
+	// The Worker's own `fetch` throws "Illegal invocation" when it is called as a property
+	// of another object, and `options.fetch(...)` is exactly that. A bare local is how the
+	// model adapter calls it, and it is the only way that works in both runtimes.
+	const doFetch = options.fetch;
 	return defineTool<typeof URL_PARAMETERS>({
 		name: "fetch_page",
 		description:
@@ -157,7 +166,7 @@ export function fetchPageTool(options: FetchPageOptions): Tool {
 				// `manual`, because the guard only ever saw the URL it was given: a host's
 				// `fetch` follows redirects by default, and a 302 to a private address would
 				// otherwise reach it anyway.
-				response = await options.fetch(url.toString(), { redirect: "manual" });
+				response = await doFetch(url.toString(), { redirect: "manual" });
 			} catch (error) {
 				return {
 					isError: true,

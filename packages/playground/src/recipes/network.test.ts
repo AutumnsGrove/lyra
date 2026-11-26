@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import { fetchPageTool, hostilePageTool } from "./network.js";
+import { fetchPageTool, hostilePageTool, type PageFetch } from "./network.js";
 
 /**
  * The rows are in `docs/playground.md`: PGS30 and PGS31.
@@ -173,4 +173,42 @@ test("PGS30 a page's body is read through the cap, not into memory first", async
 	// The third chunk was never read: the cap ended the read rather than the end of the
 	// body ending it.
 	expect(cancelled).toBe(true);
+});
+
+test("PGS30 the host's fetch is called as a function, not as a method", async () => {
+	// The Worker's native `fetch` throws "Illegal invocation" when it is called as a
+	// property of another object, which is what `options.fetch(...)` does — and every other
+	// test here passes a fake that would not have noticed (found in review on #94).
+	// A Node `fetch` does not enforce `this`, so the fake does it on the Worker's behalf.
+	const calls: unknown[] = [];
+	function strictFetch(this: unknown, url: string) {
+		calls.push(this);
+		if (this !== undefined) {
+			throw new TypeError("Illegal invocation");
+		}
+		return Promise.resolve(new Response("a page", { status: 200 }));
+	}
+	const tool = fetchPageTool({ fetch: strictFetch as unknown as PageFetch });
+
+	const outcome = await tool.execute({ url: "https://example.test/page" }, context());
+	expect(outcome.isError).toBe(false);
+	expect(outcome.content).toBe("a page");
+	expect(calls).toEqual([undefined]);
+});
+
+test("PGS30 the guard refuses every IPv4 and IPv6 form that is not the open web", async () => {
+	const { fetch: fake, asked } = fakeFetch(() => new Response("nothing", { status: 200 }));
+	const tool = fetchPageTool({ fetch: fake });
+
+	for (const url of [
+		// The "this network" range, which is not 0.0.0.0 alone.
+		"http://0.1.2.3/",
+		// 6to4 embeds an IPv4 address, so it can carry a private one.
+		"http://[2002:7f00:1::]/",
+		"http://[2002:a00:1::]/",
+	]) {
+		const outcome = await tool.execute({ url }, context());
+		expect(outcome.isError, url).toBe(true);
+	}
+	expect(asked).toEqual([]);
 });

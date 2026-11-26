@@ -21,4 +21,7 @@ expect_record:
   - { type: tool_message, toolCallId: c1, isError: false }
   - { type: request, kind: approve, callId: c2, tool: notes_delete }
   - { type: request_answered, decision: deny }
+  # The denied call's own result is an error, so "the delete never ran" is asserted by the
+  # record rather than left to the absence of a record the runner cannot look for.
+  - { type: tool_message, toolCallId: c2, isError: true }
   - { type: status, state: done }
