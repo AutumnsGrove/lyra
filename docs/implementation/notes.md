@@ -22,6 +22,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   it was given. And the host rule was a list of prefixes that missed `localhost.`, `100.64.0.0/10`, and every
   IPv6 literal including IPv4-mapped loopback; it now strips trailing dots, refuses any bracketed IPv6 address
   outside `2000::/3`, and includes CGNAT. The tests name each form, which is what would have caught the list.
+- **The body is read through the cap, not cut after it.** A third review round pointed out that `response.text()`
+  buffers the whole page before the 200,000-character slice, and the URL is the model's. The read now stops when
+  the decoded text passes the cap and cancels the rest of the stream; the test's page never closes, so it fails
+  by timing out rather than by asserting, which is the honest failure for "this held everything".
 - **`hostile_page` is a fixture and the notes say so.** It does not fetch, it does not clean anything, and it
   has no `apply`: its whole job is to be the text that a scenario puts in front of a scripted model, so the
   record can show the delete asking for approval and the person denying it. The protection is PGS26's policy.

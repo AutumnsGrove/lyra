@@ -147,3 +147,30 @@ test("PGS31 hostile_page is a fixture, not a guard", async () => {
 	expect(tool.apply).toBeUndefined();
 	expect(tool.policy).toBe("allow");
 });
+
+test("PGS30 a page's body is read through the cap, not into memory first", async () => {
+	// A model-chosen URL can answer a body of any size. Cutting after `response.text()`
+	// would have the Worker hold all of it, so the read stops once the cap is passed and
+	// the rest of the stream is cancelled (found in review on #94).
+	let cancelled = false;
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(encoder.encode("x".repeat(150_000)));
+			controller.enqueue(encoder.encode("y".repeat(150_000)));
+			controller.enqueue(encoder.encode("z".repeat(150_000)));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	const { fetch: fake } = fakeFetch(() => new Response(body, { status: 200 }));
+	const tool = fetchPageTool({ fetch: fake });
+
+	const outcome = await tool.execute({ url: "https://example.test/big" }, context());
+	expect(outcome.isError).toBe(false);
+	expect(outcome.content).toContain("[cut at");
+	// The third chunk was never read: the cap ended the read rather than the end of the
+	// body ending it.
+	expect(cancelled).toBe(true);
+});

@@ -88,6 +88,47 @@ export type PageFetch = (
 	init?: { redirect?: "follow" | "error" | "manual"; signal?: AbortSignal },
 ) => Promise<Response>;
 
+/**
+ * A response's text, read only as far as the cap.
+ *
+ * `response.text()` would hold the whole body first, and the URL is model-chosen, so a
+ * page of any size could be buffered before the cut. The read stops as soon as the
+ * decoded text passes the cap and cancels the rest of the stream (found in review on #94).
+ */
+async function readThroughCap(
+	response: Response,
+): Promise<{ text: string; cut: boolean } | undefined> {
+	if (response.body === null) {
+		return { text: "", cut: false };
+	}
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let text = "";
+	let cut = false;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			text += decoder.decode(value, { stream: true });
+			if (text.length > MAX_PAGE_BYTES) {
+				cut = true;
+				await reader.cancel().catch(() => undefined);
+				break;
+			}
+		}
+		if (!cut) {
+			text += decoder.decode();
+		}
+	} catch {
+		return undefined;
+	} finally {
+		reader.releaseLock();
+	}
+	return { text: cut ? text.slice(0, MAX_PAGE_BYTES) : text, cut };
+}
+
 export interface FetchPageOptions {
 	/** The host's `fetch`; a test passes one that answers without a network. */
 	fetch: PageFetch;
@@ -137,24 +178,16 @@ export function fetchPageTool(options: FetchPageOptions): Tool {
 					details: { url: url.toString(), status: response.status },
 				};
 			}
-			let text: string;
-			try {
-				text = await response.text();
-			} catch {
+			const body = await readThroughCap(response);
+			if (body === undefined) {
 				return { isError: true, content: "the page's body could not be read" };
 			}
-			const cut = text.length > MAX_PAGE_BYTES ? text.slice(0, MAX_PAGE_BYTES) : text;
 			return {
 				isError: false,
-				content:
-					text.length > MAX_PAGE_BYTES
-						? `${cut}\n[cut at ${MAX_PAGE_BYTES} characters of ${text.length}]`
-						: cut,
-				details: {
-					url: url.toString(),
-					bytes: text.length,
-					cut: text.length > MAX_PAGE_BYTES,
-				},
+				content: body.cut
+					? `${body.text}\n[cut at ${MAX_PAGE_BYTES} characters]`
+					: body.text,
+				details: { url: url.toString(), characters: body.text.length, cut: body.cut },
 			};
 		},
 	});
