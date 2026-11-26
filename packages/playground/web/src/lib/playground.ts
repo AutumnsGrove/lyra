@@ -462,8 +462,24 @@ export async function readRecord(options: {
 export type Row =
 	| { kind: "person"; text: string }
 	| { kind: "assistant"; text: string; reasoning?: string }
-	| { kind: "tool"; name: string; callId: string; arguments?: string }
-	| { kind: "result"; name: string; callId: string; text: string; isError: boolean }
+	/**
+	 * One call, from the model's reply to its result (issue #60, slice 4).
+	 *
+	 * A call is one row that fills in rather than two rows a page has to pair up: several
+	 * calls in a group arrive before any result does, and a result that arrived as its own
+	 * row would draw the group twice. `at` is the record entry's own time, so a duration
+	 * is the record's number and not the page's clock: a live run and a rebuild agree.
+	 */
+	| {
+			kind: "tool";
+			name: string;
+			callId: string;
+			arguments?: string;
+			at?: number;
+			result?: string;
+			isError?: boolean;
+			durationMs?: number;
+	  }
 	| { kind: "problem"; text: string };
 
 /** What the page shows under the transcript. */
@@ -525,6 +541,9 @@ export function reduce(state: Transcript, event: StreamEvent): Transcript {
 			const name = stringOf(call["name"]) ?? "tool";
 			const callId = stringOf(call["id"]) ?? "";
 			const args = stringOf(call["arguments"]);
+			// The call's own entry time, which is what a result measures its duration
+			// against: several calls in a group share it, because they share the entry.
+			const at = numberOf(event["ts"]);
 			return {
 				...state,
 				rows: [
@@ -534,19 +553,42 @@ export function reduce(state: Transcript, event: StreamEvent): Transcript {
 						name,
 						callId,
 						...(args === undefined ? {} : { arguments: args }),
+						...(at === undefined ? {} : { at }),
 					},
 				],
 			};
 		}
 		case "tool_end": {
-			const name = stringOf(event["name"]) ?? "tool";
 			const callId = stringOf(event["callId"]) ?? "";
 			const text = stringOf(event["content"]) ?? "";
 			const isError = event["isError"] === true;
-			return {
-				...state,
-				rows: [...state.rows, { kind: "result", name, callId, text, isError }],
-			};
+			const endedAt = numberOf(event["ts"]);
+			// The call's row, not a new one: the call and its result are the same row, so a
+			// group of calls is one list and a result cannot be drawn before its call.
+			let matched = false;
+			const rows = state.rows.map((row) => {
+				// The first unanswered row for this call, and no other: a result the page
+				// already drew is not overwritten by a later one (found while building
+				// slice 4, where the row is the call and the result both).
+				if (
+					matched ||
+					row.kind !== "tool" ||
+					row.callId !== callId ||
+					row.result !== undefined
+				) {
+					return row;
+				}
+				matched = true;
+				const durationMs =
+					endedAt === undefined || row.at === undefined ? undefined : endedAt - row.at;
+				return {
+					...row,
+					result: text,
+					isError,
+					...(durationMs === undefined ? {} : { durationMs }),
+				};
+			});
+			return matched ? { ...state, rows } : state;
 		}
 		case "run_end": {
 			const reason = stringOf(event["reason"]) ?? "failed";

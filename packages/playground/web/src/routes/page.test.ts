@@ -382,9 +382,14 @@ test("PGS10 a run streams into the transcript, with the tools it called", async 
 							reasoning: "the person asked for the time",
 							toolCalls: [{ id: "c1", name: "now", arguments: "{}" }],
 						},
-						{ type: "tool_call", call: { id: "c1", name: "now", arguments: "{}" } },
+						{
+							type: "tool_call",
+							ts: 1_000,
+							call: { id: "c1", name: "now", arguments: "{}" },
+						},
 						{
 							type: "tool_end",
+							ts: 1_240,
 							callId: "c1",
 							name: "now",
 							isError: false,
@@ -413,7 +418,12 @@ test("PGS10 a run streams into the transcript, with the tools it called", async 
 	await screen.findByText(/Let me check\./);
 	await screen.findByText(/2026-11-25T00:00:00\.000Z/);
 	await screen.findByText(/thinking/);
-	await screen.findByText(/done/);
+	// The call's row is the call and its result: the state and the record's own duration
+	// are drawn beside it, which is what slice 4 adds to the page (PGS24, PGS25).
+	await screen.findByText("240 ms");
+	// The call row says "done" now as well, so the status line is asserted on the
+	// element that is the run's, not on any text that happens to match.
+	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("done"));
 });
 
 test("PGS09 a refused token clears the box and asks for it again", async () => {

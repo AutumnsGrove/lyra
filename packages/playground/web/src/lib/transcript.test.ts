@@ -12,22 +12,25 @@ import { transcriptFrom } from "./transcript.js";
  * page rather than a silently empty transcript.
  */
 
+const AT = 1_000;
 const USER = (text: string): Record<string, unknown> => ({
 	type: "user_message",
 	label: "task",
 	text,
 });
-const ASSISTANT = (text: string, toolCalls: unknown[] = [], reasoning?: string) => ({
+const ASSISTANT = (text: string, toolCalls: unknown[] = [], reasoning?: string, ts = AT) => ({
 	type: "assistant_message",
 	text,
+	ts,
 	...(reasoning === undefined ? {} : { reasoning }),
 	toolCalls,
 	model: "a-model",
 	usage: { inputTokens: 1, outputTokens: 2, ...(text === "" ? {} : { cost: { amount: 0.5 } }) },
 	finishReason: "tool_calls",
 });
-const TOOL = (content: string, callId = "c1", isError = false) => ({
+const TOOL = (content: string, callId = "c1", isError = false, ts = AT + 120) => ({
 	type: "tool_message",
+	ts,
 	toolCallId: callId,
 	isError,
 	content,
@@ -48,22 +51,26 @@ test("PGS18 a record rebuilds into the conversation a person had", () => {
 		STATUS("done"),
 	]);
 
+	// A call and its result are one row, so the transcript is the conversation rather
+	// than a second list of answers.
 	expect(transcript.rows.map((row) => row.kind)).toEqual([
 		"person",
 		"assistant",
 		"tool",
-		"result",
 		"assistant",
 	]);
 	expect(transcript.rows[0]).toEqual({ kind: "person", text: "what time is it?" });
 	// A tool's own entry names only the call id, so the name comes from the assistant
-	// entry that made the call. A result with no name would be drawn as "tool answered".
-	expect(transcript.rows[3]).toEqual({
-		kind: "result",
+	// entry that made the call. The duration is the two entries' own times.
+	expect(transcript.rows[2]).toEqual({
+		kind: "tool",
 		name: "now",
 		callId: "c1",
-		text: "2026-11-25T00:00:00.000Z",
+		arguments: "{}",
+		at: AT,
+		result: "2026-11-25T00:00:00.000Z",
 		isError: false,
+		durationMs: 120,
 	});
 	expect(transcript.status).toEqual({ state: "done", turns: 2, costUsd: 1 });
 });
@@ -109,17 +116,32 @@ test("PGS23 a tool that failed is drawn as an error, and a blank answer makes no
 		ASSISTANT("", [{ id: "c2", name: "now" }]),
 	]);
 	expect(transcript.rows).toEqual([
-		{ kind: "tool", name: "calculator", callId: "c1", arguments: '{"a":1}' },
 		{
-			kind: "result",
+			kind: "tool",
 			name: "calculator",
 			callId: "c1",
-			text: "cannot divide by zero",
+			arguments: '{"a":1}',
+			at: AT,
+			result: "cannot divide by zero",
 			isError: true,
+			durationMs: 120,
 		},
-		{ kind: "tool", name: "now", callId: "c2" },
+		// A call with no result keeps its row and says so, rather than disappearing: the
+		// record holds the call, and a stop or a kill is what explains the gap.
+		{ kind: "tool", name: "now", callId: "c2", at: AT },
 	]);
 	// No assistant row was pushed for either empty message, so the tool rows are the
 	// whole of what the record says.
 	expect(transcript.rows.some((row) => row.kind === "assistant")).toBe(false);
+});
+
+test("PGS25 a rebuilt call carries the same duration the live stream did", () => {
+	// The live path measures `tool_end.ts - tool_call.ts`; the rebuild measures
+	// `tool_message.ts - assistant_message.ts`. Both are the record's entry times, so a
+	// reload shows the number the run showed.
+	const transcript = transcriptFrom([
+		ASSISTANT("", [{ id: "c1", name: "now" }], undefined, 7_000),
+		TOOL("now", "c1", false, 7_045),
+	]);
+	expect(transcript.rows[0]).toMatchObject({ at: 7_000, durationMs: 45 });
 });

@@ -486,10 +486,31 @@
 									{#if row.text}<span>{row.text}</span>{/if}
 								</li>
 							{:else if row.kind === "tool"}
-								<li class="tool">calls <code>{row.name}</code>{#if row.arguments}<code>{row.arguments}</code>{/if}</li>
-							{:else if row.kind === "result"}
-								<li class:error={row.isError} class="result">
-									<code>{row.name}</code> answered <code>{row.text}</code>
+								<li class:error={row.isError === true} class="tool">
+									<span class="call">
+										<code>{row.name}</code>
+										{#if row.result === undefined}
+											<span class="state">running</span>
+										{:else if row.isError === true}
+											<span class="state">error</span>
+										{:else}
+											<span class="state">done</span>
+										{/if}
+										{#if row.durationMs !== undefined}
+											<span class="duration">{row.durationMs} ms</span>
+										{/if}
+									</span>
+									{#if row.arguments !== undefined && row.arguments !== ""}
+										<details>
+											<summary>arguments</summary>
+											<pre>{row.arguments}</pre>
+										</details>
+									{/if}
+									{#if row.result !== undefined}
+										<pre>{row.result}</pre>
+									{:else}
+										<p class="state">no result yet: the run moved on or was stopped</p>
+									{/if}
 								</li>
 							{:else}
 								<li class="problem">{row.text}</li>
@@ -627,8 +648,16 @@
 		border-left-color: #b58900;
 	}
 
-	.result {
-		border-left-color: #3c8c4a;
+	.call {
+		display: inline-flex;
+		gap: 0.5rem;
+		align-items: baseline;
+	}
+
+	.state,
+	.duration {
+		color: #777;
+		font-size: 0.8rem;
 	}
 
 	.error,
