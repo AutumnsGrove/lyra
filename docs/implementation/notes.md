@@ -23,6 +23,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   a price it did not pay would be a lie in the record; `usage` is zero tokens and no cost, like the placeholder.
   The turns are held on the session object and a fresh session is built for the scripted start, so a real run the
   object already served is not silently replaced.
+- **Review found that the smoke bearer could still spend.** Restricting the tenant to scripts is not enough if the
+  script is optional: a headerless `start` from the smoke tenant ran on OpenRouter, and an eviction that dropped the
+  script let a resume do the same. A smoke `start` without the headers is now `permission_denied`, and the smoke
+  tenant's model slot refuses when it has no script — so the worst case is a parked run, not a bill. The same
+  round fixed the budget being filed under the first tenant in the map rather than the session's own, a cast on a
+  script's `finish_reason`, and a byte cap compared in characters.
 - **The accepted path still needs workerd.** Every refusal is tested against a real `Session` in Node; the
   accepted start builds the object, which is the configuration the playground has never had. The smoke job is what
   proves that half, on a real deployment — and it is the reason the job exists.

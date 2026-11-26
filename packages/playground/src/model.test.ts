@@ -236,3 +236,28 @@ test("PGS04 the source name is trimmed and case-folded", async () => {
 	expect(reply.ok).toBe(true);
 	expect(requests).toHaveLength(1);
 });
+
+test("PGS42 a smoke tenant with no script has no model that can spend", async () => {
+	// The tenant's token is allowed only to answer a script; if the script is gone (an
+	// eviction, a headerless run) the slot refuses rather than reaching a provider.
+	const slot = modelFor(
+		{
+			SESSION: {} as DurableObjectNamespace,
+			INDEX: {} as DurableObjectNamespace,
+			BUDGET: {} as DurableObjectNamespace,
+			LYRA_PLAYGROUND_SMOKE_TENANT: "smoke",
+		},
+		{ clock: fakeClock(), tenant: "smoke" },
+	);
+	const reply = await slot.complete({
+		system: "s",
+		messages: [],
+		tools: [],
+		signal: new AbortController().signal,
+	} as never);
+	expect(reply.ok).toBe(false);
+	if (!reply.ok) {
+		expect(reply.error.retryable).toBe(false);
+		expect(reply.error.code).toBe("permission_denied");
+	}
+});

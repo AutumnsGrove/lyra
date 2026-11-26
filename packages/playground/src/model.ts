@@ -112,6 +112,8 @@ export interface ModelDeps {
 	fetch?: FetchLike;
 	/** The turns a scripted smoke run asks, when this session holds one (PGS41). */
 	script?: () => readonly ScriptTurn[] | undefined;
+	/** The tenant this session belongs to, which decides whether a model may be asked at all. */
+	tenant?: string | undefined;
 }
 
 /** A source nobody can build, refused by name when a run asks rather than at boot. */
@@ -137,12 +139,35 @@ function unknownSource(name: string): ModelSlot {
  * a redeploy and not a rewrite. An unknown source is a slot that refuses: a typo must
  * never fall through to a provider, because the thing that would fall through is a bill.
  */
+/** The slot a smoke tenant gets when it has no script: it refuses rather than spends. */
+function unrunnableSmokeSession(): ModelSlot {
+	return {
+		async complete(): Promise<Result<never, ModelError>> {
+			return {
+				ok: false,
+				error: {
+					code: "permission_denied",
+					message:
+						"the smoke tenant only runs a script, and this run has none: a scripted start carries x-lyra-script and x-lyra-script-token",
+					retryable: false,
+				},
+			};
+		},
+	};
+}
+
 export function modelFor(env: Env, deps: ModelDeps): ModelSlot {
 	// A script wins over the configured source: the header was accepted only from the smoke
 	// tenant, and a smoke run must spend nothing on a provider.
 	const script = deps.script?.();
 	if (script !== undefined) {
 		return scriptedSlot(script);
+	}
+	// The smoke tenant's token exists to run scripts, so it can never reach a provider —
+	// headerless or after an eviction dropped the script. A smoke job that finds this has a
+	// bug, and it should cost nothing rather than spend the person's key (review on #101).
+	if (deps.tenant !== undefined && deps.tenant === env.LYRA_PLAYGROUND_SMOKE_TENANT) {
+		return unrunnableSmokeSession();
 	}
 	const name = sourceName(env);
 	const model = modelsFrom(env)[0] ?? DEFAULT_MODELS[0] ?? "";

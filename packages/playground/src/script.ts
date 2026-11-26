@@ -72,7 +72,9 @@ export function decodeScript(raw: string | null | undefined): Result<ScriptTurn[
 	if (typeof raw !== "string" || raw === "") {
 		return fail("bad_request", "a script is a list of turns, as JSON");
 	}
-	if (raw.length > MAX_SCRIPT_BYTES) {
+	// Bytes, not characters: a script of multi-byte text would otherwise pass a cap named
+	// in bytes at several times the size (the same mistake the API body had).
+	if (new TextEncoder().encode(raw).length > MAX_SCRIPT_BYTES) {
 		return fail("bad_request", `a script may be at most ${MAX_SCRIPT_BYTES} bytes`);
 	}
 	let parsed: unknown;
@@ -102,6 +104,13 @@ export function decodeScript(raw: string | null | undefined): Result<ScriptTurn[
 			return fail("bad_request", `turn ${index} says nothing and calls nothing`);
 		}
 		const finishReason = turn["finish_reason"] ?? turn["finishReason"];
+		const knownReasons: readonly string[] = ["stop", "length", "tool_calls", "content_filter"];
+		if (typeof finishReason !== "undefined" && !knownReasons.includes(String(finishReason))) {
+			return fail(
+				"bad_request",
+				`turn ${index} has a finish_reason this build does not know`,
+			);
+		}
 		turns.push({
 			...(text === undefined ? {} : { text }),
 			...(toolCalls === undefined ? {} : { toolCalls }),

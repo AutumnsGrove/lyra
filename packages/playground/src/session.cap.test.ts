@@ -187,3 +187,17 @@ test("PGS42 a malformed script from the smoke tenant is a bad request", async ()
 		expect(await refused?.json()).toMatchObject({ error: { code: "bad_request" } });
 	}
 });
+
+test("PGS42 the smoke tenant cannot start a run without a script", async () => {
+	// The smoke bearer exists to answer a script; a headerless start from it would spend the
+	// person's provider key (review on #101).
+	const refused = await new Session({} as DurableObjectState, scriptEnv()).fetch(
+		new Request("https://playground.test/v1/commands", {
+			method: "POST",
+			headers: { authorization: "Bearer the-smoke-token" },
+			body: startFrame(),
+		}),
+	);
+	expect(refused?.status).toBe(403);
+	expect(await refused?.json()).toMatchObject({ error: { code: "permission_denied" } });
+});

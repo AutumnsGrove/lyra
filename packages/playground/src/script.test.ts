@@ -89,3 +89,12 @@ test("PGS42 the script token is compared exactly, and never by length alone", ()
 	expect(tokenMatches("right-token", "")).toBe(false);
 	expect(tokenMatches("", "")).toBe(false);
 });
+
+test("PGS41 a script is capped in bytes, and a finish reason this build does not know is refused", () => {
+	// Three bytes per character: a character count would let this pass at three times the cap.
+	const multiByte = JSON.stringify([{ text: "日".repeat(6_000) }]);
+	expect(decodeScript(multiByte).ok).toBe(false);
+
+	expect(decodeScript(JSON.stringify([{ text: "x", finish_reason: "invented" }])).ok).toBe(false);
+	expect(decodeScript(JSON.stringify([{ text: "x", finish_reason: "stop" }])).ok).toBe(true);
+});

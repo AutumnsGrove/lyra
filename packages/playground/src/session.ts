@@ -128,6 +128,8 @@ export function sessionOptions(
 
 export class Session implements DurableObject {
 	#session: CloudflareSession | undefined;
+	/** The tenant this object first served, learned from the request's bearer. */
+	#tenantName: string | undefined;
 	/** The turns a scripted smoke run asks in place of a model, held for the run it started. */
 	#script: ScriptTurn[] | undefined;
 
@@ -139,12 +141,18 @@ export class Session implements DurableObject {
 	#build(): CloudflareSession {
 		this.#session ??= createCloudflareSession(
 			this.ctx,
-			sessionOptions(this.env, { script: () => this.#script }),
+			sessionOptions(this.env, {
+				script: () => this.#script,
+				...(this.#tenantName === undefined ? {} : { tenant: this.#tenantName }),
+			}),
 		);
 		return this.#session;
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// Whose session this is, learned before anything else looks at a tenant: the budget
+		// and the model both need the tenant the bearer resolved to, not the first in a map.
+		this.#tenantName ??= await this.#tenantFor(request).catch(() => undefined);
 		// The script boundary first: a request carrying the header is either a smoke run
 		// from the smoke tenant or a refusal, and a deployment with no token refuses it
 		// rather than quietly falling back to the real model (PGS42).
@@ -171,6 +179,16 @@ export class Session implements DurableObject {
 	async #scriptRefusal(request: Request): Promise<Response | undefined> {
 		const header = request.headers.get("x-lyra-script");
 		if (header === null) {
+			// A smoke tenant has no other way to run: its token exists to answer a script, and
+			// a headerless `start` from it would spend the person's provider key (review on
+			// #101). Its other commands — state, record, answers — are still served.
+			const start = await this.#startsHere(request);
+			if (start) {
+				return refusalResponse(
+					"permission_denied",
+					"a start from the smoke tenant needs x-lyra-script and x-lyra-script-token",
+				);
+			}
 			return undefined;
 		}
 		// The script travels in `x-lyra-script` and the token in `x-lyra-script-token`: one
@@ -213,6 +231,27 @@ export class Session implements DurableObject {
 		return undefined;
 	}
 
+	/** Whether this request is a `start` from the smoke tenant, which needs a script. */
+	async #startsHere(request: Request): Promise<boolean> {
+		if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/commands") {
+			return false;
+		}
+		const tenant = await this.#tenantFor(request);
+		if (tenant === undefined || smokeTenantOf(this.env, tenant) === undefined) {
+			return false;
+		}
+		try {
+			const body: unknown = await request.clone().json();
+			return (
+				typeof body === "object" &&
+				body !== null &&
+				(body as { command?: unknown }).command === "start"
+			);
+		} catch {
+			return false;
+		}
+	}
+
 	/** Which tenant the request's bearer belongs to, through the same map the door uses. */
 	async #tenantFor(request: Request): Promise<string | undefined> {
 		const header = request.headers.get("authorization");
@@ -231,14 +270,14 @@ export class Session implements DurableObject {
 	/**
 	 * The tenant this deployment serves, for the budget's object name.
 	 *
-	 * `tokensFrom` builds **exactly one** entry or none, from the two prefixed bindings, so
-	 * the first key is the tenant the door resolves for every request — the same one
-	 * `/api/cap` uses. A map with more than one entry is a change to `tokensFrom` and to this
-	 * method together; the budget would otherwise be filed under one tenant and checked
-	 * under another (raised in review on #99, and the map is why it cannot happen today).
+	 * The tenant the first request's bearer resolved to, which is the session's own; the
+	 * first key of the map is only a fallback for a socket that arrives before any HTTP
+	 * request has named the tenant. Since the smoke tenant joined the map (slice 7b-i) the
+	 * two can differ, and the budget must be filed under the session's tenant rather than
+	 * the person's (review on #101).
 	 */
 	#tenant(): string {
-		return Object.keys(tokensFrom(this.env))[0] ?? "";
+		return this.#tenantName ?? Object.keys(tokensFrom(this.env))[0] ?? "";
 	}
 
 	/** The cap refusal for a socket frame, as the frame to send, or nothing. */
