@@ -17,7 +17,7 @@ export interface CatalogueOptions {
 	/** The wait `slow` uses; a test passes one that returns at once. */
 	sleep?: (ms: number) => Promise<void>;
 	/** The `fetch` the page tools use; a test passes a fake. */
-	fetch?: import("@autumnsgrove/lyra/openai").FetchLike;
+	fetch?: import("./network.js").PageFetch;
 }
 
 export function recipeCatalogue(

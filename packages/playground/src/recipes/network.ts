@@ -14,7 +14,6 @@
  */
 
 import { defineTool, type Tool } from "@autumnsgrove/lyra";
-import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
 /** How much of a page the model is shown. Under the record's 1 MiB entry cap. */
 const MAX_PAGE_BYTES = 200_000;
@@ -25,17 +24,33 @@ const URL_PARAMETERS = {
 	required: ["url"],
 } as const;
 
-/** A host on the deployment's own network, which the open web never is. */
+/**
+ * A host on the deployment's own network, which the open web never is.
+ *
+ * This is the guard a model-chosen URL gets, so it is written to refuse rather than to
+ * be clever: a trailing dot is stripped (`localhost.` is `localhost`), an IPv6 literal
+ * must be in `2000::/3` to be considered public at all — which refuses `::`, `::1`,
+ * `::ffff:` (IPv4-mapped), `fc00::/7`, `fe80::/10` and multicast in one rule — and the
+ * IPv4 ranges include CGNAT, which is not private in the RFC 1918 sense but is somebody
+ * else's network (found in review on #94).
+ */
 function privateHost(hostname: string): boolean {
-	const host = hostname.toLowerCase();
+	let host = hostname.toLowerCase();
+	while (host.endsWith(".")) {
+		host = host.slice(0, -1);
+	}
+	if (host.startsWith("[")) {
+		const inner = host.slice(1, -1);
+		// Only the global unicast range is the open web; everything else is refused.
+		const first = inner.split(":")[0] ?? "";
+		return !/^[23][0-9a-f]{0,3}$/.test(first);
+	}
 	if (
 		host === "localhost" ||
 		host.endsWith(".localhost") ||
 		host.endsWith(".internal") ||
 		host.endsWith(".local") ||
-		host === "0.0.0.0" ||
-		host === "[::1]" ||
-		host === "::1"
+		host === "0.0.0.0"
 	) {
 		return true;
 	}
@@ -44,6 +59,7 @@ function privateHost(hostname: string): boolean {
 		/^10\./.test(host) ||
 		/^192\.168\./.test(host) ||
 		/^169\.254\./.test(host) ||
+		/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) ||
 		/^172\.(1[6-9]|2\d|3[01])\./.test(host)
 	);
 }
@@ -60,9 +76,21 @@ function urlOf(value: string): URL | undefined {
 	}
 }
 
+/**
+ * What the page tool needs from a `fetch`: a URL and a redirect policy.
+ *
+ * It is declared here rather than reusing the model adapter's `FetchLike` because the
+ * policy is the point: following a redirect would defeat the guard, so this tool has to
+ * be able to ask for `manual` (found in review on #94).
+ */
+export type PageFetch = (
+	url: string,
+	init?: { redirect?: "follow" | "error" | "manual"; signal?: AbortSignal },
+) => Promise<Response>;
+
 export interface FetchPageOptions {
 	/** The host's `fetch`; a test passes one that answers without a network. */
-	fetch: FetchLike;
+	fetch: PageFetch;
 }
 
 export function fetchPageTool(options: FetchPageOptions): Tool {
@@ -85,11 +113,21 @@ export function fetchPageTool(options: FetchPageOptions): Tool {
 			}
 			let response: Response;
 			try {
-				response = await options.fetch(url.toString());
+				// `manual`, because the guard only ever saw the URL it was given: a host's
+				// `fetch` follows redirects by default, and a 302 to a private address would
+				// otherwise reach it anyway.
+				response = await options.fetch(url.toString(), { redirect: "manual" });
 			} catch (error) {
 				return {
 					isError: true,
 					content: `the page could not be fetched: ${error instanceof Error ? error.message : "the request failed"}`,
+				};
+			}
+			if (response.status >= 300 && response.status < 400) {
+				return {
+					isError: true,
+					content: `the page redirected (${response.status}) and this tool does not follow a redirect, because the guard only checked the address it was given`,
+					details: { url: url.toString(), status: response.status },
 				};
 			}
 			if (!response.ok) {

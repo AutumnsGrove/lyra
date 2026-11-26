@@ -16,6 +16,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   but http(s) and every host on a private network or a cloud metadata range before it calls `fetch`. That is a
   guard against the model, not against the page: the page's text is passed through unharmed, because a tool
   that sanitised it would hide whether the run obeys it.
+- **Review found two ways around that guard, and both were real.** A host's `fetch` follows redirects by default,
+  so a public URL answering `302 Location: http://169.254.169.254/` reached the metadata service anyway; the tool
+  now asks for `redirect: "manual"` and refuses a 3xx as an error result, because it can only check the address
+  it was given. And the host rule was a list of prefixes that missed `localhost.`, `100.64.0.0/10`, and every
+  IPv6 literal including IPv4-mapped loopback; it now strips trailing dots, refuses any bracketed IPv6 address
+  outside `2000::/3`, and includes CGNAT. The tests name each form, which is what would have caught the list.
 - **`hostile_page` is a fixture and the notes say so.** It does not fetch, it does not clean anything, and it
   has no `apply`: its whole job is to be the text that a scenario puts in front of a scripted model, so the
   record can show the delete asking for approval and the person denying it. The protection is PGS26's policy.

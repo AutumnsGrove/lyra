@@ -23,14 +23,17 @@ function context() {
 function fakeFetch(answer: (url: string) => Response | Promise<Response>): {
 	fetch: typeof fetch;
 	asked: string[];
+	inits: (RequestInit | undefined)[];
 } {
 	const asked: string[] = [];
-	const fetchLike = (async (input: RequestInfo | URL) => {
+	const inits: (RequestInit | undefined)[] = [];
+	const fetchLike = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		const url = String(input);
 		asked.push(url);
+		inits.push(init);
 		return answer(url);
 	}) as typeof fetch;
-	return { fetch: fetchLike, asked };
+	return { fetch: fetchLike, asked, inits };
 }
 
 test("PGS30 fetch_page answers a page's text, and asks its host for the URL", async () => {
@@ -77,17 +80,48 @@ test("PGS30 fetch_page refuses a URL that is not the open web", async () => {
 	for (const url of [
 		"file:///etc/passwd",
 		"http://localhost:8080/admin",
+		"http://localhost./",
 		"http://127.0.0.1/",
 		"http://10.0.0.1/",
 		"http://192.168.1.1/",
 		"http://169.254.169.254/latest/meta-data",
+		"http://100.64.0.1/",
 		"http://service.internal/",
+		"http://[::1]/",
+		"http://[::]/",
+		"http://[::ffff:127.0.0.1]/",
+		"http://[fd00::1]/",
+		"http://[fe80::1]/",
 		"not a url",
 	]) {
 		const outcome = await tool.execute({ url }, context());
 		expect(outcome.isError, url).toBe(true);
 	}
 	expect(asked).toEqual([]);
+
+	// And a public IPv6 address is still a page, so the rule is "not obviously public"
+	// rather than "IPv6 is refused".
+	const public6 = await tool.execute({ url: "http://[2001:db8::1]/" }, context());
+	expect(public6.isError).toBe(false);
+});
+
+test("PGS30 a redirect is not followed, because the guard only saw the first URL", async () => {
+	// The host's `fetch` follows redirects by default, so a public URL that answers a 302
+	// to a private one would reach it anyway. The tool asks for a manual redirect and
+	// refuses a 3xx as an error result instead (found in review on #94).
+	const { fetch: fake, inits } = fakeFetch(
+		() =>
+			new Response("", {
+				status: 302,
+				headers: { location: "http://169.254.169.254/latest/meta-data" },
+			}),
+	);
+	const tool = fetchPageTool({ fetch: fake });
+
+	const outcome = await tool.execute({ url: "https://example.test/redirect" }, context());
+	expect(outcome.isError).toBe(true);
+	expect(outcome.content).toContain("302");
+	expect(inits[0]?.redirect).toBe("manual");
 });
 
 test("PGS30 a page larger than the cap is cut, and says so", async () => {

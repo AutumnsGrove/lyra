@@ -30,9 +30,7 @@ import {
 	notesWriteTool,
 	type ToolTableState,
 } from "./notes.js";
-import type { FetchLike } from "@autumnsgrove/lyra/openai";
-
-import { fetchPageTool, hostilePageTool } from "./network.js";
+import { fetchPageTool, hostilePageTool, type PageFetch } from "./network.js";
 import { askPersonTool, proposeSummaryTool } from "./person.js";
 
 const NOW_PARAMETERS = { type: "object", properties: {} } as const;
@@ -125,7 +123,7 @@ export interface ToolTableOptions {
 	/** The wait `slow` uses. A test passes one that returns at once. */
 	sleep?: (ms: number) => Promise<void>;
 	/** The `fetch` `fetch_page` uses. A test passes a fake; a deployment the Worker's own. */
-	fetch?: FetchLike;
+	fetch?: PageFetch;
 }
 
 /**
