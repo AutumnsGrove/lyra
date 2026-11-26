@@ -40,6 +40,15 @@ model anywhere near it. The token was regenerated in the vault as `LYRA_PLAYGROU
 Worker before that deploy; the old `PLAYGROUND_TOKEN` was removed from the Worker and deleted from the vault
 only afterwards, and the new token was used to read the run's record back once it was gone.
 
+Driven against slice 3 on 2026-11-26, after the deploy that added the index: the page and a deep link answer
+`200`, `/api/sessions` and `/api/recipes` with no token are `403 permission_denied`, and with the token a
+conversation was created (`POST /api/sessions`), listed back with its recipe and label, and then started by
+the same id: `pnpm`-free, through the deployment's own `/v1/commands`, it ran `now` and `calculator` as one
+group and finished `done` in two turns for `$0.000168`. That is decision 158 and decision 154 both doing what
+they promise on the live Worker, and it is the first run whose conversation the sidebar can list. The `v2`
+migration created `SessionIndex` on the same deploy, and no secret changed: the two Worker secrets carried
+over, so nothing was copied out of the vault.
+
 ## The page
 
 Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
