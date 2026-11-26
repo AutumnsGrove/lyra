@@ -13,10 +13,21 @@ import type { Clock, Recipe } from "@autumnsgrove/lyra";
 import { shellRecipe } from "./shell.js";
 import { toolTableRecipe } from "./tool-table.js";
 
-export function recipeCatalogue(clock: Clock): ReadonlyMap<string, Recipe> {
+export interface CatalogueOptions {
+	/** The wait `slow` uses; a test passes one that returns at once. */
+	sleep?: (ms: number) => Promise<void>;
+}
+
+export function recipeCatalogue(
+	clock: Clock,
+	options: CatalogueOptions = {},
+): ReadonlyMap<string, Recipe> {
 	// Keyed by the recipe's own name, not the factory's: the factory and the recipe
 	// happen to agree today, and the test that asserts these keys is what keeps it so.
-	const toolTable = toolTableRecipe({ clock });
+	const toolTable = toolTableRecipe({
+		clock,
+		...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+	});
 	return new Map([
 		[shellRecipe.name, shellRecipe],
 		[toolTable.name, toolTable],

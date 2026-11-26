@@ -27,26 +27,65 @@ function context(callId = "c1") {
 	};
 }
 
-test("PGS06 tool-table is the recipe the page starts, and its tools are read-only", () => {
+test("PGS06 tool-table is the recipe the page starts, and its tools divide by policy", () => {
 	const recipe = toolTableRecipe({ clock });
 
 	expect(recipe.name).toBe("tool-table");
-	expect(recipe.version).toBe(1);
-	expect(recipe.tools.map((tool) => tool.spec.name)).toEqual(["now", "calculator", "finish"]);
+	// Slice 5 is a changed tool set, so the pin's version moves with it (decision 91).
+	expect(recipe.version).toBe(2);
+	expect(recipe.tools.map((tool) => tool.spec.name)).toEqual([
+		"now",
+		"calculator",
+		"notes_read",
+		"notes_list",
+		"flaky",
+		"slow",
+		"big_result",
+		"notes_write",
+		"notes_delete",
+		"ask_person",
+		"propose_summary",
+		"finish",
+	]);
 
 	// The finish is a real done-check, not a tool that borrowed the name: a run cannot
 	// claim to be done through anything else.
 	const finish = recipe.tools.find((tool) => tool.spec.name === "finish");
 	expect(finish?.finish).toBe(true);
 
-	// Both reads are allowed and parallel, so several calls from one reply show up as
-	// several rows in flight (decision 154). An `apply` would make `defineTool` refuse
-	// the pairing, and neither has one.
-	for (const tool of recipe.tools.filter((tool) => tool.spec.name !== "finish")) {
-		expect(tool.policy).toBe("allow");
-		expect(tool.parallel).toBe(true);
-		expect(tool.apply).toBeUndefined();
+	// Reads are allowed and parallel, so several calls from one reply show up as several
+	// rows in flight (decision 154); an `apply` would make `defineTool` refuse the
+	// pairing, and none of them has one.
+	const reads = ["now", "calculator", "notes_read", "notes_list", "flaky", "slow", "big_result"];
+	for (const name of reads) {
+		const tool = recipe.tools.find((candidate) => candidate.spec.name === name);
+		expect(tool?.policy, name).toBe("allow");
+		expect(tool?.parallel, name).toBe(true);
+		expect(tool?.apply, name).toBeUndefined();
 	}
+	for (const name of ["notes_write", "notes_delete"]) {
+		const tool = recipe.tools.find((candidate) => candidate.spec.name === name);
+		expect(tool?.policy, name).toBe("ask");
+		expect(tool?.apply, name).toBeDefined();
+	}
+	// The question is its own stop, not a member of a group: a batch that includes it
+	// parks where the question falls (APR05), so it is deliberately not `parallel`.
+	const asking = recipe.tools.find((tool) => tool.spec.name === "ask_person");
+	expect(asking?.policy).toBe("allow");
+	expect(asking?.parallel).toBeUndefined();
+});
+
+test("PGS06 the recipe starts with no notes, and its state is the person's first message", () => {
+	const recipe = toolTableRecipe({ clock });
+	const setup = recipe.setup;
+	expect(setup).toBeDefined();
+	if (setup === undefined) {
+		return;
+	}
+	expect(setup("hello")).toEqual({ message: "hello", state: { notes: {} } });
+	// The page can send JSON as well as text, because a future picker might; it is
+	// flattened to the message the model reads rather than dropped.
+	expect(setup({ question: "hi" }).message).toBe('{"question":"hi"}');
 });
 
 test("PGS07 now answers the run's own clock, so a test can pin it", async () => {

@@ -9,6 +9,34 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 5a, the local tools, 2026-11-26
+
+- **The notes are the recipe's state, not a store.** Decision 112 already rebuilds state from the record's own
+  applies, so a note survives an eviction for free and the rig adds nothing to Lyra. The writes carry an
+  `apply` and ask a person (`risk: changes`), which is the plan's "writes ask" and also why they cannot join a
+  group (decision 154); the reads are pure, allowed and parallel, so a fan-out shows up as several rows.
+- **`flaky` keeps its count in the tool, not in the state, and that is a deliberate exception.** A resume
+  rebuilds state by replaying successful `apply`s, and an error result is skipped (decision 112), so a counter
+  the tool tried to keep in state would never move and the tool would fail for ever. The cost is that a rebuild
+  restarts the count; a tool whose only job is to make a model correct itself can afford that, and a scenario
+  that resumes after a failure is the place to notice it if it ever matters.
+- **The recipe moved to version 2, and old conversations will park `stuck`.** Adding tools changes the pin's
+  tool-set hash, and a resume that finds a changed tool set stops for a person (EVT06) — the pin doing what it
+  is for, since a tool the record already used may be gone. The live Worker has conversations from slices 2
+  and 3 that predate this, so after the deploy a follow-up on one of those parks `stuck`/`recipe_changed`;
+  starting a new conversation is the way out. Said here because the deploy is what makes it visible.
+- **The playground scenarios live in `scenarios/playground/`.** The three runners of `scenarios/*.yaml` hand a
+  file only the testkit's recipes, and a playground file names `tool-table`; a subdirectory is invisible to
+  them and has its own runner in `packages/playground/src/scenarios.test.ts`, which supplies the shipped
+  catalogue. The cost is that a playground file runs in-process only: the wire levels would need the
+  playground's Worker in workerd, which is the same second configuration `Session` has been waiting for.
+- **`search_web` is out of this slice and is issue #91.** It needs a provider, the rig has none, and Autumn's
+  call was to use Parallel later rather than to fake one now. The tool table is otherwise #60's list; the
+  network tools are 5b.
+- **The playground bundle is 59.0 KiB of 60** after this slice (56.7 before it). Slice 5b's two network tools
+  and slice 6's cards land in that headroom, so the next thing that grows it should either measure first or
+  raise the ceiling with a decision; Autumn has said a raise is acceptable.
+
 ## C slice 4, tool calls and traces, 2026-11-26
 
 - **A call is one row that fills in, not a call row and a result row.** Several calls in a group arrive

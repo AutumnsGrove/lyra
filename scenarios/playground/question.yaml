@@ -1,0 +1,20 @@
+# PGS28: a question parks the run, the person's answer becomes the tool's result, and the
+# run carries on. The question is the tool's own, so nothing about it is a policy.
+name: the playground asks a person and carries on with the answer
+task: tool-table
+recipe: tool-table
+input: ask which note to read, then answer
+runs:
+  - model:
+      - tool_calls: [{ id: c1, name: ask_person, args: { question: which note should I read? } }]
+  - answer: { text: the one called milk }
+    model:
+      - tool_calls: [{ id: c2, name: finish, args: {} }]
+expect_events:
+  - { type: run_start }
+  - { type: run_end, reason: parked, parked_reason: waiting_for_person }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: request, kind: question, callId: c1, tool: ask_person }
+  - { type: request_answered, text: the one called milk }
+  - { type: status, state: done }

@@ -1,0 +1,20 @@
+# PGS28: a run that proposes ends, and a person decides afterwards (decision 52). It is
+# not a finish, so nothing here claims the job is done.
+name: the playground leaves a proposal for a person
+task: tool-table
+recipe: tool-table
+input: summarise what you did and leave it for me
+model:
+  - tool_calls:
+      - id: c1
+        name: propose_summary
+        args:
+          payload:
+            summary: "nothing was asked, so nothing was done"
+          evidence: ["the task input"]
+expect_events:
+  - { type: run_start }
+  - { type: run_end, reason: done }
+expect_record:
+  - { type: proposal, state: open }
+  - { type: status, state: done }
