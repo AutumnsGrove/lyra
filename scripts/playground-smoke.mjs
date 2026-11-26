@@ -91,7 +91,12 @@ async function main() {
 		"x-lyra-script": SCRIPT,
 		"x-lyra-script-token": "not-the-token",
 	});
-	check(wrongToken.status === 403, `a wrong script token answered ${wrongToken.status}, not 403`);
+	// The code as well as the status: a 403 for some other reason (the smoke bearer, say)
+	// would otherwise pass as a script-boundary refusal (review on #103).
+	check(
+		wrongToken.status === 403 && wrongToken.body?.error?.code === "permission_denied",
+		`a wrong script token answered ${wrongToken.status} ${wrongToken.body?.error?.code ?? "with no code"}`,
+	);
 
 	// 3. The scripted run itself.
 	const started = await command(startFrame(session, "what time is it?"), {

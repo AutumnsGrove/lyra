@@ -30,6 +30,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   smoke tenant, proves both refusals, runs the scripted `now`+`finish`, follows the stream to `done`, and
   reads the record back. Every failure throws with the thing that went wrong, so the job log says what
   broke rather than "assertion failed", and no secret is printed.
+- **The concurrency group queues deploys but does not order them by commit.** If an older `ci` run on `main`
+  finished after a newer one (it would have to escape `ci`'s own cancel-on-supersede), the older tree could be
+  deployed last. `ci` cancels a superseded run, so a merge is the only thing that reaches this job in order;
+  the note is here because the queue is what makes it unlikely rather than impossible, and a future change to
+  `ci`'s concurrency would make it worth revisiting.
 - **The smoke tenant's bearer is generated and stored like the others.** `LYRA_PLAYGROUND_SMOKE_TOKEN` on
   the Worker (whose name is a var), the same value in the repository for the job, and `PLAYGROUND_SMOKE_TENANT`
   as a repository variable. The values never passed through a command line or this transcript.
