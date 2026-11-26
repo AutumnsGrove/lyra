@@ -28,7 +28,18 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b in review on `feat/playground-slice-5b-pages`, then 6 to 8, plus issue #91 (`search_web`) |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; 6 to 8 next, plus issue #91 (`search_web`) |
+
+### Where the last session stopped (2026-11-26, the page tools)
+
+- **C slice 5b is merged and deployed**, pull request [#94](https://github.com/AutumnsGrove/lyra/pull/94), merge
+  commit `58ca70e`: `fetch_page` (the host's `fetch`, a guard that refuses every scheme but http(s), private
+  hosts, CGNAT, `0.0.0.0/8` and 6to4, no redirects, and a body read through a 200,000-character cap) and
+  `hostile_page` (a fixture the tests and a scenario use). Rows PGS30 and PGS31; `tool-table` is version 3. Four
+  review rounds found real defects each time — redirects bypassing the guard, host forms it missed, the body
+  buffered before the cap, and `fetch_page` calling the Worker's native `fetch` as a method, which the runtime
+  refuses. The live Worker read `example.com` through it (version `847d742e`). Next is **slice 6, the cards**;
+  `search_web` is issue #91.
 
 ### Where the last session stopped (2026-11-26, the tool table)
 
