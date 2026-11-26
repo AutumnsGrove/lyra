@@ -17,8 +17,12 @@
 
 	import {
 		EMPTY_TRANSCRIPT,
+		answerRequest,
 		callState,
 		clearToken,
+		decideProposal,
+		nextId,
+		pendingCards,
 		readRecord,
 		readToken,
 		reduce,
@@ -27,6 +31,7 @@
 		startRun,
 		watchEvents,
 		type Fetcher,
+		type Row,
 		type StreamEvent,
 		type Transcript,
 	} from "../lib/playground.js";
@@ -59,6 +64,8 @@
 	let recipe = "";
 	let selected: string | undefined = undefined;
 	let record: string[] = [];
+	/** The note or answer typed into a card, by request id. */
+	let drafts: Record<string, string> = {};
 
 	const fetched: Fetcher = (url, init) => fetch(url, init);
 
@@ -154,15 +161,181 @@
 		record = [];
 		problem = "";
 		const entries = await loadEntries(session);
+		// A person can switch conversations while the record is in flight; a read for the
+		// one they left must not write into the one they are reading now.
+		if (selected !== session) {
+			return;
+		}
 		if (entries !== undefined) {
 			// The record is the truth on load: it holds both sides of the conversation,
 			// which the event stream does not (`user_message` is not a protocol event).
 			transcript = transcriptFrom(entries);
+			// The record read can stop at its page cap, and a card is the one thing a person
+			// has to act on, so the server is asked what can be answered now (CMD09) and
+			// anything the rebuild missed is drawn.
+			await mergePending(session);
 			// The stream is exclusive of the position it is given, and a record with no
 			// entries has no position to skip: `-1` is not a `Last-Event-ID` the protocol
 			// accepts, so an empty record starts the stream at zero.
 			await follow(session, Math.max(0, entries.length - 1));
 		}
+	}
+
+	/** The cards the session can answer now, minus the ones the transcript already holds. */
+	async function mergePending(session: string): Promise<void> {
+		if (token === undefined) {
+			return;
+		}
+		const pending = await pendingCards({
+			base: "",
+			token,
+			fetcher: fetched,
+			session,
+			id: nextId("p"),
+		});
+		// The same race the record read has: this may resolve after a switch.
+		if (selected !== session) {
+			return;
+		}
+		if (!pending.ok) {
+			if (!refused(pending.error.status)) {
+				problem = pending.error.message;
+			}
+			return;
+		}
+		const held = new Set(
+			transcript.rows.flatMap((row) =>
+				row.kind === "card" ? [row.request] : row.kind === "proposal" ? [row.proposal] : [],
+			),
+		);
+		const extra = pending.value.cards.filter((card) =>
+			card.kind === "card" ? !held.has(card.request) : card.kind === "proposal" ? !held.has(card.proposal) : false,
+		);
+		if (extra.length > 0) {
+			transcript = { ...transcript, rows: [...transcript.rows, ...extra] };
+		}
+	}
+
+	/** One card, by request id, replaced in the transcript when its state changes. */
+	function settle(request: string, next: { state: "approved" | "denied" | "expired"; answer?: string }): void {
+		transcript = {
+			...transcript,
+			rows: transcript.rows.map((row) =>
+				row.kind === "card" && row.request === request && row.state === "open"
+					? { ...row, ...next }
+					: row,
+			),
+		};
+	}
+
+	function draftOf(request: string): string {
+		return drafts[request] ?? "";
+	}
+
+	function setDraft(request: string, event: Event): void {
+		const target = event.target;
+		if (target instanceof HTMLInputElement) {
+			drafts = { ...drafts, [request]: target.value };
+		}
+	}
+
+	/**
+	 * Answer a card: an approval's yes or no, or a question's text.
+	 *
+	 * A `conflict` means somebody answered first and a `not_found` means the id expired;
+	 * both close the card rather than leaving a button that can never work.
+	 */
+	async function answer(row: Extract<Row, { kind: "card" }>, ok: boolean): Promise<void> {
+		if (token === undefined || selected === undefined) {
+			return;
+		}
+		const text = draftOf(row.request).trim();
+		const answered = await answerRequest({
+			base: "",
+			token,
+			fetcher: fetched,
+			session: selected,
+			request: row.request,
+			ok,
+			...(row.asks === "question" ? { text } : {}),
+			...(row.asks === "approve" && text !== "" ? { note: text } : {}),
+			id: nextId("a"),
+		});
+		if (!answered.ok) {
+			if (refused(answered.error.status)) {
+				return;
+			}
+			if (answered.error.code === "conflict" || answered.error.code === "not_found") {
+				settle(row.request, { state: "expired" });
+			}
+			problem = answered.error.message;
+			return;
+		}
+		drafts = { ...drafts, [row.request]: "" };
+		settle(row.request, {
+			state: ok ? (row.asks === "approve" ? "approved" : "approved") : "denied",
+			...(text === "" ? {} : { answer: text }),
+		});
+	}
+
+	async function choose(row: Extract<Row, { kind: "card" }>, id: string): Promise<void> {
+		if (token === undefined || selected === undefined) {
+			return;
+		}
+		const answered = await answerRequest({
+			base: "",
+			token,
+			fetcher: fetched,
+			session: selected,
+			request: row.request,
+			ok: true,
+			ids: [id],
+			id: nextId("a"),
+		});
+		if (!answered.ok) {
+			if (refused(answered.error.status)) {
+				return;
+			}
+			if (answered.error.code === "conflict" || answered.error.code === "not_found") {
+				settle(row.request, { state: "expired" });
+			}
+			problem = answered.error.message;
+			return;
+		}
+		const option = row.options?.find((candidate) => candidate.id === id);
+		settle(row.request, { state: "approved", ...(option === undefined ? {} : { answer: option.label }) });
+	}
+
+	/** A proposal's decision, which is a command rather than an answer (CMD10). */
+	async function decide(row: Extract<Row, { kind: "proposal" }>, decision: "accept" | "reject"): Promise<void> {
+		if (token === undefined || selected === undefined) {
+			return;
+		}
+		const decided = await decideProposal({
+			base: "",
+			token,
+			fetcher: fetched,
+			session: selected,
+			proposal: row.proposal,
+			decision,
+			...(draftOf(row.proposal).trim() === "" ? {} : { note: draftOf(row.proposal).trim() }),
+			id: nextId("d"),
+		});
+		drafts = { ...drafts, [row.proposal]: "" };
+		if (!decided.ok) {
+			if (!refused(decided.error.status)) {
+				problem = decided.error.message;
+			}
+			return;
+		}
+		transcript = {
+			...transcript,
+			rows: transcript.rows.map((entry) =>
+				entry.kind === "proposal" && entry.proposal === row.proposal && entry.state === "open"
+					? { ...entry, state: decision === "accept" ? "accepted" : "rejected" }
+					: entry,
+			),
+		};
 	}
 
 	/** Back to a new conversation: no session in the URL, an empty transcript. */
@@ -239,7 +412,7 @@
 				session,
 				limit: RECORD_PAGE,
 				cursor,
-				id: `m${Date.now()}-${page}`,
+				id: nextId("m"),
 			});
 			if (!read.ok) {
 				if (!refused(read.error.status)) {
@@ -348,7 +521,7 @@
 			command: "follow_up",
 			session: selected,
 			text,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok) {
 			if (!refused(sent.error.status)) {
@@ -372,7 +545,7 @@
 			command: "steer",
 			session: selected,
 			text,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok && !refused(sent.error.status)) {
 			problem = sent.error.message;
@@ -389,7 +562,7 @@
 			fetcher: fetched,
 			command: "abort",
 			session: selected,
-			id: `c${Date.now()}`,
+			id: nextId("c"),
 		});
 		if (!sent.ok && !refused(sent.error.status)) {
 			problem = sent.error.message;
@@ -507,6 +680,62 @@
 										<p class="state">waiting for the result…</p>
 									{:else}
 										<p class="state">no result: the run moved on or was stopped</p>
+									{/if}
+								</li>
+							{:else if row.kind === "card"}
+								<li class="card">
+									<p class="card-title">{row.title}</p>
+									<p>{row.message}</p>
+									{#if row.tool}
+										<p class="state">tool <code>{row.tool}</code></p>
+									{/if}
+									{#if row.args}
+										<details>
+											<summary>arguments</summary>
+											<pre>{row.args}</pre>
+										</details>
+									{/if}
+									{#if row.state === "open"}
+										{#if row.asks === "choice"}
+											{#each row.options ?? [] as option (option.id)}
+												<button type="button" onclick={() => void choose(row, option.id)}>{option.label}</button>
+											{/each}
+										{:else}
+											<input
+												aria-label={row.asks === "approve" ? "Note" : "Answer"}
+												value={draftOf(row.request)}
+												oninput={(event) => setDraft(row.request, event)}
+												placeholder={row.asks === "approve" ? "a note the model will read (optional)" : "your answer"}
+											/>
+											<button type="button" onclick={() => void answer(row, true)}>
+												{row.asks === "approve" ? "Approve" : "Send answer"}
+											</button>
+											{#if row.asks === "approve"}
+												<button type="button" onclick={() => void answer(row, false)}>Deny</button>
+											{/if}
+										{/if}
+									{:else}
+										<p class="state">{row.state}{#if row.answer} · {row.answer}{/if}</p>
+									{/if}
+								</li>
+							{:else if row.kind === "proposal"}
+								<li class="card">
+									<p class="card-title">a proposal</p>
+									<pre>{row.payload}</pre>
+									{#if row.evidence.length > 0}
+										<p class="state">evidence: {row.evidence.join(", ")}</p>
+									{/if}
+									{#if row.state === "open"}
+										<input
+											aria-label="Proposal note"
+											value={draftOf(row.proposal)}
+											oninput={(event) => setDraft(row.proposal, event)}
+											placeholder="a note the model will read (optional)"
+										/>
+										<button type="button" onclick={() => void decide(row, "accept")}>Accept</button>
+										<button type="button" onclick={() => void decide(row, "reject")}>Reject</button>
+									{:else}
+										<p class="state">{row.state}{#if row.note} · {row.note}{/if}</p>
 									{/if}
 								</li>
 							{:else}
@@ -649,6 +878,15 @@
 		display: inline-flex;
 		gap: 0.5rem;
 		align-items: baseline;
+	}
+
+	.card {
+		border-left-color: #6b4fa5;
+	}
+
+	.card-title {
+		font-weight: 600;
+		margin: 0 0 0.25rem;
 	}
 
 	.state,

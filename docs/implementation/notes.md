@@ -9,6 +9,37 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 6, the cards, 2026-11-26
+
+- **A card is one row that fills in, like a call.** The request arrives, the person (or another client) answers,
+  and the same row says what was decided. `ui_resolved` and `ui_expired` only change a card that is still
+  `open`, so a decision the page already applied is not overwritten by the event that confirms it — the same
+  first-answer rule the tool rows use.
+- **`list_pending` is asked after the rebuild rather than instead of it.** The record already holds every
+  request, so a rebuild draws a card raised while the tab was closed; `list_pending` is the other half, for the
+  case the record read stopped at its page cap or the object was rebuilt under the page. A card already in the
+  transcript is not duplicated, and the server's notion of "answerable now" is what the page shows when it
+  disagrees.
+- **A `conflict` or a `not_found` closes the card.** Both mean the answer cannot be delivered — somebody got
+  there first, or the id expired — and leaving an enabled button in front of that is the interface lying. The
+  page marks it expired and prints the server's message.
+- **The tests had to wait on the card's own controls, not on its title.** The record panel shows the raw entry
+  as JSON, so a title match resolved before the transcript was drawn and a synchronous query then missed the
+  card. Waiting for `Note`/`Answer`/`Accept` is the assertion that means something anyway.
+- **The question card's button is "Send answer", not "Send".** The follow-up form already has a "Send", and two
+  accessible names for two different actions is a page that reads badly to a person and to a test.
+- **A timed-out card is corrected, not decided.** The projection sends `ui_resolved` (deny) and then
+  `ui_expired` for the same entry, so the live page marked a timeout denied while a reload said expired; the
+  `ui_expired` case now also corrects a card that is already `denied`, and a test feeds the real pair.
+- **`mergePending` compares `selected` before it writes, and that guard is reasoned rather than test-proven.**
+  A read for a conversation the person has left must not append its cards to the one they are reading; the
+  happy-dom harness could not be made to reproduce the interleaving (the test passed with the guard removed),
+  so the test was dropped rather than kept as one that cannot fail. The same check is in `select` after the
+  record read, which is the same race.
+- **No Lyra change.** `ui_request`, `ui_resolved`, `ui_expired`, `proposal`, `proposal_decided`,
+  `list_pending`, `POST /v1/ui_response` and `decide_proposal` were all built; this slice is the page's half.
+  The Worker bundle does not move; the page's assets are outside the budget.
+
 ## C slice 5b, the page tools, 2026-11-26
 
 - **`fetch_page` refuses more than it fetches, on purpose.** A model that has just been handed a hostile page

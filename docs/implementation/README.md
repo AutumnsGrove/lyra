@@ -28,7 +28,7 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; 6 to 8 next, plus issue #91 (`search_web`) |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 in review on `feat/playground-slice-6-cards`; 7 and 8 next, plus issue #91 (`search_web`) |
 
 ### Where the last session stopped (2026-11-26, the page tools)
 
