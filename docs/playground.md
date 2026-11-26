@@ -49,6 +49,18 @@ they promise on the live Worker, and it is the first run whose conversation the 
 migration created `SessionIndex` on the same deploy, and no secret changed: the two Worker secrets carried
 over, so nothing was copied out of the vault.
 
+Driven against slice 5a on 2026-11-26, after the deploy that carries the tool table: a conversation was
+created, and `start` on it asked the model to keep a note and read it back. The run **parked on
+`notes_write` with an `approve` request**, the answer was posted to `/v1/ui_response` with the token, and the
+same run continued: `notes_write` reported the note kept, `notes_read` answered `two pints` — the note survived
+the park because it is the recipe's state — and `finish` ended it `done` in four turns for `$0.00043`. That is
+decision 34's mechanism, decision 112's state, and the table's writes asking a person, all on the live Worker
+with a real model.
+
+**A conversation started before this deploy parks `stuck`/`recipe_changed` on its next follow-up.** The recipe
+moved to version 2 and gained tools, which changes the pin (decision 91); that is the pin doing its job, and a
+new conversation is the way past it.
+
 ## The page
 
 Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
