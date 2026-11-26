@@ -76,6 +76,15 @@ decision 157's trade; the **API path** a card uses was proven on the live Worker
 `notes_write`, the answer posted to `/v1/ui_response`, the note read back. What is left for a person to check by
 hand is the click-through itself, which no test here can do.
 
+Driven against slice 7a on 2026-11-26, after the deploy that carries the budget (version `626aedfb`): `GET
+/api/cap` answered `{day, usd: 0, unpriced: false, cap: 1}`, a real run cost `$0.00015967314`, `POST /api/spend`
+with that amount answered `usd: 0.00016`, and a second `start` was still accepted (`200`) under the cap.
+
+**The over-cap refusal was not driven live**, on purpose: with the cap at `$1` and no route that resets a day,
+spending past it would refuse every new run on the deployment until UTC midnight. The refusal is proven against a
+real `Session` in `session.cap.test.ts` on both doors, over HTTP and over a socket, and by `cap.test.ts` for the
+policy; what a deploy can show without locking the rig is what is recorded above.
+
 ## The page
 
 Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
