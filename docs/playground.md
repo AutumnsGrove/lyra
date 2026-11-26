@@ -61,6 +61,15 @@ with a real model.
 moved to version 2 and gained tools, which changes the pin (decision 91); that is the pin doing its job, and a
 new conversation is the way past it.
 
+Driven against slice 5b on 2026-11-26, after the deploy that carries the page tools: a new conversation asked
+the model to `fetch_page` on `https://example.com/`, and the run read the real page through the Worker's own
+`fetch` — the `tool_end` carried the page's HTML, so the call that `Illegal invocation` would have broken works
+where it matters — and finished `done` in two turns for `$0.00042`. No redirect, no private host: the guard
+that refuses both is exercised by the tests, and this run is the one a test cannot do.
+
+**A conversation that predates this deploy parks `stuck`/`recipe_changed`** on its next follow-up, because the
+recipe is version 3. That is the pin (decision 91) doing its job; start a new conversation.
+
 ## The page
 
 Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
