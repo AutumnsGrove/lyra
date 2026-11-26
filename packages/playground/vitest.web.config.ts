@@ -10,7 +10,8 @@ import { defineConfig } from "vitest/config";
 // because a real renderer did something. What it buys is that the component a person
 // actually loads is the thing under test, rather than a copy of its logic.
 export default defineConfig({
-	plugins: [svelte({ hot: false })],
+	// No options: `hot` was removed in vite-plugin-svelte 7, and passing it now only warns.
+	plugins: [svelte()],
 	resolve: {
 		// A Svelte 5 component compiled by the plugin expects the browser condition, and
 		// this config runs on Node.
