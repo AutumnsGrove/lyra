@@ -20,6 +20,7 @@ import { shellRecipe } from "./recipes/shell.js";
 function env(): Env {
 	return {
 		SESSION: {} as DurableObjectNamespace,
+		INDEX: {} as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
 		LYRA_PLAYGROUND_TENANT: "playground",
 		// The placeholder source, so the run is driven by the loop without a key or a
@@ -35,6 +36,7 @@ test("PGS01 the playground's old binding names bind nothing", () => {
 	// the same shape as the empty-token bug review found on #81.
 	const stale = {
 		SESSION: {} as DurableObjectNamespace,
+		INDEX: {} as DurableObjectNamespace,
 		PLAYGROUND_TOKEN: "an-old-token-for-a-test",
 		PLAYGROUND_TENANT: "playground",
 	} as unknown as Env;

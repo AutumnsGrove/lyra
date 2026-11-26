@@ -1,31 +1,187 @@
 /**
- * The playground's front door (issue #60, slice 1).
+ * The playground's front door (issue #60, slices 1 and 3).
  *
- * One Worker serves both things: the page, from its static assets, and `/v1/*`, which
- * `run_worker_first` in `wrangler.jsonc` sends here rather than to the assets layer.
- * Everything protocol-shaped is the Cloudflare adapter's `createSessionWorker`, so this
- * file owns no routing rules of its own — it only supplies the object namespace and the
- * tenant's token.
+ * One Worker serves three things: the page, from its static assets; `/v1/*`, which
+ * `run_worker_first` in `wrangler.jsonc` sends here rather than to the assets layer; and
+ * the playground's own `/api/*`, which is where a sidebar comes from. Everything
+ * protocol-shaped is the Cloudflare adapter's `createSessionWorker`, so this file owns
+ * no routing rules of its own beyond the one route Lyra does not speak.
+ *
+ * `/api/*` sits outside `/v1/*` on purpose: the conversation index is the playground's,
+ * not Lyra's (decision 158), so a client of the protocol never learns it exists.
  */
 
+import { createTokenDoor, statusForCode, systemClock, type ErrorCode } from "@autumnsgrove/lyra";
 import {
 	createSessionWorker,
 	type DurableObjectNamespaceLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
+import { recipeCatalogue } from "./recipes/catalogue.js";
 import { tokensFrom, type Env } from "./session.js";
 
 export interface FrontDoor {
+	/** The sessions, one object each. */
 	namespace: DurableObjectNamespaceLike;
+	/** The per-tenant conversation index (decision 158). */
+	index: DurableObjectNamespaceLike;
+	/** Tenant to token, from a secret binding. */
 	tokens: Readonly<Record<string, string>>;
+	/** The recipe names this Worker runs, in the picker's order. */
+	recipes: readonly string[];
+	/** The clock the index timestamps with, passed in so a test can pin it. */
+	now: () => number;
+}
+
+/** An `/api/*` body is small: a label and a recipe name, never a conversation. */
+const MAX_API_BODY_BYTES = 8 * 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** One JSON answer, with the status that says whether it worked. */
+function json(value: unknown, status = 200): Response {
+	return new Response(JSON.stringify(value), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+/** A refusal the page reads the way it reads the protocol's: a code and a message. */
+function refuse(code: ErrorCode, message: string): Response {
+	return json({ error: { code, message } }, statusForCode(code));
+}
+
+/** The body as JSON, or nothing when it is too large, unreadable, or not an object. */
+async function readJson(request: Request): Promise<Record<string, unknown> | undefined> {
+	const text = await request.text();
+	if (text.length > MAX_API_BODY_BYTES) {
+		return undefined;
+	}
+	if (text.trim() === "") {
+		// A touch carries nothing but its id, and that is a body of no fields rather than
+		// a body the page failed to write.
+		return {};
+	}
+	try {
+		const parsed: unknown = JSON.parse(text);
+		return isRecord(parsed) ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
- * The door as a function of its two inputs, so a test can drive it with a recording
- * namespace and no bindings. The Worker's `fetch` is this, plus the environment.
+ * The door as a function of its inputs, so a test can drive it with recording namespaces
+ * and no bindings. The Worker's `fetch` is this, plus the environment.
  */
 export function frontDoor(door: FrontDoor): (request: Request) => Promise<Response> {
-	return createSessionWorker({ namespace: door.namespace, tokens: door.tokens });
+	const open = createSessionWorker({ namespace: door.namespace, tokens: door.tokens });
+	const tenantOf = createTokenDoor(door.tokens);
+
+	return async (request) => {
+		const url = new URL(request.url);
+		if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+			return api(request, url, door, tenantOf);
+		}
+		return open(request);
+	};
+}
+
+/**
+ * The playground's own routes. They authenticate against the same token map the protocol
+ * does, so a person who has opened the page has opened the sidebar with the same
+ * credential, and a tenant is always the one its token resolved to rather than anything
+ * the request said.
+ */
+async function api(
+	request: Request,
+	url: URL,
+	door: FrontDoor,
+	tenantOf: ReturnType<typeof createTokenDoor>,
+): Promise<Response> {
+	const tenant = await tenantOf(request);
+	if (!tenant.ok) {
+		return refuse(tenant.error.code as ErrorCode, tenant.error.message);
+	}
+
+	if (request.method === "GET" && url.pathname === "/api/recipes") {
+		return json({ recipes: door.recipes });
+	}
+
+	if (url.pathname !== "/api/sessions" && !url.pathname.startsWith("/api/sessions/")) {
+		return refuse("not_found", `there is nothing at ${url.pathname}`);
+	}
+
+	const index = door.index.get(door.index.idFromName(tenant.value));
+
+	if (request.method === "GET" && url.pathname === "/api/sessions") {
+		const listed = await index.fetch(new Request("https://index.invalid/list"));
+		return json(await listed.json(), listed.status);
+	}
+
+	if (request.method === "POST" && url.pathname === "/api/sessions") {
+		const body = await readJson(request);
+		if (body === undefined) {
+			return refuse("bad_request", "a new conversation holds one object of JSON");
+		}
+		const recipe = body["recipe"];
+		if (typeof recipe !== "string" || recipe === "") {
+			return refuse("bad_request", "a new conversation needs a recipe");
+		}
+		// Checked before the index is written, so a stale page cannot leave a conversation
+		// in the sidebar that every later `start` would refuse.
+		if (!door.recipes.includes(recipe)) {
+			return refuse("not_found", `this Worker runs no recipe ${recipe}`);
+		}
+		const label = body["label"];
+		if (typeof label !== "string" || label.trim() === "") {
+			return refuse("bad_request", "a new conversation needs a label");
+		}
+
+		// The id comes from the sessions namespace, so the `start` the page sends next
+		// lands on the object this entry names rather than on a second, empty one.
+		const session = door.namespace.newUniqueId().toString();
+		const created = await index.fetch(
+			new Request("https://index.invalid/create", {
+				method: "POST",
+				body: JSON.stringify({ session, label, recipe, lastUsed: door.now() }),
+			}),
+		);
+		if (!created.ok) {
+			return json(await created.json(), created.status);
+		}
+		return json({ session }, 201);
+	}
+
+	if (request.method === "PUT" && url.pathname.startsWith("/api/sessions/")) {
+		const session = decodeURIComponent(url.pathname.slice("/api/sessions/".length));
+		if (session === "") {
+			return refuse("not_found", "there is no such conversation");
+		}
+		const body = await readJson(request);
+		if (body === undefined) {
+			return refuse("bad_request", "a touch holds one object of JSON, or none");
+		}
+		const label = body["label"];
+		if (label !== undefined && typeof label !== "string") {
+			return refuse("bad_request", "a label is text");
+		}
+		const touched = await index.fetch(
+			new Request("https://index.invalid/touch", {
+				method: "POST",
+				body: JSON.stringify({
+					session,
+					lastUsed: door.now(),
+					...(label === undefined ? {} : { label }),
+				}),
+			}),
+		);
+		return json(await touched.json(), touched.status);
+	}
+
+	return refuse("not_found", `there is nothing at ${url.pathname}`);
 }
 
 export default {
@@ -33,8 +189,16 @@ export default {
 		// The runtime's own binding type is assignable to the three methods the adapter
 		// names, so no cast is needed: the binding is narrowed by the type system rather
 		// than by a promise in a comment (found in review on #81).
-		return frontDoor({ namespace: env.SESSION, tokens: tokensFrom(env) })(request);
+		const clock = systemClock();
+		return frontDoor({
+			namespace: env.SESSION,
+			index: env.INDEX,
+			tokens: tokensFrom(env),
+			recipes: [...recipeCatalogue(clock).keys()],
+			now: () => clock.now(),
+		})(request);
 	},
 } satisfies ExportedHandler<Env>;
 
 export { Session } from "./session.js";
+export { SessionIndex } from "./index-do.js";

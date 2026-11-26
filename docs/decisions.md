@@ -548,6 +548,16 @@ make the floor measure two different things at once. `packages/playground` also 
 `typescript@^6` as a devDependency, because SvelteKit 3 needs a compiler with a JavaScript API and the
 workspace is on TypeScript 7.
 
+### 158. The playground's conversation index is a per-tenant Durable Object, not D1
+
+Decided 2026-11-26, with issue #60 and slice 3. The sidebar needs a list of conversations, and Lyra answers `list_sessions` with `unsupported` on purpose: an index across sessions is a design of its own, and every session object holds exactly one record. So the playground keeps one, in a second Durable Object named for the tenant, at `/api/sessions` behind the same bearer-token door the protocol uses, and the tenant is always the one the token resolved to rather than anything a request said.
+
+Three things follow from the shape. **One object per tenant** rather than one global object, because the tenant is already the unit the door resolves and the sessions namespace is named by, so a shared index would be the only place a request could reach another tenant's labels. **Key-value storage, not SQL**, because the index only reads or writes a whole entry by key and a rig holds a handful; the entry set is `session:<id>` under one prefix, the list is a prefix read sorted by `lastUsed`, and the cap is the newest hundred. **The recipe lives in the entry**, because a conversation keeps the recipe it was started with (decision 91), and the page picks it once, at "new conversation"; the sidebar can then say which recipe a conversation runs without opening the session object.
+
+The alternative was a D1 table, which is easier to query and one more binding to deploy, migrate and test. It buys a query nobody needs yet: the list is a hundred rows at most, read on page load. What would make it worth moving is a second thing asking questions of conversations across tenants — usage, search — at which point the index is not an index but a table, and the decision to rewrite it is a different one.
+
+The Worker's `/api/*` is claimed in `run_worker_first` beside `/v1/*` (PGS03). Without that the single-page fallback answers `/api/sessions` with `index.html`, and the sidebar would parse a page as JSON; the config test that already guarded the protocol path gained the second prefix rather than a second test. The index's own routes are `/list`, `/create` and `/touch` over plain JSON, because a Durable Object is reached with a `fetch` like any other stub; it is not protocol, so it is not written as protocol frames.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.
