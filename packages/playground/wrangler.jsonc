@@ -9,8 +9,10 @@
 	"main": "src/worker.ts",
 	"compatibility_date": "2026-11-01",
 	// The tenant is a var because it is not a secret; the token is a Worker secret, so
-	// it is never in this file. `wrangler dev` reads it from `.dev.vars`.
-	"vars": { "PLAYGROUND_TENANT": "playground" },
+	// it is never in this file. `wrangler dev` reads it from `.dev.vars`. Both are
+	// prefixed, because the `gw secret` vault is shared and a name there says which
+	// project it belongs to (issue #60, slice 2).
+	"vars": { "LYRA_PLAYGROUND_TENANT": "playground" },
 	"assets": {
 		"directory": "./public",
 		"not_found_handling": "single-page-application",

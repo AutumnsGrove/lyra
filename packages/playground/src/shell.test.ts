@@ -4,7 +4,7 @@ import { counterIds, memoryStorage } from "@autumnsgrove/lyra/memory";
 import { fakeClock } from "@autumnsgrove/lyra/testkit";
 
 import type { Env } from "./session.js";
-import { sessionOptions } from "./session.js";
+import { sessionOptions, tokensFrom } from "./session.js";
 import { PLACEHOLDER_MODEL, PLACEHOLDER_MODEL_NAME } from "./model.js";
 import { shellRecipe } from "./recipes/shell.js";
 
@@ -20,10 +20,23 @@ import { shellRecipe } from "./recipes/shell.js";
 function env(): Env {
 	return {
 		SESSION: {} as DurableObjectNamespace,
-		PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
-		PLAYGROUND_TENANT: "playground",
+		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
+		LYRA_PLAYGROUND_TENANT: "playground",
 	};
 }
+
+test("PGS01 the playground's old binding names bind nothing", () => {
+	// The vault's rule is that a name says which project it belongs to, so the two
+	// playground bindings are prefixed. A deployment still carrying the old secret must
+	// not keep working: that would leave a name nobody chose opening the door, which is
+	// the same shape as the empty-token bug review found on #81.
+	const stale = {
+		SESSION: {} as DurableObjectNamespace,
+		PLAYGROUND_TOKEN: "an-old-token-for-a-test",
+		PLAYGROUND_TENANT: "playground",
+	} as unknown as Env;
+	expect(tokensFrom(stale)).toEqual({});
+});
 
 test("PGS02 the session's own options can finish a run, so a deployment can be driven", async () => {
 	const options = sessionOptions(env());

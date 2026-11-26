@@ -9,6 +9,19 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 2, the token and the model, 2026-11-25
+
+- **The two playground bindings are prefixed now, and the old names bind nothing.** `PLAYGROUND_TOKEN` and
+  `PLAYGROUND_TENANT` are `LYRA_PLAYGROUND_*` from slice 2 on, because the `gw secret` vault is shared and
+  its rule is that a name says which project it belongs to. The rename is not only tidier: a stale secret
+  left on a deployment binds no tenant, so a request is refused instead of quietly opening the door with a
+  name nobody chose. Both are asserted, so the safe direction is a test rather than a hope.
+- **The key's name and the adapter's name are different on purpose.** The OpenAI adapter asks its
+  `SecretsSlot` for `OPENROUTER_API_KEY` by that fixed name (a preset is configuration, and the preset owns
+  the name), while the Worker secret is `LYRA_PLAYGROUND_OPENROUTER_API_KEY`. The playground maps one to the
+  other in a few lines rather than renaming the secret to suit an adapter, which would put the vault's rule
+  second. Renaming the secret instead would also mean two projects' keys look alike in a shared vault.
+
 ## C slice 1 deployed, 2026-11-25
 
 - **The rig is live, and it is a blank page on purpose.** `lyra-playground.m7jv4v7npb.workers.dev` serves the

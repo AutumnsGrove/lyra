@@ -24,9 +24,12 @@ export interface Env {
 	 * Optional because a secret that was never set arrives as `undefined`, whatever the
 	 * type says: the binding is created by `wrangler secret put`, and nothing makes that
 	 * happen before the first request.
+	 *
+	 * Prefixed, because the `gw secret` vault is shared across the Grove Workers and its
+	 * rule is that a name says which project it belongs to (issue #60, slice 2).
 	 */
-	PLAYGROUND_TOKEN?: string | undefined;
-	PLAYGROUND_TENANT?: string | undefined;
+	LYRA_PLAYGROUND_TOKEN?: string | undefined;
+	LYRA_PLAYGROUND_TENANT?: string | undefined;
 }
 
 /**
@@ -39,8 +42,8 @@ export interface Env {
  * safe direction by construction rather than by a header being trimmed (found in review).
  */
 export function tokensFrom(env: Env): Readonly<Record<string, string>> {
-	const tenant = env.PLAYGROUND_TENANT;
-	const token = env.PLAYGROUND_TOKEN;
+	const tenant = env.LYRA_PLAYGROUND_TENANT;
+	const token = env.LYRA_PLAYGROUND_TOKEN;
 	if (typeof tenant !== "string" || tenant === "" || typeof token !== "string" || token === "") {
 		return {};
 	}
