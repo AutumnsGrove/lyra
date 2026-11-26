@@ -7,28 +7,27 @@ name: Claude Code Review
 # the review, so it follows this repository's rules rather than a general
 # one's (AGENTS.md, and the shell guidance in REVIEW.md).
 #
-# It cannot push, and the only thing it can write is a comment. The job's
-# token is passed explicitly, so it carries nothing but the permissions
-# declared below: contents read, and the two write scopes a comment needs.
-# Without `github_token`, the action exchanges its OIDC token for a Claude app
-# token with `contents: write`, which would quietly outrank that block. The
-# tool list in `claude_args` is strict on top of it (`--permission-mode
-# default` denies whatever it does not name), and `gh pr comment` is not scoped
-# to one pull request.
+# It cannot push, and the review it posts is one comment on the pull request.
+# The job's token is passed explicitly, so it carries nothing but the
+# permissions declared below: contents read, and the two write scopes a comment
+# needs. Without `github_token`, the action exchanges its OIDC token for a
+# Claude app token with `contents: write`, which would quietly outrank that
+# block.
 #
-# Since 2026-11-26 it has a shell. `pi-review` is disabled while the two are
-# merged into one reader, so this job is the only one left and it does both
-# halves: reading for what a green suite cannot say, and running for what only
-# a shell can settle — the suite a body reports, a reverted fix, the
-# arithmetic a comment asserts. `Bash` is therefore allowed whole, and the cost
-# is worth stating once, here, because it is the whole of the trade: a checkout
-# the pull request controls now runs commands in a job holding `GITHUB_TOKEN`
-# (contents read) and the Claude OAuth token, so a pull request that talks the
-# reviewer into printing its environment can put a credential into a comment,
-# where GitHub's log masking does not reach. It still cannot push, and it still
-# writes nothing but the one comment. Put the read-only list
-# (`Read,Grep,Glob` and the three `gh pr` subcommands) back when `pi-review`
-# is re-enabled.
+# Since 2026-11-26 it has a shell, which makes what the paragraph above is worth
+# worth saying plainly. `pi-review` is disabled while the two readers are merged
+# into one, so this job is the only one left and it does both halves: reading
+# for what a green suite cannot say, and running for what only a shell can
+# settle — the suite a body reports, a reverted fix, the arithmetic a comment
+# asserts. `Bash` is therefore allowed whole rather than through a command
+# allow-list, and the bound on what it writes is the token's scopes, not the
+# tool list: the prompt asks for one comment, but `gh api` reaches every
+# comment, label and issue state that `issues: write` and `pull-requests: write`
+# allow, and a checkout the pull request controls is text that can ask it to. A
+# shell may also print `CLAUDE_CODE_OAUTH_TOKEN` into that comment, where
+# GitHub's log masking does not reach. It still cannot push, and it still
+# cannot merge. Put the read-only list (`Read,Grep,Glob` and the three `gh pr`
+# subcommands) back when `pi-review` is re-enabled.
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
