@@ -201,3 +201,25 @@ test("PGS42 the smoke tenant cannot start a run without a script", async () => {
 	expect(refused?.status).toBe(403);
 	expect(await refused?.json()).toMatchObject({ error: { code: "permission_denied" } });
 });
+
+test("PGS42 a script header on anything but a start is refused, so a live run is not reset", async () => {
+	const good = JSON.stringify([{ tool_calls: [{ id: "c1", name: "finish", arguments: "{}" }] }]);
+	const refused = await new Session({} as DurableObjectState, scriptEnv()).fetch(
+		new Request("https://playground.test/v1/commands", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer the-smoke-token",
+				"x-lyra-script": good,
+				"x-lyra-script-token": "the-script-token",
+			},
+			body: JSON.stringify({
+				type: "command",
+				id: "c2",
+				command: "steer",
+				session: "s1",
+				text: "go",
+			}),
+		}),
+	);
+	expect(refused?.status).toBe(400);
+});

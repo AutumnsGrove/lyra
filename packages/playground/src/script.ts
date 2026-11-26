@@ -96,8 +96,13 @@ export function decodeScript(raw: string | null | undefined): Result<ScriptTurn[
 		if (text !== undefined && typeof text !== "string") {
 			return fail("bad_request", `turn ${index} has a text that is not a string`);
 		}
-		const toolCalls = callsOf(turn["tool_calls"] ?? turn["toolCalls"]);
-		if (turn["tool_calls"] !== undefined && toolCalls === undefined) {
+		// Either spelling is read, and either spelling is checked: testing only the snake_case
+		// key let `toolCalls: "bad"` on a turn with text through, and a mistyped call that
+		// silently becomes a text-only turn is a smoke job asserting less than it wrote
+		// (review on #101).
+		const rawCalls = turn["tool_calls"] ?? turn["toolCalls"];
+		const toolCalls = callsOf(rawCalls);
+		if (rawCalls !== undefined && toolCalls === undefined) {
 			return fail("bad_request", `turn ${index} has tool_calls that are not a list of calls`);
 		}
 		if (text === undefined && (toolCalls === undefined || toolCalls.length === 0)) {

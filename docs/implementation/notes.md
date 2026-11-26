@@ -29,6 +29,11 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   tenant's model slot refuses when it has no script — so the worst case is a parked run, not a bill. The same
   round fixed the budget being filed under the first tenant in the map rather than the session's own, a cast on a
   script's `finish_reason`, and a byte cap compared in characters.
+- **The second review round found a validation gap and a live-session hazard.** The call list was read from either
+  spelling but only checked when it was `tool_calls`, so `toolCalls: "bad"` beside text became a text-only turn and
+  a smoke job silently asserted less; either spelling is now read and checked. And a script header on a steer or a
+  follow-up replaced a live scripted session's turns mid-run, so a script is accepted only on a `start` and
+  anything else is `bad_request`. Both have tests.
 - **The accepted path still needs workerd.** Every refusal is tested against a real `Session` in Node; the
   accepted start builds the object, which is the configuration the playground has never had. The smoke job is what
   proves that half, on a real deployment — and it is the reason the job exists.

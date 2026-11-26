@@ -98,3 +98,22 @@ test("PGS41 a script is capped in bytes, and a finish reason this build does not
 	expect(decodeScript(JSON.stringify([{ text: "x", finish_reason: "invented" }])).ok).toBe(false);
 	expect(decodeScript(JSON.stringify([{ text: "x", finish_reason: "stop" }])).ok).toBe(true);
 });
+
+test("PGS41 a malformed call is refused in either spelling, even beside text", () => {
+	// The snake_case key was checked and the camelCase one was not, so these two were dropped
+	// silently: a turn with text and a broken call looked like a text-only turn (review on
+	// #101).
+	for (const turn of [
+		{ text: "x", toolCalls: "bad" },
+		{ text: "x", toolCalls: [{ id: 1, name: "now", arguments: "{}" }] },
+		{ text: "x", tool_calls: "bad" },
+		{ text: "x", tool_calls: [{ name: "now", arguments: "{}" }] },
+	]) {
+		expect(decodeScript(JSON.stringify([turn])).ok, JSON.stringify(turn)).toBe(false);
+	}
+	// And the camelCase spelling is still read when it is right.
+	const valid = decodeScript(
+		JSON.stringify([{ text: "x", toolCalls: [{ id: "c1", name: "now", arguments: "{}" }] }]),
+	);
+	expect(valid.ok).toBe(true);
+});

@@ -220,6 +220,14 @@ export class Session implements DurableObject {
 			);
 		}
 
+		// A script belongs to a `start`, the one command that opens a run: accepting it on a
+		// steer or a follow-up would replace a live scripted session's turns mid-run.
+		if ((await this.#commandOf(request)) !== "start") {
+			return refusalResponse(
+				"bad_request",
+				"a script belongs to a start, which opens the run",
+			);
+		}
 		const script = decodeScript(header);
 		if (!script.ok) {
 			return refusalResponse("bad_request", script.error.message);
@@ -233,22 +241,27 @@ export class Session implements DurableObject {
 
 	/** Whether this request is a `start` from the smoke tenant, which needs a script. */
 	async #startsHere(request: Request): Promise<boolean> {
-		if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/commands") {
+		if ((await this.#commandOf(request)) !== "start") {
 			return false;
 		}
 		const tenant = await this.#tenantFor(request);
-		if (tenant === undefined || smokeTenantOf(this.env, tenant) === undefined) {
-			return false;
+		return tenant !== undefined && smokeTenantOf(this.env, tenant) !== undefined;
+	}
+
+	/** The command a `POST /v1/commands` carries, read without consuming the body. */
+	async #commandOf(request: Request): Promise<string | undefined> {
+		if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/commands") {
+			return undefined;
 		}
 		try {
 			const body: unknown = await request.clone().json();
-			return (
-				typeof body === "object" &&
-				body !== null &&
-				(body as { command?: unknown }).command === "start"
-			);
+			if (typeof body !== "object" || body === null) {
+				return undefined;
+			}
+			const command = (body as { command?: unknown }).command;
+			return typeof command === "string" ? command : undefined;
 		} catch {
-			return false;
+			return undefined;
 		}
 	}
 
