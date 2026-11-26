@@ -36,7 +36,7 @@ The protocol is how anything outside Lyra talks to it: an Arbor page, a script, 
 | `event` | server to client | Something happened. Events carry a counter and a time. |
 | `ui_request` / `ui_response` | both | The server needs a person (confirm, select, input, form) and waits for the answer. |
 
-Error codes are stable strings: `bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`.
+Error codes are stable strings: `bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`, plus `conflict` and `limit`. **`limit`** is a host's own refusal — a day's spend, a tenant's quota — and is **429**, so a client retries later; it is not a run parked on the core's own limit, which is a `parked` status and not an error.
 
 A run always ends with exactly one `run_end`, even on error or abort. A client treats the first `run_end` as the end of its request.
 
@@ -105,7 +105,7 @@ This is the concrete shape, written so spec rows can have IDs (decision 62). It 
 
 Dropped from Nova: `set_model`, `set_thinking`, `set_context_limit`, `set_tools`, `reload`, `get_commands`, `list_models`, `get_usage`, `run_command`, `bash` as a user command, the session commands that fork and navigate (decision 30), the login commands, the extension commands, and `decide`, `embed`, `speak`, `transcribe` (decision 48). Image attachments are not supported in version one.
 
-Responses are Nova's: `{type: "response", id, command, ok, data}` or `{..., ok: false, error: {code, message}}`. The error codes are Nova's eight (`bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`) plus **`conflict`**, for a reused idempotency key with different input and for a second decision on the same proposal or request.
+Responses are Nova's: `{type: "response", id, command, ok, data}` or `{..., ok: false, error: {code, message}}`. The error codes are Nova's eight (`bad_request`, `busy`, `not_found`, `permission_denied`, `unsupported`, `timeout`, `provider_error`, `internal`) plus **`conflict`**, for a reused idempotency key with different input and for a second decision on the same proposal or request, and **`limit`**, for a host refusing work because a limit it enforces has been reached (429, retry later).
 
 The session that does this (`src/protocol/session.ts`, decision 131) settles what the commands do when they cannot do what was asked. A task name the host does not run is `not_found`, at `start` and at a resume. A `start` into a session that already has a record is `conflict` unless it carries the same key, task and input, so a `prompt` or a `follow_up` is the second way to say anything and a client never accidentally starts a rival run. `steer` and `abort` with nothing running are `conflict`; `prompt` without `queue` during a run is `busy`; `resume` and `compact` while a run is active are `busy`, because a compaction there would change the view under a step in progress. A `prompt` carrying `queue` is queued like a follow-up, and with nothing running a `prompt` and a `follow_up` do the same thing: they continue the session's record.
 
@@ -204,7 +204,7 @@ IDs use these prefixes: `FRM` framing and hello, `CMD` commands, `EVT` events, `
 | REQ07 | An answer or a decision whose note, text or ids are too big for one record entry | `bad_request`, nothing is written, and the request stays open for a shorter answer; it is the caller's mistake, not the host's |
 | ACC01 | A command naming another tenant's session | `not_found` |
 | HTP01 | `POST /v1/commands` with a command | The response frame, status 200, and `x-lyra-version` |
-| HTP02 | A refused command, and each error code | The frame, and the status from its code: 400 `bad_request`, 403 `permission_denied`, 404 `not_found`, 409 `busy` and `conflict`, 501 `unsupported`, 504 `timeout`, 502 `provider_error`, 500 `internal` |
+| HTP02 | A refused command, and each error code | The frame, and the status from its code: 400 `bad_request`, 403 `permission_denied`, 404 `not_found`, 409 `busy` and `conflict`, 429 `limit`, 501 `unsupported`, 504 `timeout`, 502 `provider_error`, 500 `internal` |
 | HTP03 | A body that is not one frame, or is over the cap | `bad_request`, and nothing runs |
 | HTP04 | The version header | Missing or `1` is accepted; anything else is `unsupported`, before a session is opened |
 | HTP05 | `GET /v1/events` | A server-sent-event stream whose `id` is the entry's `seq`; `Last-Event-ID` sends only what follows it, and a live-only event has no `id` |

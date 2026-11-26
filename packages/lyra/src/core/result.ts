@@ -6,7 +6,13 @@
  * failed save or a dead tool cannot take the loop down by surprise.
  */
 
-/** Nova's eight stable codes, plus `conflict` (docs/decisions.md, decision 83). */
+/**
+ * Nova's eight stable codes, plus `conflict` (decision 83) and `limit` (decision 160).
+ *
+ * `limit` is the host's: it refuses work because a limit the host enforces — a day's
+ * spend, a tenant's quota — has been reached. It is not a run parked on the core's own
+ * limit, which is a `parked` status with a limit's detail and is not an error at all.
+ */
 export const ERROR_CODES = [
 	"bad_request",
 	"busy",
@@ -17,6 +23,7 @@ export const ERROR_CODES = [
 	"provider_error",
 	"internal",
 	"conflict",
+	"limit",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

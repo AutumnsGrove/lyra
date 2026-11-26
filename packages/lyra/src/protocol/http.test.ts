@@ -16,7 +16,14 @@ import {
 	type FakeClock,
 	type ScriptedTurn,
 } from "../testkit/index.js";
-import { createHttpHandler, createTokenDoor, statusForCode, type SessionHost } from "./http.js";
+import { isErrorCode } from "../core/result.js";
+import {
+	createHttpHandler,
+	createTokenDoor,
+	refusalResponse,
+	statusForCode,
+	type SessionHost,
+} from "./http.js";
 import { createSession, type Session, type SessionEvent } from "./session.js";
 
 /**
@@ -238,6 +245,11 @@ test("HTP02 every error code maps to a status, and a refusal keeps its frame", a
 	expect(statusForCode("timeout")).toBe(504);
 	expect(statusForCode("provider_error")).toBe(502);
 	expect(statusForCode("internal")).toBe(500);
+	// `limit` is the one code a host adds: it is refusing work because a limit the host
+	// enforces has been reached, which is not a busy session, a conflict or a provider's
+	// fault, and 429 is the status a client retries later (decision 160).
+	expect(statusForCode("limit")).toBe(429);
+	expect(isErrorCode("limit")).toBe(true);
 
 	const host = createHost([]);
 	const handler = handlerFor(host);
@@ -253,6 +265,13 @@ test("HTP02 every error code maps to a status, and a refusal keeps its frame", a
 		ok: false,
 		id: "c1",
 		error: { code: "not_found" },
+	});
+
+	const limited = refusalResponse("limit", "the day's cap is reached");
+	expect(limited.status).toBe(429);
+	expect(await answerOf(limited)).toMatchObject({
+		ok: false,
+		error: { code: "limit", message: "the day's cap is reached" },
 	});
 
 	const unsupported = await post(handler, "/v1/commands", {
