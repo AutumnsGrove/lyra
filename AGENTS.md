@@ -50,8 +50,10 @@ redirects, and `hostile_page` as a fixture, rows PGS30 and PGS31. Slice 6, the c
 load and the cards rebuilt from the record, rows PGS32 to PGS36. Slice 7a, the day cap, is merged and deployed
 (pull request #99, `5263ae8`): a per-tenant budget object, a `start` over the cap refused `limit`/429 at both
 doors, the unpriced rule and the page's spend line, rows PGS37 to PGS40, decisions 161 and 162. `search_web` is
-deliberately not built yet — it needs a provider, so it is issue #91. **Slice 7b (a deploy workflow and the smoke
-job) is blocked on the Cloudflare repository secrets**, and slice 8's wrap-up is after it. What is left of step 5 is its
+deliberately not built yet — it needs a provider, so it is issue #91. Slice 7b is done: `deploy.yml` deploys from
+`main` behind the gate and a smoke job drives the deployment with a scripted run, green on its first automated
+run. **C is built**, and what remains is not code: issue #91 (`search_web`) and issue #102 (a design pass on the
+page, which works and reads badly). The playground's rows live in `docs/playground.md`. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both

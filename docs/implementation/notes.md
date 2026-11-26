@@ -9,6 +9,18 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 8, the wrap-up, 2026-11-26
+
+- **The rig deploys itself and proves itself.** `deploy.yml` runs after a green `ci` on `main`, and its smoke job
+  drove the live Worker green on the first automated run. Nothing about a deploy is by hand any more, and the
+  "unfinished: not deployed" line that every slice since 2 carried is closed.
+- **The page is the next thing, and it is issue #102.** Autumn tested it on 2026-11-26: it works, and it looks
+  bad. That is a presentation pass on working behaviour, so this document's rows and `docs/playground.md` stay as
+  they are.
+- **The Lumen path is recorded as unfinished with its reason, not demonstrated.** It is Lattice work against a
+  published Lyra, deferred by Autumn's 2026-11-22 decision, and building it inside the playground would put
+  Lattice's Worker here rather than in Lattice.
+
 ## C slice 7b-ii, the deploy and the smoke job, 2026-11-26
 
 - **The deploy waits on `ci`, rather than running the gate again.** `deploy.yml` triggers on a `ci`
