@@ -18,10 +18,20 @@
 		// slice 1's placeholder page and is gone.
 		"directory": "./dist/web",
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/v1/*"],
+		// `/v1/*` is the protocol; `/api/*` is the playground's own sidebar and recipe
+		// list (issue #60, slice 3). Both have to reach this Worker, because the
+		// single-page fallback would otherwise answer them with the page.
+		"run_worker_first": ["/v1/*", "/api/*"],
 	},
 	"durable_objects": {
-		"bindings": [{ "name": "SESSION", "class_name": "Session" }],
+		"bindings": [
+			{ "name": "SESSION", "class_name": "Session" },
+			// One index object per tenant, holding the conversation list (decision 158).
+			{ "name": "INDEX", "class_name": "SessionIndex" },
+		],
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Session"] }],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["Session"] },
+		{ "tag": "v2", "new_sqlite_classes": ["SessionIndex"] },
+	],
 }

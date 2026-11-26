@@ -1,36 +1,75 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import Page from "./+page.svelte";
 
 /**
- * The rows are in `docs/playground.md`: PGS08 to PGS10, seen through the page a person
- * loads.
+ * The rows are in `docs/playground.md`: PGS08 to PGS10 and PGS17 to PGS23, seen through
+ * the page a person loads.
  *
  * These render the real component into `happy-dom` — a Node document, not a browser — so
  * what they prove is the wiring the library tests cannot: that the token box is what a
- * person without a token sees, that a run's events reach the transcript, and that a
- * refused token sends them back to the box.
+ * person without a token sees, that a conversation's record becomes its transcript, and
+ * that a refused token sends them back to the box.
  */
 
 const TOKEN_KEY = "lyra-playground-token";
 
-/** The frames a stubbed `fetch` answers, in order, keyed by the path it is asked for. */
-function stubFetch(options: { start: () => Response; events?: () => Response }): void {
-	vi.stubGlobal("fetch", async (url: string) => {
-		if (String(url).includes("/v1/events")) {
-			return options.events?.() ?? new Response("", { status: 200 });
+interface Route {
+	method: string;
+	path: string;
+	answer: (body: unknown) => Response;
+}
+
+/** The routes the page calls, replaced per test, and what it asked for. */
+let routes: Route[] = [];
+let calls: { method: string; path: string; body?: unknown }[] = [];
+
+/** A stubbed `fetch`: installed for the whole file, because the page keeps asking. */
+function installFetch(): void {
+	vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+		const parsed = new URL(String(url), "http://localhost");
+		const method = init?.method ?? "GET";
+		const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+		calls.push({ method, path: parsed.pathname, ...(body === undefined ? {} : { body }) });
+		const route = routes.find(
+			(entry) => entry.method === method && entry.path === parsed.pathname,
+		);
+		if (route === undefined) {
+			return new Response(
+				JSON.stringify({ error: { code: "not_found", message: "no route" } }),
+				{
+					status: 404,
+				},
+			);
 		}
-		return options.start();
+		return route.answer(body);
 	});
 }
 
-function sse(events: readonly Record<string, unknown>[]): Response {
+function stubFetch(entries: Route[]): {
+	calls: { method: string; path: string; body?: unknown }[];
+} {
+	calls = [];
+	routes = entries;
+	return { calls };
+}
+
+function json(value: unknown, status = 200): Response {
+	return new Response(JSON.stringify(value), {
+		status,
+		headers: { "content-type": "application/json" },
+	});
+}
+
+function sse(events: readonly Record<string, unknown>[], id = 1): Response {
 	const encoder = new TextEncoder();
 	const body = new ReadableStream<Uint8Array>({
 		start(controller) {
 			for (const event of events) {
-				controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+				controller.enqueue(
+					encoder.encode(`id: ${id++}\ndata: ${JSON.stringify(event)}\n\n`),
+				);
 			}
 			controller.close();
 		},
@@ -39,20 +78,45 @@ function sse(events: readonly Record<string, unknown>[]): Response {
 }
 
 function started(session = "s_1", run = "r_1"): Response {
-	return new Response(JSON.stringify({ type: "response", ok: true, data: { session, run } }), {
-		status: 200,
-		headers: { "content-type": "application/json" },
-	});
+	return json({ type: "response", ok: true, data: { session, run } });
+}
+
+function frame(): Response {
+	return json({ type: "response", ok: true, data: {} });
+}
+
+/** The routes every page with a token calls on load, before anything is clicked. */
+function loaded(overrides: Route[] = []): Route[] {
+	// Overrides first, because `find` answers with the first route that matches and a
+	// test's own list or refusal is the one it means.
+	return [
+		...overrides,
+		{
+			method: "GET",
+			path: "/api/recipes",
+			answer: () => json({ recipes: ["tool-table", "shell"] }),
+		},
+		{ method: "GET", path: "/api/sessions", answer: () => json({ sessions: [] }) },
+	];
 }
 
 beforeEach(() => {
 	window.localStorage.clear();
+	window.history.replaceState(null, "", "/");
+	routes = [];
+	calls = [];
+	installFetch();
 });
 
 afterEach(() => {
 	// The library only unmounts automatically when its own globals are on, and this
 	// config keeps vitest's globals off. Without this the second test finds two pages.
 	cleanup();
+	routes = [];
+	window.history.replaceState(null, "", "/");
+});
+
+afterAll(() => {
 	vi.unstubAllGlobals();
 });
 
@@ -67,6 +131,7 @@ test("PGS08 a person without a token sees only the token box", async () => {
 });
 
 test("PGS08 a token is saved before the page will run anything", async () => {
+	stubFetch(loaded());
 	render(Page);
 
 	const field = await screen.findByLabelText("Token");
@@ -78,38 +143,267 @@ test("PGS08 a token is saved before the page will run anything", async () => {
 	expect(await screen.findByLabelText("Ask Lyra")).toBeTruthy();
 });
 
-test("PGS10 a run streams into the transcript, with the tools it called", async () => {
+test("PGS17 the first message mints a conversation, names it in the URL and starts it", async () => {
 	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
-	stubFetch({
-		start: () => started(),
-		events: () =>
-			sse([
-				{ type: "run_start", run: "r_1" },
-				{
-					type: "message_end",
-					text: "Let me check.",
-					reasoning: "the person asked for the time",
-					toolCalls: [{ id: "c1", name: "now", arguments: "{}" }],
-				},
-				{ type: "tool_call", call: { id: "c1", name: "now", arguments: "{}" } },
-				{
-					type: "tool_end",
-					callId: "c1",
-					name: "now",
-					isError: false,
-					content: "2026-11-25T00:00:00.000Z",
-				},
-				{
-					type: "run_end",
-					reason: "done",
-					turn: 2,
-					usage: { inputTokens: 3, outputTokens: 4 },
-				},
-			]),
-	});
+	const stubbed = stubFetch(
+		loaded([
+			{
+				method: "POST",
+				path: "/api/sessions",
+				answer: () => json({ session: "s_new" }, 201),
+			},
+			{ method: "POST", path: "/v1/commands", answer: () => started("s_new") },
+			{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+		]),
+	);
 	render(Page);
 
 	const field = await screen.findByLabelText("Ask Lyra");
+	// The picker arrives with the recipes, and the Run button waits for one: a run with
+	// no recipe is a request the Worker would refuse.
+	await screen.findByRole("option", { name: "tool-table" });
+	await fireEvent.input(field, { target: { value: "what time is it?" } });
+	await fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+	// The conversation is created first, with the recipe the picker offered and the
+	// person's own words as its label, and the run then names the id it was given.
+	await waitFor(() => {
+		const created = stubbed.calls.find(
+			(call) => call.path === "/api/sessions" && call.method === "POST",
+		);
+		expect(created?.body).toEqual({ recipe: "tool-table", label: "what time is it?" });
+	});
+	const start = stubbed.calls.find((call) => call.path === "/v1/commands");
+	expect(start?.body).toMatchObject({ command: "start", session: "s_new", task: "tool-table" });
+	// The URL a reload lands on is the same conversation.
+	expect(window.location.search).toBe("?session=s_new");
+	// The person's own line is on the page, and the sidebar lists the conversation.
+	expect(await screen.findByText(/what time is it\?/)).toBeTruthy();
+	expect(await screen.findByRole("button", { name: /what time is it\?/ })).toBeTruthy();
+});
+
+test("PGS18 a conversation in the URL is rebuilt from its record, including what the person said", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	stubFetch(
+		loaded([
+			{
+				method: "GET",
+				path: "/api/sessions",
+				answer: () =>
+					json({
+						sessions: [
+							{
+								session: "s_1",
+								label: "an old question",
+								recipe: "tool-table",
+								lastUsed: 2,
+							},
+						],
+					}),
+			},
+			{
+				method: "POST",
+				path: "/v1/commands",
+				answer: (body) =>
+					(body as { command?: string }).command === "get_messages"
+						? json({
+								type: "response",
+								ok: true,
+								data: {
+									entries: [
+										{ type: "header" },
+										{
+											type: "user_message",
+											label: "task",
+											text: "an old question",
+										},
+										{
+											type: "assistant_message",
+											text: "an old answer",
+											toolCalls: [],
+											usage: {},
+										},
+										{ type: "status", state: "done" },
+									],
+									cursor: null,
+								},
+							})
+						: frame(),
+			},
+			// The stream from the end of the record: nothing left to replay.
+			{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+		]),
+	);
+	render(Page);
+
+	// The person's line comes from the record, which is why this reads `get_messages`
+	// rather than replaying events: `user_message` is not a protocol event.
+	expect(await screen.findByText(/an old question/)).toBeTruthy();
+	expect(await screen.findByText(/an old answer/)).toBeTruthy();
+	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("done"));
+	// And the record panel holds the entries the transcript was built from.
+	await fireEvent.click(await screen.findByText(/Record/));
+	expect(await screen.findByText(/"user_message"/)).toBeTruthy();
+});
+
+test("PGS18 a conversation the index does not know still opens", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_2");
+	stubFetch(
+		loaded([
+			{
+				method: "POST",
+				path: "/v1/commands",
+				answer: () =>
+					json({ type: "response", ok: true, data: { entries: [], cursor: null } }),
+			},
+			{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+		]),
+	);
+	render(Page);
+
+	// A run that predates the index is still a session with a record, and refusing to
+	// open it would lose work a person can still see.
+	expect(await screen.findByLabelText("Ask Lyra")).toBeTruthy();
+	expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("PGS21 a running conversation can be steered and stopped", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	const stubbed = stubFetch(
+		loaded([
+			{
+				method: "POST",
+				path: "/v1/commands",
+				answer: (body) =>
+					(body as { command?: string }).command === "get_messages"
+						? json({
+								type: "response",
+								ok: true,
+								data: {
+									entries: [
+										{
+											type: "assistant_message",
+											text: "thinking about it",
+											toolCalls: [],
+										},
+										{ type: "status", state: "running" },
+									],
+									cursor: null,
+								},
+							})
+						: frame(),
+			},
+			{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+		]),
+	);
+	render(Page);
+
+	// The controls only exist while a run is going: a steer with nothing running is a
+	// conflict the protocol would answer anyway, and offering it would be a dead button.
+	const steer = await screen.findByLabelText("Steer");
+	await fireEvent.input(steer, { target: { value: "use the other tool" } });
+	await fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+	await waitFor(() => {
+		expect(
+			stubbed.calls.some((call) => (call.body as { command?: string })?.command === "steer"),
+		).toBe(true);
+	});
+
+	await fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+	await waitFor(() => {
+		expect(
+			stubbed.calls.some((call) => (call.body as { command?: string })?.command === "abort"),
+		).toBe(true);
+	});
+});
+
+test("PGS19 a message in an open conversation is a follow-up, and the URL stays put", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	const stubbed = stubFetch(
+		loaded([
+			{
+				method: "POST",
+				path: "/v1/commands",
+				answer: (body) =>
+					(body as { command?: string }).command === "get_messages"
+						? json({ type: "response", ok: true, data: { entries: [], cursor: null } })
+						: frame(),
+			},
+			{
+				method: "PUT",
+				path: "/api/sessions/s_1",
+				answer: () =>
+					json({ session: "s_1", label: "x", recipe: "tool-table", lastUsed: 3 }),
+			},
+			{ method: "GET", path: "/v1/events", answer: () => sse([]) },
+		]),
+	);
+	render(Page);
+
+	// The Send button is what a selected conversation has and a new one does not, so
+	// waiting for it is waiting for the record and the stream to have been read.
+	const field = await screen.findByLabelText("Ask Lyra");
+	await screen.findByRole("button", { name: "Send" });
+	await fireEvent.input(field, { target: { value: "and now?" } });
+	await fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+	await waitFor(() => {
+		const followUp = stubbed.calls.find(
+			(call) => (call.body as { command?: string })?.command === "follow_up",
+		);
+		expect(followUp?.body).toMatchObject({ session: "s_1", text: "and now?" });
+	});
+	// Using a conversation moves it up the sidebar, and the URL is the one it already had.
+	expect(
+		stubbed.calls.some((call) => call.method === "PUT" && call.path === "/api/sessions/s_1"),
+	).toBe(true);
+	expect(window.location.search).toBe("?session=s_1");
+});
+
+test("PGS10 a run streams into the transcript, with the tools it called", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	stubFetch(
+		loaded([
+			{ method: "POST", path: "/api/sessions", answer: () => json({ session: "s_1" }, 201) },
+			{ method: "POST", path: "/v1/commands", answer: () => started() },
+			{
+				method: "GET",
+				path: "/v1/events",
+				answer: () =>
+					sse([
+						{ type: "run_start", run: "r_1" },
+						{
+							type: "message_end",
+							text: "Let me check.",
+							reasoning: "the person asked for the time",
+							toolCalls: [{ id: "c1", name: "now", arguments: "{}" }],
+						},
+						{ type: "tool_call", call: { id: "c1", name: "now", arguments: "{}" } },
+						{
+							type: "tool_end",
+							callId: "c1",
+							name: "now",
+							isError: false,
+							content: "2026-11-25T00:00:00.000Z",
+						},
+						{
+							type: "run_end",
+							reason: "done",
+							turn: 2,
+							usage: { inputTokens: 3, outputTokens: 4 },
+						},
+					]),
+			},
+		]),
+	);
+	render(Page);
+
+	const field = await screen.findByLabelText("Ask Lyra");
+	await screen.findByRole("option", { name: "tool-table" });
 	await fireEvent.input(field, { target: { value: "what time is it?" } });
 	await fireEvent.click(screen.getByRole("button", { name: "Run" }));
 
@@ -124,26 +418,27 @@ test("PGS10 a run streams into the transcript, with the tools it called", async 
 
 test("PGS09 a refused token clears the box and asks for it again", async () => {
 	window.localStorage.setItem(TOKEN_KEY, "a-stale-token");
-	stubFetch({
-		start: () =>
-			new Response(
-				JSON.stringify({
-					type: "response",
-					ok: false,
-					error: {
-						code: "permission_denied",
-						message: "that token is not one this host knows",
+	stubFetch([
+		{
+			method: "GET",
+			path: "/api/recipes",
+			answer: () =>
+				json(
+					{
+						error: {
+							code: "permission_denied",
+							message: "that token is not one this host knows",
+						},
 					},
-				}),
-				{ status: 403, headers: { "content-type": "application/json" } },
-			),
-	});
+					403,
+				),
+		},
+		{ method: "GET", path: "/api/sessions", answer: () => json({ sessions: [] }) },
+	]);
 	render(Page);
 
-	await fireEvent.click(await screen.findByRole("button", { name: "Run" }));
-
-	// The 403 is what makes the page forget: a refused token that stayed in storage would
-	// be a person typing a new one and being refused for the old one.
+	// The sidebar's own route is the first thing a page with a token asks, so a refused
+	// token is caught before a person can type into a box that will never work.
 	await waitFor(() => expect(window.localStorage.getItem(TOKEN_KEY)).toBeNull());
 	expect(await screen.findByLabelText("Token")).toBeTruthy();
 	expect(screen.getByRole("alert").textContent).toContain("refused");

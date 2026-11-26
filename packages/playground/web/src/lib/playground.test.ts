@@ -3,9 +3,11 @@ import { expect, test } from "vitest";
 import {
 	EMPTY_TRANSCRIPT,
 	clearToken,
+	readRecord,
 	readToken,
 	reduce,
 	saveToken,
+	sendCommand,
 	startRun,
 	watchEvents,
 	type Fetcher,
@@ -332,4 +334,124 @@ test("PGS10 an event the page has no rule for changes nothing", () => {
 	const before = reduce(EMPTY_TRANSCRIPT, { type: "message_end", text: "hello", toolCalls: [] });
 	const after = reduce(before, { type: "something_new", value: 1 });
 	expect(after).toBe(before);
+});
+
+test("PGS22 a stream reopens at the last entry it drew, and reports where it got to", async () => {
+	const asked: (Record<string, string> | undefined)[] = [];
+	const seen: StreamEvent[] = [];
+	const result = await watchEvents({
+		base: "",
+		token: "t",
+		session: "s_1",
+		lastEventId: "4",
+		fetcher: async (_url, init) => {
+			asked.push(init?.headers);
+			return new Response(sseBody([{ type: "run_end", reason: "done" }], 5), { status: 200 });
+		},
+		signal: new AbortController().signal,
+		onEvent: (event) => seen.push(event),
+	});
+
+	// The header is what the protocol replays from (HTP05): without it a reopened stream
+	// sends the whole record again and the page draws every row twice.
+	expect(asked[0]?.["last-event-id"]).toBe("4");
+	expect(seen).toHaveLength(1);
+	expect(result).toEqual({ ok: true, lastEventId: "5" });
+});
+
+test("PGS21 a steer, a follow-up and a stop each send their own frame", async () => {
+	const sent: unknown[] = [];
+	const fetcher: Fetcher = async (_url, init) => {
+		sent.push(JSON.parse(String(init?.body)));
+		return frameResponse({ type: "response", ok: true, data: {} });
+	};
+
+	for (const command of ["steer", "follow_up", "abort"] as const) {
+		const result = await sendCommand({
+			base: "",
+			token: "t",
+			fetcher,
+			command,
+			session: "s_1",
+			id: `c-${command}`,
+			...(command === "abort" ? {} : { text: "  go on  " }),
+		});
+		expect(result).toEqual({ ok: true });
+	}
+
+	expect(sent).toEqual([
+		{ type: "command", id: "c-steer", command: "steer", session: "s_1", text: "  go on  " },
+		{
+			type: "command",
+			id: "c-follow_up",
+			command: "follow_up",
+			session: "s_1",
+			text: "  go on  ",
+		},
+		// A stop carries no text: `abort` takes a session and nothing else (CMD06).
+		{ type: "command", id: "c-abort", command: "abort", session: "s_1" },
+	]);
+});
+
+test("PGS21 a command with nothing to act on is a refusal the page can show", async () => {
+	const result = await sendCommand({
+		base: "",
+		token: "t",
+		fetcher: async () =>
+			frameResponse(
+				{
+					type: "response",
+					ok: false,
+					error: { code: "conflict", message: "nothing is running" },
+				},
+				409,
+			),
+		command: "abort",
+		session: "s_1",
+		id: "c1",
+	});
+	expect(result).toEqual({
+		ok: false,
+		error: { code: "conflict", message: "nothing is running", status: 409 },
+	});
+});
+
+test("PGS23 the record is read one page at a time, and a malformed answer is a message", async () => {
+	const asked: unknown[] = [];
+	const page = await readRecord({
+		base: "",
+		token: "t",
+		fetcher: async (_url, init) => {
+			asked.push(JSON.parse(String(init?.body)));
+			return frameResponse({
+				type: "response",
+				ok: true,
+				data: { entries: [{ type: "header", id: "e1" }, "not an entry"], cursor: "e1" },
+			});
+		},
+		session: "s_1",
+		limit: 20,
+		id: "c1",
+	});
+
+	expect(page).toEqual({
+		ok: true,
+		value: { entries: [{ type: "header", id: "e1" }], cursor: "e1" },
+	});
+	expect(asked[0]).toEqual({
+		type: "command",
+		id: "c1",
+		command: "get_messages",
+		session: "s_1",
+		limit: 20,
+	});
+
+	const broken = await readRecord({
+		base: "",
+		token: "t",
+		fetcher: async () => frameResponse({ type: "response", ok: true, data: { entries: "no" } }),
+		session: "s_1",
+		id: "c2",
+	});
+	expect(broken).toMatchObject({ ok: false, error: { code: "internal" } });
 });

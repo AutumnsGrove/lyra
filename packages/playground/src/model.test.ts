@@ -23,6 +23,7 @@ import {
 function env(overrides: Partial<Env> = {}): Env {
 	return {
 		SESSION: {} as DurableObjectNamespace,
+		INDEX: {} as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
 		LYRA_PLAYGROUND_TENANT: "playground",
 		...overrides,

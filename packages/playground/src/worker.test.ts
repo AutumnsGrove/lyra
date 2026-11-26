@@ -5,8 +5,13 @@ import type {
 	DurableObjectStubLike,
 } from "@autumnsgrove/lyra/cloudflare";
 
-import { tokensFrom, type Env } from "./session.js";
-import worker, { Session } from "./worker.js";
+import { fakeClock } from "@autumnsgrove/lyra/testkit";
+
+import { memoryIndex } from "./index-do.testing.js";
+import { SessionIndex } from "./index-do.js";
+import { recipeCatalogue } from "./recipes/catalogue.js";
+import { sessionOptions, tokensFrom, type Env } from "./session.js";
+import worker, { frontDoor, Session } from "./worker.js";
 
 /**
  * The rows are in `docs/playground.md`: PGS01.
@@ -34,13 +39,16 @@ function recordingNamespace(): Recorded {
 			return new Response("{}", { status: 200 });
 		},
 	};
+	let minted = 0;
 	const namespace: DurableObjectNamespaceLike = {
 		idFromName: (name) => {
 			names.push(name);
 			return { toString: () => name };
 		},
 		idFromString: (hex) => ({ toString: () => hex }),
-		newUniqueId: () => ({ toString: () => "unique" }),
+		// Each mint is a new id, which is what the platform does: a fake that answered one
+		// would let two conversations share an object and hide the collision.
+		newUniqueId: () => ({ toString: () => `unique-${(minted += 1)}` }),
 		get: () => stub,
 	};
 	return { namespace, forwarded, names };
@@ -53,6 +61,9 @@ function recordingNamespace(): Recorded {
 function env(namespace: DurableObjectNamespaceLike): Env {
 	return {
 		SESSION: namespace as unknown as DurableObjectNamespace,
+		// The sidebar's object: the `/v1` rows never reach it, and the `/api` rows replace
+		// it with an index the test can read back.
+		INDEX: namespace as unknown as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: TOKEN,
 		LYRA_PLAYGROUND_TENANT: "playground",
 	};
@@ -199,4 +210,273 @@ test("PGS01 an empty or missing tenant binds nothing either", async () => {
 	// the Worker should not wake an object to find that out.
 	expect(response.status).toBe(403);
 	expect(forwarded).toEqual([]);
+});
+
+/**
+ * The playground's own routes, which are the sidebar's whole data source.
+ *
+ * Rows PGS11 to PGS15 live in `docs/playground.md`. These drive a recording namespace
+ * for the sessions, so the id the index is given and the id the page is told are the
+ * same string, and the real `SessionIndex` over a `Map`, so the Worker's own decoding
+ * and the object's promises are tested together rather than against a stub of both.
+ */
+
+interface Indexed {
+	namespace: DurableObjectNamespaceLike;
+	index: SessionIndex;
+	/** Every object name the Worker derived, which is where the tenant shows. */
+	names: string[];
+}
+
+function indexedNamespace(name = "unique"): Indexed {
+	const { storage } = memoryIndex();
+	const index = new SessionIndex({ storage });
+	const names: string[] = [];
+	// Each mint is a new conversation, the way the platform's own ids are: a fake that
+	// answered one id would make two conversations overwrite each other, which is the
+	// bug the sidebar's ordering test would then never see.
+	let minted = 0;
+	const namespace: DurableObjectNamespaceLike = {
+		idFromName: (objectName) => {
+			names.push(objectName);
+			return { toString: () => objectName };
+		},
+		idFromString: (hex) => ({ toString: () => hex }),
+		newUniqueId: () => ({ toString: () => `${name}-${(minted += 1)}` }),
+		get: () => ({
+			fetch: async (request) => index.fetch(request),
+		}),
+	};
+	return { namespace, index, names };
+}
+
+function apiEnv(index: DurableObjectNamespaceLike, sessions?: DurableObjectNamespaceLike): Env {
+	return {
+		...env(sessions ?? recordingNamespace().namespace),
+		INDEX: index as unknown as DurableObjectNamespace,
+	};
+}
+
+function api(
+	path: string,
+	init: { method?: string; body?: unknown; token?: string } = {},
+): Request {
+	return new Request(`https://playground.test${path}`, {
+		method: init.method ?? "GET",
+		headers: init.token === undefined ? {} : { authorization: `Bearer ${init.token}` },
+		...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+	});
+}
+
+test("PGS11 a new conversation is minted, indexed under the tenant, and handed back", async () => {
+	const sessions = indexedNamespace("session-abc");
+	const index = indexedNamespace();
+	const response = await worker.fetch(
+		api("/api/sessions", {
+			method: "POST",
+			token: TOKEN,
+			body: { recipe: "tool-table", label: "  What time is it?  " },
+		}),
+		apiEnv(index.namespace, sessions.namespace),
+	);
+
+	expect(response.status).toBe(201);
+	// The id the page is told is the one the index was given, which is what the `start`
+	// that follows will name. A page handed a second id would start a run nobody's
+	// sidebar lists.
+	expect(await response.json()).toEqual({ session: "session-abc-1" });
+	expect(index.names).toEqual(["playground"]);
+	const listed = await index.index.list();
+	expect(listed).toHaveLength(1);
+	expect(listed[0]).toMatchObject({ session: "session-abc-1", recipe: "tool-table" });
+});
+
+test("PGS11 a conversation is refused before anything is written", async () => {
+	const index = indexedNamespace();
+
+	// No token: the index must not be woken for a request the door already refused.
+	const refused = await worker.fetch(
+		api("/api/sessions", { method: "POST", body: { recipe: "shell", label: "x" } }),
+		apiEnv(index.namespace),
+	);
+	expect(refused.status).toBe(403);
+	expect(index.names).toEqual([]);
+
+	// A recipe this Worker does not run, and a body it cannot read: both are refusals,
+	// and neither leaves a conversation that every later `start` would fail to run.
+	const unknown = await worker.fetch(
+		api("/api/sessions", {
+			method: "POST",
+			token: TOKEN,
+			body: { recipe: "no-such-recipe", label: "x" },
+		}),
+		apiEnv(index.namespace),
+	);
+	expect(unknown.status).toBe(404);
+	expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("not_found");
+
+	const malformed = await worker.fetch(
+		api("/api/sessions", { method: "POST", token: TOKEN, body: { recipe: "shell" } }),
+		apiEnv(index.namespace),
+	);
+	expect(malformed.status).toBe(400);
+
+	const notJson = await worker.fetch(
+		new Request("https://playground.test/api/sessions", {
+			method: "POST",
+			headers: { authorization: `Bearer ${TOKEN}` },
+			body: "{",
+		}),
+		apiEnv(index.namespace),
+	);
+	expect(notJson.status).toBe(400);
+
+	expect(await index.index.list()).toEqual([]);
+});
+
+test("PGS12 the sidebar lists conversations newest first, through the Worker", async () => {
+	const index = indexedNamespace();
+	// A clock the test owns, so "newest" is an assertion rather than a fast machine.
+	let now = 100;
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell", "tool-table"],
+		now: () => now,
+	});
+
+	for (const name of ["first", "second"]) {
+		now += 10;
+		const created = await door(
+			api("/api/sessions", {
+				method: "POST",
+				token: TOKEN,
+				body: { recipe: "shell", label: name },
+			}),
+		);
+		expect(created.status).toBe(201);
+	}
+
+	const listed = await door(api("/api/sessions", { token: TOKEN }));
+	expect(listed.status).toBe(200);
+	const sessions = ((await listed.json()) as { sessions: { label: string; lastUsed: number }[] })
+		.sessions;
+	expect(sessions.map((entry) => entry.label)).toEqual(["second", "first"]);
+	expect(sessions[0]?.lastUsed).toBe(120);
+});
+
+test("PGS13 a touch moves a conversation up, and names nothing that does not exist", async () => {
+	const index = indexedNamespace();
+	let now = 100;
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell", "tool-table"],
+		now: () => now,
+	});
+
+	const created = await door(
+		api("/api/sessions", {
+			method: "POST",
+			token: TOKEN,
+			body: { recipe: "shell", label: "one" },
+		}),
+	);
+	expect(created.status).toBe(201);
+
+	now = 500;
+	const touched = await door(api("/api/sessions/unique-1", { method: "PUT", token: TOKEN }));
+	expect(touched.status).toBe(200);
+	expect(await touched.json()).toMatchObject({ session: "unique-1", lastUsed: 500 });
+
+	const missing = await door(api("/api/sessions/nobody", { method: "PUT", token: TOKEN }));
+	expect(missing.status).toBe(404);
+
+	const anonymous = await door(api("/api/sessions/unique-1", { method: "PUT" }));
+	expect(anonymous.status).toBe(403);
+});
+
+test("PGS14 the playground's own routes are the only thing outside /v1 it answers", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	// `/api/*` is claimed by `run_worker_first`, so anything there is this function's to
+	// refuse rather than the page's to answer.
+	const unknown = await door(api("/api/nothing", { token: TOKEN }));
+	expect(unknown.status).toBe(404);
+	expect(((await unknown.json()) as { error: { code: string } }).error.code).toBe("not_found");
+	expect(index.names).toEqual([]);
+});
+
+test("PGS15 the picker offers exactly the recipes the session will run", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: [...recipeCatalogue(fakeClock()).keys()],
+		now: () => 1,
+	});
+
+	const response = await door(api("/api/recipes", { token: TOKEN }));
+	expect(response.status).toBe(200);
+	const offered = ((await response.json()) as { recipes: string[] }).recipes;
+	// The same map a `start` is answered from, so the picker cannot offer a name the
+	// session would refuse, and cannot hide one nobody could reach.
+	expect(offered).toEqual([
+		...sessionOptions({ ...env(index.namespace), MODEL_SOURCE: "placeholder" }).recipes.keys(),
+	]);
+	expect(offered).toContain("tool-table");
+
+	const refused = await door(api("/api/recipes"));
+	expect(refused.status).toBe(403);
+});
+
+test("PGS14 a malformed escape in a session id is a refusal, not a 500", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	// `%E0%A4%A` is not a UTF-8 escape sequence, and `decodeURIComponent` throws on it.
+	// A throw across the boundary is a 500 with no code a page can act on, which is the
+	// one thing AGENTS.md says a refusal must never be (errors are data).
+	const response = await door(api("/api/sessions/%E0%A4%A", { method: "PUT", token: TOKEN }));
+	expect(response.status).toBe(400);
+	expect(((await response.json()) as { error: { code: string } }).error.code).toBe("bad_request");
+	// Nothing was named, so the index was never woken.
+	expect(index.names).toEqual([]);
+});
+
+test("PGS11 the body cap is bytes, not characters", async () => {
+	const index = indexedNamespace();
+	const door = frontDoor({
+		namespace: recordingNamespace().namespace,
+		index: index.namespace,
+		tokens: { playground: TOKEN },
+		recipes: ["shell"],
+		now: () => 1,
+	});
+
+	// 5,000 three-byte characters are 15,000 bytes and about 5,000 UTF-16 code units: a
+	// cap counted in characters would let this through while claiming to bound bytes.
+	const label = "日".repeat(5000);
+	const response = await door(
+		api("/api/sessions", { method: "POST", token: TOKEN, body: { recipe: "shell", label } }),
+	);
+	expect(response.status).toBe(400);
+	expect(((await response.json()) as { error: { code: string } }).error.code).toBe("bad_request");
+	expect(await index.index.list()).toEqual([]);
 });

@@ -69,7 +69,10 @@ test("PGS03 the protocol path is claimed by the Worker before the page can answe
 	// The fallback that makes a deep link work is the same fallback that would answer
 	// `/v1/commands` with the page, so the two settings only make sense together.
 	expect(assets?.not_found_handling).toBe("single-page-application");
-	expect(assets?.run_worker_first).toEqual(["/v1/*"]);
+	// `/api/*` is the playground's own conversation list and recipe picker (slice 3), and
+	// it has to be claimed here for the same reason: without it the fallback answers
+	// `/api/sessions` with the page, and the sidebar reads HTML as JSON.
+	expect(assets?.run_worker_first).toEqual(["/v1/*", "/api/*"]);
 });
 
 test("PGS03 the Worker it deploys is this package's entry point, with one session object", () => {
@@ -83,8 +86,17 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 	// about a class nobody declared.
 	const durable = wrangler["durable_objects"] as
 		{ bindings?: { name?: string; class_name?: string }[] } | undefined;
-	expect(durable?.bindings).toEqual([{ name: "SESSION", class_name: "Session" }]);
-	expect(wrangler["migrations"]).toEqual([{ tag: "v1", new_sqlite_classes: ["Session"] }]);
+	expect(durable?.bindings).toEqual([
+		{ name: "SESSION", class_name: "Session" },
+		{ name: "INDEX", class_name: "SessionIndex" },
+	]);
+	// The index arrives in a migration of its own (slice 3): a binding whose class no
+	// migration creates is a deploy that answers its first request with an error about a
+	// class nobody declared, and the page would show a sidebar that never loads.
+	expect(wrangler["migrations"]).toEqual([
+		{ tag: "v1", new_sqlite_classes: ["Session"] },
+		{ tag: "v2", new_sqlite_classes: ["SessionIndex"] },
+	]);
 
 	// The tenant is configuration; the token is a secret, so it must not be here.
 	const vars = wrangler["vars"] as Record<string, string> | undefined;
