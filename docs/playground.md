@@ -227,3 +227,20 @@ A push to `main` runs the gate; when it is green, the same commit is deployed, a
 | ----- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PGS43 | A merge to `main`                          | `deploy.yml` runs on a **`ci` `workflow_run` completed**, not on a raw push, and only when that run was a **push** in this repository that concluded `success` on `main` — so the Worker is only ever the tree the gate checked, at the commit `ci` passed on. A person may run it by hand (`workflow_dispatch`). One deploy at a time and never cancelled mid-flight, the workflow reads the repository and writes nothing, and the job has a ceiling. `wrangler deploy` keeps the Worker's existing secrets rather than re-setting them, so the model key, the two tokens and the script token are not in the workflow |
 | PGS44 | After a deploy                             | The smoke job `needs: deploy` and drives the live Worker: it creates a conversation as the smoke tenant, proves the boundary (`start` without the headers is `permission_denied`, a wrong script token is `permission_denied`), runs a scripted `now` + `finish`, follows the event stream to a `done` `run_end`, and reads the record back to find the scripted call's result. A failure is a red job with the thing that went wrong in the log, and it rolls nothing back — a failed smoke on a rig is information, not an outage. No dependency is installed to run it: the driver is `fetch` and nothing else |
+
+## What is left, and what is deliberately not here
+
+The rig is built: slices 1 to 7b are merged and deployed, and a push to `main` deploys it behind the gate and then
+drives it with a scripted run. Three things are outside it on purpose.
+
+- **`search_web`** (issue #91) needs a search provider. The rig has none, and Autumn's call was to leave it for a
+  later slice that uses Parallel rather than fake one now. It is the last row of #60's table with no tool behind it.
+- **The page's design** (issue #102). It works and it reads badly: a person who tested it on 2026-11-26 said so.
+  The redesign is presentation only; this document's rows do not move for it.
+- **The Lumen path.** The plan asks for `MODEL_SOURCE=lumen` over Lattice's Worker to be demonstrated or recorded
+  as unfinished with its reason. It is unfinished, and the reason is that it is Lattice work against a published
+  Lyra: step 5's Lumen half is deferred by Autumn's decision of 2026-11-22, and it is what stands between `0.3.1`
+  and step 9. Nothing in this rig blocks it — `model.ts` builds a slot from a binding, and a Lumen slot is the
+  same shape — but building it here would put Lattice's Worker inside the playground rather than in Lattice.
+- **`d1_query`, `r2_put` and `r2_get`** were extras in #60 rather than the acceptance list, and no binding here
+  needs them.

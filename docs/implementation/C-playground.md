@@ -1,13 +1,14 @@
 ---
 title: "The playground slice"
-status: planning
+status: built
 category: features
 ---
 
 # The playground: a SvelteKit chat Worker that runs Lyra for real
 
-Last updated: 2026-11-24. Read [`README.md`](README.md) first. This is issue #60, planned rather than
-built: nothing here is in the tree yet. Autumn named it next on 2026-11-24, with **#59 before it** and
+Last updated: 2026-11-26. Read [`README.md`](README.md) first. This is issue #60: **planned and built**, all eight
+slices. What the code promises is `docs/playground.md`; what is deliberately outside it is that document's "What is
+left, and what is deliberately not here". Autumn named it next on 2026-11-24, with **#59 before it** and
 **Fireside (#63) after it**, and answered the five shape questions in this document's "Settled here".
 
 Read: #60 and its two comments, `docs/overview.md`, `docs/protocol.md` ("Commands", "Events", the HTTP and

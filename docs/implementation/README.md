@@ -28,7 +28,15 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 merged ([#96](https://github.com/AutumnsGrove/lyra/pull/96)) 7a merged ([#99](https://github.com/AutumnsGrove/lyra/pull/99)) and deployed; 7b-i merged ([#101](https://github.com/AutumnsGrove/lyra/pull/101)); 7b-ii (the workflow and smoke job) in review on `feat/playground-slice-7b-deploy`, then 8, plus issue #91 (`search_web`) |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | **built**: slices 1 to 7b merged and deployed ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92), [#94](https://github.com/AutumnsGrove/lyra/pull/94), [#96](https://github.com/AutumnsGrove/lyra/pull/96), [#99](https://github.com/AutumnsGrove/lyra/pull/99), [#101](https://github.com/AutumnsGrove/lyra/pull/101), [#103](https://github.com/AutumnsGrove/lyra/pull/103)), with the smoke job green on `main`; `search_web` is [#91](https://github.com/AutumnsGrove/lyra/issues/91) and the design pass is [#102](https://github.com/AutumnsGrove/lyra/issues/102) |
+
+### Where the last session stopped (2026-11-26, the playground finished)
+
+- **C is built.** Slices 1 to 7b are merged and deployed, `deploy.yml` deploys from `main` behind the gate, and the
+  smoke job drove the live Worker green on its first automated run (`smoke ok: tenant smoke, … 7 entries, run
+  done`, Worker version `7e161d7a`). What is left is not code: **issue #91** (`search_web`, needing a provider) and
+  **issue #102** (a design pass on the page, which works and reads badly). **Step 5's Lumen half** is still the
+  thing between `0.3.1` and step 9, and it is deferred by Autumn's own decision rather than forgotten.
 
 ### Where the last session stopped (2026-11-26, the day cap)
 
