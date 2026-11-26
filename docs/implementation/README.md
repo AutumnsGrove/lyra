@@ -28,15 +28,17 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 and 2 merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85)) and deployed; slice 3 in review on `feat/playground-slice-3-conversation`, deployed after it merges; slices 4 to 8 open |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 3 merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87)); slices 1 and 2 are deployed and slice 3's deploy is next; slices 4 to 8 open |
 
 ### Where the last session stopped (2026-11-26, later)
 
-- **C slice 3 is built and in review** on `feat/playground-slice-3-conversation`: the conversation index as a
-  second Durable Object (decision 158), the session id in the query string (decision 159), the sidebar, the
-  recipe picker, the transcript rebuilt from the record (because `user_message` is not a protocol event), the
-  record panel, and steer, follow-up and stop. Rows PGS11 to PGS23. It is **not deployed** yet; the deploy
-  follows the merge, and the index needs its `v2` migration to run there.
+- **C slice 3 is merged**, pull request [#87](https://github.com/AutumnsGrove/lyra/pull/87), merge commit
+  `fa0962b`: the conversation index as a second Durable Object (decision 158), the session id in the query
+  string (decision 159), the sidebar, the recipe picker, the transcript rebuilt from the record (because
+  `user_message` is not a protocol event), the record panel, and steer, follow-up and stop. Rows PGS11 to
+  PGS23. **It is not deployed yet**: the Worker needs the `INDEX` binding and the index's `v2` migration, so
+  `main` and the live Worker differ until that deploy. `pi-review` did not register on any of the three heads
+  and the thread says so.
 
 ### Where the last session stopped (2026-11-26)
 
