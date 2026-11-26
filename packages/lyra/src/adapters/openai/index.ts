@@ -11,7 +11,12 @@
  * `ModelError` so step 2's retries can trust it.
  */
 
-export { DEFAULT_DEADLINE_MS, createOpenAIChatModel, type OpenAIChatOptions } from "./model.js";
+export {
+	DEFAULT_DEADLINE_MS,
+	createOpenAIChatModel,
+	type FetchLike,
+	type OpenAIChatOptions,
+} from "./model.js";
 export {
 	OPENCODE_GO_BASE_URL,
 	OPENROUTER_BASE_URL,

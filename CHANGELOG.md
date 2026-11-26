@@ -39,6 +39,9 @@ new API and any breaking change, and a patch bump is fixes only.
   announced in call order, and `apply` still runs in call order, so the record is the one a serial run
   would have saved. Everything that changes state, asks a person or never opted in is a barrier and runs
   alone. An existing recipe behaves exactly as before, because the flag is off by default.
+- `FetchLike` is exported from the `openai` entry point. It was already the shape the adapter takes for an
+  injected `fetch` — the fake server, a cassette replay and the platform's own `fetch` all fit it — and a
+  host that injects one had to restate it by hand. Nothing that existed changed shape.
 
 ### Changed
 

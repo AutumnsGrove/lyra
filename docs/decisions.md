@@ -525,6 +525,29 @@ example proves the library is embeddable, while the playground is a deployment w
 pays for, so a careless import there should fail the gate rather than the bill. What the playground does not
 get is the entry-point table (`packages/lyra`'s modules), because it has no `dist/` and no consumers.
 
+### 157. The playground's page has its own suite, and no coverage floor
+
+Decided 2026-11-25, with issue #60, slice 2, on Autumn's answer to one question: the page is proven with a
+DOM emulator, not a hand-written page tested as plain modules. `packages/playground/web` is a SvelteKit app,
+and its tests run in a separate Vitest project (`pnpm test:playground`, added to `ci:slow`) because they need
+two things the workspace suite must not have: the Svelte compiler and a DOM. The DOM is `happy-dom` — a Node
+document with no layout and no window manager — so `AGENTS.md`'s "no browser" still holds; what a test cannot
+do is pass because a renderer did something.
+
+The logic still lives in plain TypeScript with `fetch`, the storage and the clock passed in, and is tested on
+Node without a DOM at all: the token, the refusal and the stream are behaviour, and behaviour does not need a
+document. The component tests then prove the wiring — the box a person without a token sees, the transcript a
+run fills, the `403` that sends them back to the box.
+
+Three consequences worth naming. The web app's TypeScript gets its own `tsc` project with `DOM` in `lib`,
+because the Worker's project declares the platform by hand and must not gain `document` (decision 106); its
+`.svelte` templates are checked by the compiler in the build rather than by `tsc`, so a template's types are
+weaker than its module's; and the app's tests sit outside the 85% coverage floor, which keeps measuring the
+Node-tested core and the Worker's own code. Counting a browser app against a number meant for the loop would
+make the floor measure two different things at once. `packages/playground` also carries its own
+`typescript@^6` as a devDependency, because SvelteKit 3 needs a compiler with a JavaScript API and the
+workspace is on TypeScript 7.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

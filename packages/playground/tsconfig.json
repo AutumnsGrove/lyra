@@ -15,6 +15,7 @@
 		"paths": {
 			"@autumnsgrove/lyra": ["../lyra/src/index.ts"],
 			"@autumnsgrove/lyra/cloudflare": ["../lyra/src/adapters/cloudflare/index.ts"],
+			"@autumnsgrove/lyra/openai": ["../lyra/src/adapters/openai/index.ts"],
 			"@autumnsgrove/lyra/memory": ["../lyra/src/adapters/memory/index.ts"],
 			"@autumnsgrove/lyra/testkit": ["../lyra/src/testkit/index.ts"]
 		}

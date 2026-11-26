@@ -17,7 +17,7 @@
 	"scripts": {
 		"format": "prettier --check .",
 		"format:fix": "prettier --write .",
-		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.workers.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p examples/workers-minimal/tsconfig.json && tsc --noEmit -p packages/playground/tsconfig.json && tsc --noEmit -p packages/lyra/live/tsconfig.json",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.workers.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p examples/workers-minimal/tsconfig.json && tsc --noEmit -p packages/playground/tsconfig.json && tsc --noEmit -p packages/playground/web/tsconfig.json && tsc --noEmit -p packages/lyra/live/tsconfig.json",
 		"build": "pnpm --filter @autumnsgrove/lyra build",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -31,14 +31,15 @@
 		"coverage": "vitest run --coverage",
 		"ci": "pnpm run ci:fast && pnpm run ci:slow",
 		"ci:fast": "pnpm format && pnpm typecheck && pnpm build && pnpm importcheck && pnpm matrixcheck && pnpm workflowcheck && pnpm build:example && pnpm build:playground && pnpm budget",
-		"ci:slow": "pnpm test && pnpm test:workers && pnpm fuzz && pnpm coverage",
+		"ci:slow": "pnpm test && pnpm test:playground && pnpm test:workers && pnpm fuzz && pnpm coverage",
 		"test:workers": "vitest run --config vitest.workers.config.ts && vitest run --config vitest.ws.config.ts",
 		"test:live": "vitest run --config vitest.live.config.ts",
 		"build:example": "pnpm --filter @autumnsgrove/lyra-example-workers build",
 		"build:playground": "pnpm --filter @autumnsgrove/lyra-playground build",
 		"dev:playground": "wrangler dev --config packages/playground/wrangler.jsonc",
 		"dev": "wrangler dev --config examples/workers-minimal/wrangler.jsonc",
-		"lyra": "node scripts/lyra.mjs"
+		"lyra": "node scripts/lyra.mjs",
+		"test:playground": "pnpm --filter @autumnsgrove/lyra-playground test"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "1.8.5",

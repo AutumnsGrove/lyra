@@ -5,6 +5,8 @@ node_modules/
 # Build output
 dist/
 *.tsbuildinfo
+# SvelteKit's generated app and its synced tsconfig (packages/playground/web)
+.svelte-kit/
 
 # Test output
 coverage/

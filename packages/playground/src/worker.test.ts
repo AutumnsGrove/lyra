@@ -53,8 +53,8 @@ function recordingNamespace(): Recorded {
 function env(namespace: DurableObjectNamespaceLike): Env {
 	return {
 		SESSION: namespace as unknown as DurableObjectNamespace,
-		PLAYGROUND_TOKEN: TOKEN,
-		PLAYGROUND_TENANT: "playground",
+		LYRA_PLAYGROUND_TOKEN: TOKEN,
+		LYRA_PLAYGROUND_TENANT: "playground",
 	};
 }
 
@@ -162,7 +162,7 @@ test("PGS01 a deployment with no secret binds no tenant, and no request authenti
 	for (const token of [undefined, ""]) {
 		// The map itself, which is what the door is built from: no tenant, no digest.
 		expect(
-			tokensFrom({ ...env(recordingNamespace().namespace), PLAYGROUND_TOKEN: token }),
+			tokensFrom({ ...env(recordingNamespace().namespace), LYRA_PLAYGROUND_TOKEN: token }),
 		).toEqual({});
 
 		const { namespace, forwarded } = recordingNamespace();
@@ -172,7 +172,7 @@ test("PGS01 a deployment with no secret binds no tenant, and no request authenti
 				headers: { authorization: "Bearer   " },
 				body: startFrame(),
 			}),
-			{ ...env(namespace), PLAYGROUND_TOKEN: token },
+			{ ...env(namespace), LYRA_PLAYGROUND_TOKEN: token },
 		);
 
 		expect(response.status, `token ${JSON.stringify(token)}`).toBe(403);
@@ -190,9 +190,9 @@ test("PGS01 an empty or missing tenant binds nothing either", async () => {
 			headers: { authorization: `Bearer ${TOKEN}` },
 			body: startFrame(),
 		}),
-		{ ...env(namespace), PLAYGROUND_TENANT: "" },
+		{ ...env(namespace), LYRA_PLAYGROUND_TENANT: "" },
 	);
-	expect(tokensFrom({ ...env(namespace), PLAYGROUND_TENANT: "" })).toEqual({});
+	expect(tokensFrom({ ...env(namespace), LYRA_PLAYGROUND_TENANT: "" })).toEqual({});
 
 	// The token would otherwise be filed under the empty tenant, which is a session name
 	// no request can address; refusing is what the object would do anyway (409/403), and

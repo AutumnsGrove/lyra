@@ -221,9 +221,12 @@ either demonstrated or recorded as unfinished with the reason, as #60 asks.
 - One Worker, one name (decided at deploy time, e.g. `lyra-playground`), one Durable Object class for
   sessions and one for the index, one migration tag.
 - Repository secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Worker secrets set by the workflow:
-  `PLAYGROUND_TOKEN`, `OPENROUTER_API_KEY`, `PLAYGROUND_SCRIPT_TOKEN`. Vars: `PLAYGROUND_MODELS`,
-  `PLAYGROUND_DAY_CAP_USD`, `PLAYGROUND_TENANT`, and `PLAYGROUND_SMOKE_TENANT` (a var, not a secret: it
-  names the tenant scripts may run as, and the script door fails closed without it).
+  `LYRA_PLAYGROUND_TOKEN`, `LYRA_PLAYGROUND_OPENROUTER_API_KEY`, `LYRA_PLAYGROUND_SCRIPT_TOKEN`. Vars:
+  `PLAYGROUND_MODELS`, `LYRA_PLAYGROUND_DAY_CAP_USD`, `LYRA_PLAYGROUND_TENANT`, and
+  `LYRA_PLAYGROUND_SMOKE_TENANT` (a var, not a secret: it names the tenant scripts may run as, and the
+  script door fails closed without it). The `LYRA_` prefix is the vault's own rule, that a name says which
+  project it belongs to; slice 2 renamed the two bindings slice 1 deployed under the bare names, and the
+  old vault entry and Worker secret go only after the deploy that reads the new one.
 - A failed smoke job is red and does not roll back: this is a test rig, and a failed smoke on a rig is
   information rather than an outage.
 - `wrangler deploy --dry-run` stays in the gate for size; the real deploy happens only on `main`, never in a

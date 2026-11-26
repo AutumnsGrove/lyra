@@ -4,7 +4,7 @@ import { counterIds, memoryStorage } from "@autumnsgrove/lyra/memory";
 import { fakeClock } from "@autumnsgrove/lyra/testkit";
 
 import type { Env } from "./session.js";
-import { sessionOptions } from "./session.js";
+import { sessionOptions, tokensFrom } from "./session.js";
 import { PLACEHOLDER_MODEL, PLACEHOLDER_MODEL_NAME } from "./model.js";
 import { shellRecipe } from "./recipes/shell.js";
 
@@ -20,10 +20,26 @@ import { shellRecipe } from "./recipes/shell.js";
 function env(): Env {
 	return {
 		SESSION: {} as DurableObjectNamespace,
-		PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
-		PLAYGROUND_TENANT: "playground",
+		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
+		LYRA_PLAYGROUND_TENANT: "playground",
+		// The placeholder source, so the run is driven by the loop without a key or a
+		// socket. The real slot is `model.test.ts`'s subject.
+		MODEL_SOURCE: "placeholder",
 	};
 }
+
+test("PGS01 the playground's old binding names bind nothing", () => {
+	// The vault's rule is that a name says which project it belongs to, so the two
+	// playground bindings are prefixed. A deployment still carrying the old secret must
+	// not keep working: that would leave a name nobody chose opening the door, which is
+	// the same shape as the empty-token bug review found on #81.
+	const stale = {
+		SESSION: {} as DurableObjectNamespace,
+		PLAYGROUND_TOKEN: "an-old-token-for-a-test",
+		PLAYGROUND_TENANT: "playground",
+	} as unknown as Env;
+	expect(tokensFrom(stale)).toEqual({});
+});
 
 test("PGS02 the session's own options can finish a run, so a deployment can be driven", async () => {
 	const options = sessionOptions(env());
@@ -31,7 +47,15 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	// What the object will look up when a `start` names the recipe.
 	const recipe = options.recipes.get("shell");
 	expect(recipe).toBe(shellRecipe);
-	expect([...options.recipes.keys()]).toEqual(["shell"]);
+	// The page's own recipe is here as well: a `start` that names `tool-table` is the
+	// thing slice 2 exists for, so a map that only carried the shell would be a deploy
+	// that answers the person's first click with an unknown recipe.
+	expect([...options.recipes.keys()]).toEqual(["shell", "tool-table"]);
+	expect(options.recipes.get("tool-table")?.tools.map((tool) => tool.spec.name)).toEqual([
+		"now",
+		"calculator",
+		"finish",
+	]);
 	expect(options.model).toBe(PLACEHOLDER_MODEL);
 	expect(options.tokens).toEqual({ playground: "a-playground-token-for-a-test" });
 

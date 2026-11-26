@@ -63,7 +63,9 @@ test("PGS03 the protocol path is claimed by the Worker before the page can answe
 		| { directory?: string; run_worker_first?: string[]; not_found_handling?: string }
 		| undefined;
 
-	expect(assets?.directory).toBe("./public");
+	// Slice 2 replaced slice 1's placeholder page with the SvelteKit build, so the assets
+	// the Worker serves are the app's output directory and not a hand-written file.
+	expect(assets?.directory).toBe("./dist/web");
 	// The fallback that makes a deep link work is the same fallback that would answer
 	// `/v1/commands` with the page, so the two settings only make sense together.
 	expect(assets?.not_found_handling).toBe("single-page-application");
@@ -86,8 +88,12 @@ test("PGS03 the Worker it deploys is this package's entry point, with one sessio
 
 	// The tenant is configuration; the token is a secret, so it must not be here.
 	const vars = wrangler["vars"] as Record<string, string> | undefined;
-	expect(vars?.["PLAYGROUND_TENANT"]).toBe("playground");
-	expect(Object.keys(vars ?? {})).not.toContain("PLAYGROUND_TOKEN");
+	expect(vars?.["LYRA_PLAYGROUND_TENANT"]).toBe("playground");
+	expect(Object.keys(vars ?? {})).not.toContain("LYRA_PLAYGROUND_TOKEN");
+	// The unprefixed names are what the playground shipped with before slice 2. A config
+	// that kept one would bind a tenant nobody reads, which is a deployment that refuses
+	// every request with nothing saying why.
+	expect(Object.keys(vars ?? {})).not.toContain("PLAYGROUND_TENANT");
 });
 
 test("PGS03 the parser keeps a // inside a value, and a value that ends in a backslash", () => {

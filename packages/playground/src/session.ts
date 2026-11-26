@@ -13,9 +13,11 @@ import {
 	type CloudflareSession,
 	type CloudflareSessionOptions,
 } from "@autumnsgrove/lyra/cloudflare";
+import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
-import { PLACEHOLDER_MODEL } from "./model.js";
+import { modelFor } from "./model.js";
 import { shellRecipe } from "./recipes/shell.js";
+import { toolTableRecipe } from "./recipes/tool-table.js";
 
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
 export interface Env {
@@ -24,9 +26,18 @@ export interface Env {
 	 * Optional because a secret that was never set arrives as `undefined`, whatever the
 	 * type says: the binding is created by `wrangler secret put`, and nothing makes that
 	 * happen before the first request.
+	 *
+	 * Prefixed, because the `gw secret` vault is shared across the Grove Workers and its
+	 * rule is that a name says which project it belongs to (issue #60, slice 2).
 	 */
-	PLAYGROUND_TOKEN?: string | undefined;
-	PLAYGROUND_TENANT?: string | undefined;
+	LYRA_PLAYGROUND_TOKEN?: string | undefined;
+	LYRA_PLAYGROUND_TENANT?: string | undefined;
+	/** The model provider's key, also prefixed. `model.ts` maps it to the adapter's name. */
+	LYRA_PLAYGROUND_OPENROUTER_API_KEY?: string | undefined;
+	/** Which model slot to build: `openrouter` (the default) or `placeholder`. */
+	MODEL_SOURCE?: string | undefined;
+	/** A comma-separated allow-list. Unset means `DEFAULT_MODELS`. */
+	PLAYGROUND_MODELS?: string | undefined;
 }
 
 /**
@@ -39,8 +50,8 @@ export interface Env {
  * safe direction by construction rather than by a header being trimmed (found in review).
  */
 export function tokensFrom(env: Env): Readonly<Record<string, string>> {
-	const tenant = env.PLAYGROUND_TENANT;
-	const token = env.PLAYGROUND_TOKEN;
+	const tenant = env.LYRA_PLAYGROUND_TENANT;
+	const token = env.LYRA_PLAYGROUND_TOKEN;
 	if (typeof tenant !== "string" || tenant === "" || typeof token !== "string" || token === "") {
 		return {};
 	}
@@ -48,11 +59,22 @@ export function tokensFrom(env: Env): Readonly<Record<string, string>> {
 }
 
 /** The host's half of the session, which is what a later slice varies by model source. */
-export function sessionOptions(env: Env): CloudflareSessionOptions {
+export function sessionOptions(
+	env: Env,
+	deps: { fetch?: FetchLike } = {},
+): CloudflareSessionOptions {
+	// One clock for the loop and the model, so a deadline and a record timestamp agree.
+	const clock = systemClock();
+	// Built once and keyed by the recipe's own name: a map keyed by the function's name
+	// would answer `start` with an unknown recipe (caught by the test that asserts keys).
+	const toolTable = toolTableRecipe({ clock });
 	return {
-		recipes: new Map([[shellRecipe.name, shellRecipe]]),
-		model: PLACEHOLDER_MODEL,
-		clock: systemClock(),
+		recipes: new Map([
+			[shellRecipe.name, shellRecipe],
+			[toolTable.name, toolTable],
+		]),
+		model: modelFor(env, { clock, ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }) }),
+		clock,
 		ids: systemIds(),
 		tokens: tokensFrom(env),
 		host: "packages/playground",
