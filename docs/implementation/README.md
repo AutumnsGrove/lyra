@@ -28,7 +28,18 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 8 | [`08-websocket.md`](08-websocket.md) | Lyra | step 7 merged, and after A | merged ([pull request #29](https://github.com/AutumnsGrove/lyra/pull/29), `243246f`) |
 | B | [`B-parallel-tool-calls.md`](B-parallel-tool-calls.md) | Lyra | A and 8 merged | merged ([pull request #69](https://github.com/AutumnsGrove/lyra/pull/69), `b17f89a`) |
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
-| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 in review on `feat/playground-slice-6-cards`; 7 and 8 next, plus issue #91 (`search_web`) |
+| C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | slices 1 to 5a merged ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92)) and deployed; 5b merged ([#94](https://github.com/AutumnsGrove/lyra/pull/94)) and deployed; slice 6 merged ([#96](https://github.com/AutumnsGrove/lyra/pull/96)) and deployed; 7 and 8 next, plus issue #91 (`search_web`) |
+
+### Where the last session stopped (2026-11-26, the cards)
+
+- **C slice 6 is merged and deployed**, pull request [#96](https://github.com/AutumnsGrove/lyra/pull/96), merge
+  commit `91bd285`: approvals, questions and proposals are card rows answered from the page, `list_pending` is
+  asked on load for a card the record read missed, and a reload draws them from the record. Rows PGS32 to PGS36.
+  One review round: a timeout's `ui_resolved`-then-`ui_expired` pair read `denied` live, which is fixed with the
+  real pair as a test; the proposal note, a switch guard and colliding frame ids were the other three. The live
+  Worker serves the new page at version `84c1d23f`; the card UI is proven in `happy-dom`, and the API path was
+  proven live in slice 5a. Next is **slice 7, the cap and the deploy** — it needs the Cloudflare secrets in CI
+  and the day-cap decision — then slice 8's wrap-up.
 
 ### Where the last session stopped (2026-11-26, the page tools)
 

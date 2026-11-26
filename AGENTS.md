@@ -45,8 +45,11 @@ deployed too (pull request #92, `fd3ce2c`): the notes tools over the recipe's st
 `big_result`, `ask_person` and `propose_summary`, with the playground's scenario files in
 `scenarios/playground/`, rows PGS26 to PGS29. Slice 5b, the page tools, is merged and deployed as well
 (pull request #94, `58ca70e`): `fetch_page` over the host's `fetch` with a guard that refuses private hosts and
-redirects, and `hostile_page` as a fixture, rows PGS30 and PGS31. `search_web` is deliberately not built yet —
-it needs a provider, so it is issue #91. Slices 6 to 8 are next. What is left of step 5 is its
+redirects, and `hostile_page` as a fixture, rows PGS30 and PGS31. Slice 6, the cards, is merged and deployed
+(pull request #96, `91bd285`): approvals, questions and proposals answered from the page, with `list_pending` on
+load and the cards rebuilt from the record, rows PGS32 to PGS36. `search_web` is deliberately not built yet — it
+needs a provider, so it is issue #91. Slice 7 (the day cap and a deploy workflow) and slice 8 (the wrap-up) are
+next. What is left of step 5 is its
 Lumen half, which is Lattice work against a published Lyra, and that is now the only thing standing between
 `0.3.1` and step 9: `0.3.0` carries steps 6 to 8 and the approvals slice, and `0.3.1` puts the scenario
 runner on the published testkit surface so Lattice can run the scenario files through its own adapter. Both

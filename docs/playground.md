@@ -70,6 +70,12 @@ that refuses both is exercised by the tests, and this run is the one a test cann
 **A conversation that predates this deploy parks `stuck`/`recipe_changed`** on its next follow-up, because the
 recipe is version 3. That is the pin (decision 91) doing its job; start a new conversation.
 
+Deployed after slice 6 on 2026-11-26 (version `84c1d23f`): the page answers `200`, and the assets it serves
+include the cards. The card **UI** is proven in `happy-dom` (PGS33 to PGS36) rather than in a browser, which is
+decision 157's trade; the **API path** a card uses was proven on the live Worker in slice 5a — a run parked on
+`notes_write`, the answer posted to `/v1/ui_response`, the note read back. What is left for a person to check by
+hand is the click-through itself, which no test here can do.
+
 ## The page
 
 Slice 2 (pull request #85, `ede65ee`) replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
