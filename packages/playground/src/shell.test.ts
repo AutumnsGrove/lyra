@@ -47,7 +47,15 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	// What the object will look up when a `start` names the recipe.
 	const recipe = options.recipes.get("shell");
 	expect(recipe).toBe(shellRecipe);
-	expect([...options.recipes.keys()]).toEqual(["shell"]);
+	// The page's own recipe is here as well: a `start` that names `tool-table` is the
+	// thing slice 2 exists for, so a map that only carried the shell would be a deploy
+	// that answers the person's first click with an unknown recipe.
+	expect([...options.recipes.keys()]).toEqual(["shell", "tool-table"]);
+	expect(options.recipes.get("tool-table")?.tools.map((tool) => tool.spec.name)).toEqual([
+		"now",
+		"calculator",
+		"finish",
+	]);
 	expect(options.model).toBe(PLACEHOLDER_MODEL);
 	expect(options.tokens).toEqual({ playground: "a-playground-token-for-a-test" });
 

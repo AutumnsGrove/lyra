@@ -17,6 +17,7 @@ import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
 import { modelFor } from "./model.js";
 import { shellRecipe } from "./recipes/shell.js";
+import { toolTableRecipe } from "./recipes/tool-table.js";
 
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
 export interface Env {
@@ -64,8 +65,14 @@ export function sessionOptions(
 ): CloudflareSessionOptions {
 	// One clock for the loop and the model, so a deadline and a record timestamp agree.
 	const clock = systemClock();
+	// Built once and keyed by the recipe's own name: a map keyed by the function's name
+	// would answer `start` with an unknown recipe (caught by the test that asserts keys).
+	const toolTable = toolTableRecipe({ clock });
 	return {
-		recipes: new Map([[shellRecipe.name, shellRecipe]]),
+		recipes: new Map([
+			[shellRecipe.name, shellRecipe],
+			[toolTable.name, toolTable],
+		]),
 		model: modelFor(env, { clock, ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }) }),
 		clock,
 		ids: systemIds(),
