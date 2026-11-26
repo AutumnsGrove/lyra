@@ -9,6 +9,41 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 7b-i, the script boundary, 2026-11-26
+
+- **The plan names one header and needs two.** "A `start` carrying `x-lyra-script` is accepted only when the token
+  is set and the header matches it exactly" and "a script that is not JSON is refused" cannot both be true of one
+  header, so the script travels in `x-lyra-script` and the token in `x-lyra-script-token`. The boundary is the
+  token, compared without an early exit; the payload is the script, validated like any other untrusted body.
+- **A smoke run gets its own tenant.** The tenant is never taken from a header, so the plan's "scripts are allowed
+  only for the smoke token's tenant" needs a second tenant and a second bearer: `LYRA_PLAYGROUND_SMOKE_TENANT` and
+  `LYRA_PLAYGROUND_SMOKE_TOKEN`. A smoke tenant equal to the person's, or half a pair, binds nothing extra — a
+  script cannot reach a person's conversation, and a configuration mistake fails closed.
+- **The script wins over `MODEL_SOURCE` and reports no cost.** A smoke run must not spend, and a run that reported
+  a price it did not pay would be a lie in the record; `usage` is zero tokens and no cost, like the placeholder.
+  The turns are held on the session object and a fresh session is built for the scripted start, so a real run the
+  object already served is not silently replaced.
+- **Review found that the smoke bearer could still spend.** Restricting the tenant to scripts is not enough if the
+  script is optional: a headerless `start` from the smoke tenant ran on OpenRouter, and an eviction that dropped the
+  script let a resume do the same. A smoke `start` without the headers is now `permission_denied`, and the smoke
+  tenant's model slot refuses when it has no script — so the worst case is a parked run, not a bill. The same
+  round fixed the budget being filed under the first tenant in the map rather than the session's own, a cast on a
+  script's `finish_reason`, and a byte cap compared in characters.
+- **The second review round found a validation gap and a live-session hazard.** The call list was read from either
+  spelling but only checked when it was `tool_calls`, so `toolCalls: "bad"` beside text became a text-only turn and
+  a smoke job silently asserted less; either spelling is now read and checked. And a script header on a steer or a
+  follow-up replaced a live scripted session's turns mid-run, so a script is accepted only on a `start` and
+  anything else is `bad_request`. Both have tests.
+- **The tenant is asked per call, not at build time.** A session can be built by a request that carried no bearer
+  (the door refuses it, but the object cached the session), and a cached model built without a tenant would answer a
+  later smoke follow-up on the real provider. `smokeGuardedModel` checks the tenant on every `complete`, and the
+  test walks exactly that ordering: unknown, then smoke without a script, then smoke with one.
+- **One scripted start per object.** A second one would replace a live run's turns, so it is `conflict`. That
+  refusal is reasoned rather than test-proven: the first accepted start builds the object, which needs workerd.
+- **The accepted path still needs workerd.** Every refusal is tested against a real `Session` in Node; the
+  accepted start builds the object, which is the configuration the playground has never had. The smoke job is what
+  proves that half, on a real deployment — and it is the reason the job exists.
+
 ## C slice 7a, the day cap, 2026-11-26
 
 - **The refusal is a cloned body and a 429 before the session sees anything.** The `Session` object reads a
