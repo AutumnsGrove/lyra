@@ -22,6 +22,9 @@ function env(): Env {
 		SESSION: {} as DurableObjectNamespace,
 		LYRA_PLAYGROUND_TOKEN: "a-playground-token-for-a-test",
 		LYRA_PLAYGROUND_TENANT: "playground",
+		// The placeholder source, so the run is driven by the loop without a key or a
+		// socket. The real slot is `model.test.ts`'s subject.
+		MODEL_SOURCE: "placeholder",
 	};
 }
 

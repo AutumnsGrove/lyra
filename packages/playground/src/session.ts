@@ -13,8 +13,9 @@ import {
 	type CloudflareSession,
 	type CloudflareSessionOptions,
 } from "@autumnsgrove/lyra/cloudflare";
+import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
-import { PLACEHOLDER_MODEL } from "./model.js";
+import { modelFor } from "./model.js";
 import { shellRecipe } from "./recipes/shell.js";
 
 /** What the Worker's bindings give this object. A token is a secret, never a var. */
@@ -30,6 +31,12 @@ export interface Env {
 	 */
 	LYRA_PLAYGROUND_TOKEN?: string | undefined;
 	LYRA_PLAYGROUND_TENANT?: string | undefined;
+	/** The model provider's key, also prefixed. `model.ts` maps it to the adapter's name. */
+	LYRA_PLAYGROUND_OPENROUTER_API_KEY?: string | undefined;
+	/** Which model slot to build: `openrouter` (the default) or `placeholder`. */
+	MODEL_SOURCE?: string | undefined;
+	/** A comma-separated allow-list. Unset means `DEFAULT_MODELS`. */
+	PLAYGROUND_MODELS?: string | undefined;
 }
 
 /**
@@ -51,11 +58,16 @@ export function tokensFrom(env: Env): Readonly<Record<string, string>> {
 }
 
 /** The host's half of the session, which is what a later slice varies by model source. */
-export function sessionOptions(env: Env): CloudflareSessionOptions {
+export function sessionOptions(
+	env: Env,
+	deps: { fetch?: FetchLike } = {},
+): CloudflareSessionOptions {
+	// One clock for the loop and the model, so a deadline and a record timestamp agree.
+	const clock = systemClock();
 	return {
 		recipes: new Map([[shellRecipe.name, shellRecipe]]),
-		model: PLACEHOLDER_MODEL,
-		clock: systemClock(),
+		model: modelFor(env, { clock, ...(deps.fetch === undefined ? {} : { fetch: deps.fetch }) }),
+		clock,
 		ids: systemIds(),
 		tokens: tokensFrom(env),
 		host: "packages/playground",

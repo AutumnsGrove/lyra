@@ -16,6 +16,14 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   its rule is that a name says which project it belongs to. The rename is not only tidier: a stale secret
   left on a deployment binds no tenant, so a request is refused instead of quietly opening the door with a
   name nobody chose. Both are asserted, so the safe direction is a test rather than a hope.
+- **An unknown `MODEL_SOURCE` is refused by the slot, not at boot.** Throwing in `sessionOptions` would make
+  every request a 500 with a stack in the log and nothing in the record; a slot that answers `bad_request`
+  parks the run `model_unavailable` with the value that was typed in the detail, which is where the person
+  fixing it will look. The direction matters more than the mechanism: a typo must never fall through to a
+  provider, because what falls through is a bill.
+- **`FetchLike` is exported now.** The playground injects a `fetch` to test the model seam without a socket,
+  and the type was only reachable by restating it — the shape was already public in `OpenAIChatOptions`, so
+  the export names what a host could already pass.
 - **The key's name and the adapter's name are different on purpose.** The OpenAI adapter asks its
   `SecretsSlot` for `OPENROUTER_API_KEY` by that fixed name (a preset is configuration, and the preset owns
   the name), while the Worker secret is `LYRA_PLAYGROUND_OPENROUTER_API_KEY`. The playground maps one to the
