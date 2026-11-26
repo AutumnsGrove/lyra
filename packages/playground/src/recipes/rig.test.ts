@@ -34,6 +34,13 @@ test("PGS27 flaky fails first and then works, so a model has something to correc
 	expect(second.isError).toBe(true);
 	expect(third.isError).toBe(false);
 	expect(third.content).toContain("attempt 3");
+
+	// The count belongs to the tool, and the tool belongs to the session's recipe: once
+	// it has worked it keeps working for the rest of that conversation, and a second run
+	// in it never sees the failures again (found in review on #92).
+	const fourth = await tool.execute({}, context("c4"));
+	expect(fourth.isError).toBe(false);
+	expect(fourth.content).toContain("attempt 4");
 });
 
 test("PGS27 slow waits for the sleep it is given, and refuses a wait it should not hold", async () => {

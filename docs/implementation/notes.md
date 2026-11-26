@@ -18,8 +18,9 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
 - **`flaky` keeps its count in the tool, not in the state, and that is a deliberate exception.** A resume
   rebuilds state by replaying successful `apply`s, and an error result is skipped (decision 112), so a counter
   the tool tried to keep in state would never move and the tool would fail for ever. The cost is that a rebuild
-  restarts the count; a tool whose only job is to make a model correct itself can afford that, and a scenario
-  that resumes after a failure is the place to notice it if it ever matters.
+  restarts the count; a tool whose only job is to make a model correct itself can afford that. A review round found the
+  consequence worth stating: the count lasts as long as the session's object, so once it works in a conversation
+  it keeps working for that conversation, and only a rebuild resets it.
 - **The recipe moved to version 2, and old conversations will park `stuck`.** Adding tools changes the pin's
   tool-set hash, and a resume that finds a changed tool set stops for a person (EVT06) — the pin doing what it
   is for, since a tool the record already used may be gone. The live Worker has conversations from slices 2
@@ -30,6 +31,10 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   them and has its own runner in `packages/playground/src/scenarios.test.ts`, which supplies the shipped
   catalogue. The cost is that a playground file runs in-process only: the wire levels would need the
   playground's Worker in workerd, which is the same second configuration `Session` has been waiting for.
+- **Review found a prototype-key bug worth keeping.** `notes` is a plain object and the name is the model's, so
+  `notes_read {"name":"constructor"}` returned a function where a string belongs and a delete of `toString`
+  claimed to have deleted something. The lookups and the delete's `apply` now use `Object.hasOwn`, and a
+  PGS26 case reads and deletes `constructor`, `toString`, `hasOwnProperty` and `__proto__`.
 - **`search_web` is out of this slice and is issue #91.** It needs a provider, the rig has none, and Autumn's
   call was to use Parallel later rather than to fake one now. The tool table is otherwise #60's list; the
   network tools are 5b.

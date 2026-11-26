@@ -20,9 +20,13 @@ const MAX_RESULT_BYTES = 400_000;
  *
  * The count is this tool's own memory rather than the recipe's state, and that is
  * deliberate: an error result is skipped when a resume rebuilds state (decision 112), so
- * a counter kept in `apply` would never move and the tool would fail for ever. The cost
- * is that a rebuild restarts the count, which is fine for a tool whose only job is to
- * make a model correct itself.
+ * a counter kept in `apply` would never move and the tool would fail for ever.
+ *
+ * The cost is where the count lives. It lasts as long as the recipe instance, which is
+ * as long as the session's Durable Object: after the first success in a conversation,
+ * `flaky` works for the rest of it, and a rebuild (an eviction) is what makes it fail
+ * again. That is fine for a tool whose job is to make a model correct itself once, and
+ * the row says so rather than leaving it to be discovered.
  */
 export function flakyTool(): Tool {
 	let calls = 0;

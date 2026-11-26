@@ -75,7 +75,12 @@ export function notesReadTool(): Tool {
 		policy: "allow",
 		parallel: true,
 		execute: async (args, ctx: ToolContext<ToolTableState>) => {
-			const note = ctx.state.notes[args.name];
+			// Own keys only: the name is the model's, and a plain object answers
+			// `constructor` or `toString` with something that is not a note at all
+			// (found in review on #92).
+			const note = Object.hasOwn(ctx.state.notes, args.name)
+				? ctx.state.notes[args.name]
+				: undefined;
 			return note === undefined
 				? {
 						isError: true,
@@ -120,15 +125,21 @@ export function notesDeleteTool(): Tool {
 		risk: "changes",
 		safeToRepeat: false,
 		execute: async (args, ctx: ToolContext<ToolTableState>) => {
-			const note = ctx.state.notes[args.name];
+			// Own keys only: the name is the model's, and a plain object answers
+			// `constructor` or `toString` with something that is not a note at all
+			// (found in review on #92).
+			const note = Object.hasOwn(ctx.state.notes, args.name)
+				? ctx.state.notes[args.name]
+				: undefined;
 			return note === undefined
 				? { isError: true, content: `there is no note called "${args.name}" to delete` }
 				: { isError: false, content: `the note "${args.name}" was deleted` };
 		},
 		apply: (state: ToolTableState, args, outcome) => {
 			// An error changed nothing, and an unknown name is exactly that: the state it
-			// was given comes back untouched.
-			if (outcome.isError || state.notes[args.name] === undefined) {
+			// was given comes back untouched. `hasOwn` again, so deleting `toString` from a
+			// state that never held it is not a change.
+			if (outcome.isError || !Object.hasOwn(state.notes, args.name)) {
 				return state;
 			}
 			const notes = { ...state.notes };
