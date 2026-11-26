@@ -27,6 +27,12 @@ The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and 
   the last total per run, which is also why a replayed end adds nothing. The same round found a free failure
   (no reply, no cost) latching the day unpriced — now only a run that made a model call and reported no cost
   does — and the budget calls decoded rather than cast, so an object that throws is a refusal instead of a 500.
+- **The socket was a second door, and the review found it.** `#capRefusal` only ran in `fetch`, so a `start` sent
+  over an upgraded socket skipped the cap entirely — a token holder could start runs after the day was done by
+  using the transport the dev client also speaks. The check now runs in `webSocketMessage` too, sending the same
+  `response` frame the socket already reads and leaving the socket open; the frame builder is shared so the two
+  doors cannot drift. The logic is tested as `socketRefusal`; the one line that sends it needs workerd, which
+  the playground has no configuration for (the disclosed gap since slice 1).
 - **The spend is reported by the page, and the decision says so.** The tighter design is the session
   reconciling its record after each run, which needs the object to watch runs to their end; that is a real seam
   and not one this rig has. The cost is stated in decision 161 and in `docs/playground.md` rather than hidden:

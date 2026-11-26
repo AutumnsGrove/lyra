@@ -53,6 +53,24 @@ export interface Refusal {
 	};
 }
 
+/** The refusal frame both doors send, built in one place so they cannot drift apart. */
+function limitFrame(id: string, message: string): Refusal["frame"] {
+	return {
+		type: "response",
+		id,
+		command: "start",
+		ok: false,
+		error: { code: "limit", message },
+	};
+}
+
+function unreadable(id: string): Refusal {
+	return {
+		status: 429,
+		frame: limitFrame(id, "the day's spend could not be read, so no run was started"),
+	};
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -136,33 +154,53 @@ export async function refusalFor(options: {
 	if (unpriced) {
 		return {
 			status: 429,
-			frame: {
-				type: "response",
-				id: start.id,
-				command: start.command,
-				ok: false,
-				error: {
-					code: "limit",
-					message:
-						"a reply today reported no cost, so the day is unpriced and no new run starts until it rolls over in UTC",
-				},
-			},
+			frame: limitFrame(
+				start.id,
+				"a reply today reported no cost, so the day is unpriced and no new run starts until it rolls over in UTC",
+			),
 		};
 	}
 	if (usd >= options.cap) {
 		return {
 			status: 429,
-			frame: {
-				type: "response",
-				id: start.id,
-				command: start.command,
-				ok: false,
-				error: {
-					code: "limit",
-					message: `the playground has spent $${usd.toFixed(4)} of its $${options.cap.toFixed(2)} for today (UTC), so no new run starts until tomorrow`,
-				},
-			},
+			frame: limitFrame(
+				start.id,
+				`the playground has spent $${usd.toFixed(4)} of its $${options.cap.toFixed(2)} for today (UTC), so no new run starts until tomorrow`,
+			),
 		};
 	}
 	return undefined;
+}
+
+/**
+ * The cap refusal for a frame that arrived on a socket, as the frame to send back.
+ *
+ * A `start` over an upgraded socket would otherwise skip the check entirely: the HTTP door
+ * sees `fetch`, and a socket command goes straight to `webSocketMessage`. The reply is the
+ * same `response` frame a socket already reads, and the socket stays open, so a person can
+ * still answer the card they were on (found in review on #99).
+ */
+export async function socketRefusal(options: {
+	message: string | ArrayBuffer;
+	budget: BudgetLike;
+	cap: number | null;
+	day: string;
+}): Promise<string | undefined> {
+	if (typeof options.message !== "string") {
+		return undefined;
+	}
+	let body: unknown;
+	try {
+		body = JSON.parse(options.message);
+	} catch {
+		// A frame this build cannot read is the session's own refusal, in its own words.
+		return undefined;
+	}
+	const refusal = await refusalFor({
+		body: isRecord(body) && body["type"] === "command" ? body : undefined,
+		budget: options.budget,
+		cap: options.cap,
+		day: options.day,
+	});
+	return refusal === undefined ? undefined : JSON.stringify(refusal.frame);
 }

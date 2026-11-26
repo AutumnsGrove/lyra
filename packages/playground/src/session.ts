@@ -15,7 +15,7 @@ import {
 } from "@autumnsgrove/lyra/cloudflare";
 import type { FetchLike } from "@autumnsgrove/lyra/openai";
 
-import { capFrom, refusalFor, utcDay } from "./cap.js";
+import { capFrom, refusalFor, socketRefusal, utcDay } from "./cap.js";
 import { modelFor } from "./model.js";
 import { recipeCatalogue } from "./recipes/catalogue.js";
 
@@ -106,6 +106,22 @@ export class Session implements DurableObject {
 		return this.#build().fetch(request);
 	}
 
+	/** The cap refusal for a socket frame, as the frame to send, or nothing. */
+	async #socketCapRefusal(message: string | ArrayBuffer): Promise<string | undefined> {
+		const cap = capFrom(this.env);
+		if (cap === null) {
+			return undefined;
+		}
+		const tenant = Object.keys(tokensFrom(this.env))[0] ?? "";
+		const budget = this.env.BUDGET.get(this.env.BUDGET.idFromName(tenant));
+		return socketRefusal({
+			message,
+			budget: { fetch: (budgetRequest) => budget.fetch(budgetRequest) },
+			cap,
+			day: utcDay(systemClock().now()),
+		});
+	}
+
 	/** The host's `limit` refusal for a start, or nothing to send it on. */
 	async #capRefusal(request: Request): Promise<Response | undefined> {
 		const cap = capFrom(this.env);
@@ -146,6 +162,14 @@ export class Session implements DurableObject {
 
 	/** A socket accepted here hibernates with the object, and a frame wakes it. */
 	async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+		// A socket command never passes through `fetch`, so the cap is checked here too;
+		// the refusal is the same response frame the socket already reads, and the socket
+		// stays open (found in review on #99).
+		const refused = await this.#socketCapRefusal(message);
+		if (refused !== undefined) {
+			socket.send(refused);
+			return;
+		}
 		await this.#build().webSocketMessage(socket, message);
 	}
 
