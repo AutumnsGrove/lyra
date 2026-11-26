@@ -558,6 +558,14 @@ The alternative was a D1 table, which is easier to query and one more binding to
 
 The Worker's `/api/*` is claimed in `run_worker_first` beside `/v1/*` (PGS03). Without that the single-page fallback answers `/api/sessions` with `index.html`, and the sidebar would parse a page as JSON; the config test that already guarded the protocol path gained the second prefix rather than a second test. The index's own routes are `/list`, `/create` and `/touch` over plain JSON, because a Durable Object is reached with a `fetch` like any other stub; it is not protocol, so it is not written as protocol frames.
 
+### 159. The playground's conversation is named in the query string, not a path
+
+Decided 2026-11-26, with issue #60 and slice 3. A conversation's id is kept in the URL so a reload lands where the person was, and the simplest thing that works with the app as built is `?session=<id>`: the page reads it on mount, writes it with `history.replaceState`, and every other parameter is left alone.
+
+A path segment (`/c/<id>`) was the other option, and it is prettier. It is also a route SvelteKit does not have: the app is a static shell with `adapter-static` and a single-page fallback, so the fallback answers `/c/<id>` with `index.html`, the client router then matches no route, and the person gets the error page before the page can read the id. Making a path work means a catch-all route plus either a second page component or a re-export of the same one; the query string needs neither, and a link is no less shareable for it. What would reverse it is the page gaining real routes for other reasons — a settings page, say — at which point a conversation could take a path beside them rather than being the only route with a file.
+
+The id is read rather than validated: a session the index does not know is still opened, because a run that predates the index is a record a person can still read, and the stream and the record are the two things that decide whether it is there. The page's own `/api/sessions` list is only the sidebar.
+
 ## Not discussed yet
 
 Nothing. The two questions the first slice carried are closed in 103, and what remains is writing rather than deciding: the spec rows for each area (a row table with IDs, written as each is built, decision 62), and the exact fields of each task's input, which each task defines when it is written.

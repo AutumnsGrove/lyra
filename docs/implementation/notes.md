@@ -9,6 +9,37 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## C slice 3, the conversation, 2026-11-26
+
+- **The index is a Durable Object of its own, per tenant, over key-value storage** (decision 158). D1 would
+  have been easier to query and one more binding to migrate, deploy and test, for a list that is a hundred
+  rows at most, read on page load. The recipe lives in the entry because a conversation keeps the recipe it
+  was started with (decision 91), so the sidebar can name it without opening the session.
+- **The session id is a query parameter** (decision 159). The app is a static shell whose fallback answers any
+  path with `index.html`; a path SvelteKit has no route for renders the error page before the page can read
+  its own id, so `/c/<id>` would have meant a catch-all route for no gain.
+- **The transcript is rebuilt from the record's entries, not from a replayed event stream, because
+  `user_message` is not a protocol event.** `projectEvents` skips it on purpose (the record holds it, the
+  protocol does not), so a rebuild from events alone would show every answer and none of the questions. The
+  page reads `get_messages` to the end of its cursor and maps the entry kinds it draws
+  (`web/src/lib/transcript.ts`); the stream then follows from `entries.length - 1`, which is exactly the last
+  entry's `seq` because `get_messages` returns the active path in order — so live events continue where the
+  rebuild stopped, and an entry written between the read and the stream is replayed rather than lost. If
+  person messages ever become events, this file is what shrinks.
+- **A new array, not `unshift`, after a conversation is created.** Svelte's legacy mode invalidates on
+  assignment, so a mutated `conversations` array drew a sidebar that never showed the conversation the person
+  had just started; the component test that looks for the sidebar button caught it.
+- **The page's `Run` waits for the picker.** The form renders as soon as the token is known, which is before
+  `/api/recipes` answers; a click in that window would start a run with no recipe. The button is disabled
+  until there is one, and the submit reads the picker's first entry as the default rather than trusting a
+  `bind:value` that may not have synced.
+- **The playground's bundle is now 56.4 KiB of its 60 KiB budget** (from 45.6 KiB when the shell first built).
+  The index and the page's own logic are the growth. Slice 4's tool-call view and slice 5's dozen tools land in
+  the same budget, so the next slice that grows it should measure before it is written rather than after.
+- **Unfinished, and stated in the PR:** `Session` still has no workerd test, the index's own object has no
+  workerd test either (the same second-configuration reason applies to it now), and the page's tests stay
+  outside the coverage floor.
+
 ## C slice 2, the token and the model, 2026-11-25
 
 - **The two playground bindings are prefixed now, and the old names bind nothing.** `PLAYGROUND_TOKEN` and

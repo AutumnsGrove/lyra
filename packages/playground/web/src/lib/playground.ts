@@ -87,6 +87,8 @@ export async function startRun(options: {
 	token: string;
 	task: string;
 	input: string;
+	/** The conversation to start in, when the page already holds its id. */
+	session?: string;
 	fetcher: Fetcher;
 	key?: string;
 }): Promise<StartedResult> {
@@ -105,6 +107,7 @@ export async function startRun(options: {
 				command: "start",
 				task: options.task,
 				input: options.input,
+				...(options.session === undefined ? {} : { session: options.session }),
 				...(options.key === undefined ? {} : { key: options.key }),
 			}),
 		});
@@ -151,36 +154,43 @@ export async function startRun(options: {
 export type StreamEvent = Record<string, unknown>;
 
 /**
- * Read one server-sent-event block, or nothing when it has no data line.
+ * Read one server-sent-event block: its event, when it has a `data:` line, and the
+ * entry position it came from.
  *
  * The dialect is the protocol's own: one `data:` line per event, an `id:` naming the
- * entry the event came from, comments ignored. The id is dropped because a page that
- * reloads rebuilds from the record (slice 3) rather than from a resumed stream.
+ * entry the event came from, comments ignored. The id is kept because a stream that
+ * drops reopens with `Last-Event-ID` and gets only what it missed (HTP05), and a live
+ * event has no id, which is what tells a replayed event from a delta.
  */
-function readBlock(block: string): StreamEvent | undefined {
+function readBlock(block: string): { event?: StreamEvent; id?: string } {
 	const data: string[] = [];
+	let id: string | undefined;
 	for (const line of block.split("\n")) {
 		if (line.startsWith(":")) {
+			continue;
+		}
+		if (line.startsWith("id:")) {
+			const value = line.slice("id:".length).trim();
+			if (value !== "") {
+				id = value;
+			}
 			continue;
 		}
 		if (line.startsWith("data:")) {
 			data.push(line.slice("data:".length).trimStart());
 		}
 	}
-	if (data.length === 0) {
-		return undefined;
-	}
 	const joined = data.join("\n");
 	if (joined.trim() === "") {
-		return undefined;
+		return id === undefined ? {} : { id };
 	}
 	try {
 		const value: unknown = JSON.parse(joined);
-		return isRecord(value) ? value : undefined;
+		return isRecord(value) ? { event: value, ...(id === undefined ? {} : { id }) } : {};
 	} catch {
 		// A half-written line is not a page's problem to report: the stream is the
 		// server's, and one unreadable event must not stop the ones after it.
-		return undefined;
+		return id === undefined ? {} : { id };
 	}
 }
 
@@ -197,8 +207,10 @@ export async function watchEvents(options: {
 	session: string;
 	fetcher: Fetcher;
 	signal: AbortSignal;
+	/** Where to resume: the last entry position the page drew (HTP05). */
+	lastEventId?: string;
 	onEvent: (event: StreamEvent) => void;
-}): Promise<{ ok: true } | { ok: false; error: Refusal }> {
+}): Promise<{ ok: true; lastEventId?: string } | { ok: false; error: Refusal }> {
 	let response: Response;
 	try {
 		response = await options.fetcher(
@@ -208,6 +220,9 @@ export async function watchEvents(options: {
 				headers: {
 					authorization: `Bearer ${options.token}`,
 					accept: "text/event-stream",
+					...(options.lastEventId === undefined
+						? {}
+						: { "last-event-id": options.lastEventId }),
 				},
 				signal: options.signal,
 			},
@@ -254,6 +269,9 @@ export async function watchEvents(options: {
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
+	// The last position the stream gave this reader, reported so a caller can reopen
+	// without asking for the record from the beginning again.
+	let lastEventId = options.lastEventId;
 	try {
 		for (;;) {
 			const { done, value } = await reader.read();
@@ -267,9 +285,12 @@ export async function watchEvents(options: {
 			while (boundary !== -1) {
 				const block = buffer.slice(0, boundary);
 				buffer = buffer.slice(boundary + 2);
-				const event = readBlock(block);
-				if (event !== undefined) {
-					options.onEvent(event);
+				const read = readBlock(block);
+				if (read.id !== undefined) {
+					lastEventId = read.id;
+				}
+				if (read.event !== undefined) {
+					options.onEvent(read.event);
 				}
 				boundary = buffer.indexOf("\n\n");
 			}
@@ -289,7 +310,152 @@ export async function watchEvents(options: {
 	} finally {
 		reader.releaseLock();
 	}
+	return { ok: true, ...(lastEventId === undefined ? {} : { lastEventId }) };
+}
+
+/**
+ * One command that is not a `start`: a steer, a follow-up or a stop.
+ *
+ * They answer with the protocol's own response frame, so a refusal keeps its code and
+ * status and the page can tell `conflict` (nothing to steer) from a wrong token.
+ */
+export async function sendCommand(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	command: "steer" | "follow_up" | "abort";
+	session: string;
+	text?: string;
+	id: string;
+}): Promise<{ ok: true } | { ok: false; error: Refusal }> {
+	let response: Response;
+	try {
+		response = await options.fetcher(`${options.base}/v1/commands`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${options.token}`,
+				"x-lyra-version": "1",
+			},
+			body: JSON.stringify({
+				type: "command",
+				id: options.id,
+				command: options.command,
+				session: options.session,
+				...(options.text === undefined ? {} : { text: options.text }),
+			}),
+		});
+	} catch (error) {
+		return {
+			ok: false,
+			error: {
+				code: "network_error",
+				message: error instanceof Error ? error.message : "the request could not be sent",
+				status: 0,
+			},
+		};
+	}
+
+	const body: unknown = await response.json().catch(() => undefined);
+	const frame: ResponseFrame = isRecord(body) ? body : {};
+	if (!response.ok || frame.ok !== true) {
+		const code =
+			isRecord(frame.error) && typeof frame.error.code === "string"
+				? frame.error.code
+				: "internal";
+		const message =
+			isRecord(frame.error) && typeof frame.error.message === "string"
+				? frame.error.message
+				: `the server answered ${response.status}`;
+		return { ok: false, error: { code, message, status: response.status } };
+	}
 	return { ok: true };
+}
+
+/**
+ * The record's entries, one page at a time (CMD11, CMD12).
+ *
+ * The panel asks for a page and follows the cursor, so a long record never arrives as
+ * one reply. The cursor is the id of the last entry the page holds, which is what the
+ * protocol's own paging names.
+ */
+export interface RecordPage {
+	entries: Record<string, unknown>[];
+	cursor: string | null;
+}
+
+export async function readRecord(options: {
+	base: string;
+	token: string;
+	fetcher: Fetcher;
+	session: string;
+	cursor?: string | null;
+	limit?: number;
+	id: string;
+}): Promise<{ ok: true; value: RecordPage } | { ok: false; error: Refusal }> {
+	let response: Response;
+	try {
+		response = await options.fetcher(`${options.base}/v1/commands`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${options.token}`,
+				"x-lyra-version": "1",
+			},
+			body: JSON.stringify({
+				type: "command",
+				id: options.id,
+				command: "get_messages",
+				session: options.session,
+				...(options.limit === undefined ? {} : { limit: options.limit }),
+				...(options.cursor === undefined || options.cursor === null
+					? {}
+					: { cursor: options.cursor }),
+			}),
+		});
+	} catch (error) {
+		return {
+			ok: false,
+			error: {
+				code: "network_error",
+				message: error instanceof Error ? error.message : "the request could not be sent",
+				status: 0,
+			},
+		};
+	}
+
+	const body: unknown = await response.json().catch(() => undefined);
+	const frame: ResponseFrame = isRecord(body) ? body : {};
+	if (!response.ok || frame.ok !== true) {
+		const code =
+			isRecord(frame.error) && typeof frame.error.code === "string"
+				? frame.error.code
+				: "internal";
+		const message =
+			isRecord(frame.error) && typeof frame.error.message === "string"
+				? frame.error.message
+				: `the server answered ${response.status}`;
+		return { ok: false, error: { code, message, status: response.status } };
+	}
+	if (!isRecord(frame.data) || !Array.isArray(frame.data["entries"])) {
+		return {
+			ok: false,
+			error: {
+				code: "internal",
+				message: "the answer had no entries",
+				status: response.status,
+			},
+		};
+	}
+	const entries = frame.data["entries"].filter(isRecord);
+	const cursor = frame.data["cursor"];
+	return {
+		ok: true,
+		value: {
+			entries,
+			cursor: typeof cursor === "string" && cursor !== "" ? cursor : null,
+		},
+	};
 }
 
 /** One line the transcript draws. */
