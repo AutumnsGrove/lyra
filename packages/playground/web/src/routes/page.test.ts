@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import Page from "./+page.svelte";
@@ -239,9 +239,15 @@ test("PGS18 a conversation in the URL is rebuilt from its record, including what
 
 	// The person's line comes from the record, which is why this reads `get_messages`
 	// rather than replaying events: `user_message` is not a protocol event.
-	expect(await screen.findByText(/an old question/)).toBeTruthy();
-	expect(await screen.findByText(/an old answer/)).toBeTruthy();
-	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("done"));
+	// The conversation's title is its first message and the record panel holds both lines
+	// as JSON, so the lines are waited for inside the transcript itself.
+	await waitFor(() => {
+		const transcript = document.querySelector<HTMLElement>(".transcript");
+		expect(transcript).not.toBeNull();
+		expect(within(transcript as HTMLElement).getByText(/an old question/)).toBeTruthy();
+		expect(within(transcript as HTMLElement).getByText(/an old answer/)).toBeTruthy();
+	});
+	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("Done"));
 	// And the record panel holds the entries the transcript was built from.
 	await fireEvent.click(await screen.findByText(/Record/));
 	expect(await screen.findByText(/"user_message"/)).toBeTruthy();
@@ -423,7 +429,7 @@ test("PGS10 a run streams into the transcript, with the tools it called", async 
 	await screen.findByText("240 ms");
 	// The call row says "done" now as well, so the status line is asserted on the
 	// element that is the run's, not on any text that happens to match.
-	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("done"));
+	await waitFor(() => expect(document.querySelector(".status")?.textContent).toContain("Done"));
 });
 
 test("PGS09 a refused token clears the box and asks for it again", async () => {
@@ -803,4 +809,91 @@ test("PGS40 a run's cost is reported, and the cap is shown", async () => {
 		const spent = stubbed.calls.find((call) => call.path === "/api/spend");
 		expect(spent?.body).toEqual({ amount: 0.002 });
 	});
+});
+
+test("PGS45 the status area says what a parked run waits for in words, not in the protocol's code", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	stubFetch(
+		parkedSession([
+			{
+				type: "request",
+				request: "r1",
+				kind: "approve",
+				title: "keep a note?",
+				message: "notes_write wants to keep a note",
+				tool: "notes_write",
+				args: "{}",
+			},
+			{ type: "status", state: "parked", reason: "waiting_for_person" },
+		]),
+	);
+	render(Page);
+
+	await screen.findByLabelText("Note");
+	const status = document.querySelector<HTMLElement>(".status");
+	expect(status).not.toBeNull();
+	expect(status?.dataset["tone"]).toBe("attention");
+	expect(status?.textContent).toContain("Waiting for you");
+	// The code is on the record panel's JSON, so only the status area is asked.
+	expect(status?.textContent).not.toContain("waiting_for_person");
+});
+
+test("PGS46 an open card is marked as the thing that needs a person, and a settled one is not", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	window.history.replaceState(null, "", "/?session=s_1");
+	stubFetch(
+		parkedSession([
+			{ type: "user_message", label: "task", text: "keep a note" },
+			{
+				type: "request",
+				request: "r1",
+				kind: "approve",
+				title: "keep a note?",
+				message: "notes_write wants to keep a note",
+				tool: "notes_write",
+				args: "{}",
+			},
+			{ type: "status", state: "parked", reason: "waiting_for_person" },
+		]),
+	);
+	render(Page);
+
+	await screen.findByLabelText("Note");
+	const card = document.querySelector<HTMLElement>(".card");
+	expect(card?.dataset["open"]).toBe("true");
+	expect(within(card as HTMLElement).getByText("Needs you")).toBeTruthy();
+	// The person's own line is not a card, so the marker is what tells them apart.
+	expect(document.querySelectorAll(".card").length).toBe(1);
+
+	await fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+	await waitFor(() =>
+		expect(document.querySelector(".card")?.getAttribute("data-open")).toBe("false"),
+	);
+	expect(screen.queryByText("Needs you")).toBeNull();
+});
+
+test("PGS47 the conversations rail is a drawer a button opens, and choosing one closes it", async () => {
+	window.localStorage.setItem(TOKEN_KEY, "a-token-for-a-test");
+	stubFetch(
+		parkedSession([
+			{ type: "user_message", label: "task", text: "hello" },
+			{ type: "status", state: "done" },
+		]),
+	);
+	render(Page);
+
+	const menu = await screen.findByRole("button", { name: "Conversations" });
+	const shell = document.querySelector(".shell");
+	expect(shell?.classList.contains("open")).toBe(false);
+	expect(menu.getAttribute("aria-expanded")).toBe("false");
+
+	await fireEvent.click(menu);
+	expect(shell?.classList.contains("open")).toBe(true);
+	expect(menu.getAttribute("aria-expanded")).toBe("true");
+
+	await fireEvent.click(await screen.findByText("a parked run"));
+	await waitFor(() => expect(shell?.classList.contains("open")).toBe(false));
+	// The same conversation is now open in the main column.
+	await screen.findByLabelText("Ask Lyra");
 });
