@@ -32,6 +32,14 @@ and `pnpm lyra start shell` runs to `run_end` with a follow-up finishing its own
 (`state: "done"`, `turns: 2`). That run is also what proves the entry point's `Session` class delegates to the
 adapter: it went through the Worker's `fetch`, not through the class.
 
+Driven against slice 2 on 2026-11-26, after the deploy that renamed the bindings: the page answers `200` with
+the SvelteKit app and a deep link gets the single-page fallback, a command with no token is still
+`403 permission_denied`, and `pnpm lyra start tool-table` ran a real model to `run_end` with **two tool calls
+in one group** — decision 154 doing what it promises on a real deployment, with one model key and no scripted
+model anywhere near it. The token was regenerated in the vault as `LYRA_PLAYGROUND_TOKEN` and applied to the
+Worker before that deploy; the old `PLAYGROUND_TOKEN` was removed from the Worker and deleted from the vault
+only afterwards, and the new token was used to read the run's record back once it was gone.
+
 ## The page
 
 Slice 2 replaced slice 1's placeholder with a SvelteKit app (`packages/playground/web`), built by
