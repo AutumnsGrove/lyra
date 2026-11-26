@@ -18,7 +18,7 @@ ID no spec defines).
 ## Failure is a value
 
 A failure never crosses a module boundary as an exception. It is a `Result`: `ok: true` with a value, or
-`ok: false` with an error carrying one of the nine stable codes (decision 83). Messages are written for
+`ok: false` with an error carrying one of the ten stable codes (decisions 83 and 160). Messages are written for
 a person and never contain a secret.
 
 ## Time and identity are injected
