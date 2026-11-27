@@ -141,7 +141,7 @@ tool result with `done: true` under it, and a `done` that came from a reply has 
 | LOOP26 | Happy: the reply is the answer | A run that ends on a reply ends `done` on its first reply with no tool calls, in one turn, with no `reminder` written and a closing `done` status |
 | LOOP27 | Happy: a call, then the answer | Under a reply's ending, a reply whose call runs is followed by the next reply, which has no calls and ends the run `done`, and nothing nudges it |
 | LOOP28 | Sad: a tool failing the same way still parks | Three identical tool failures park the run `stuck` with `repeated_failure` naming the tool, so only the "stopped without finishing" nudge is gone rather than the whole safeguard |
-| LOOP29 | Sad: a reply cut off by the token limit | It still ends the run `done`, and its assistant entry carries `finishReason: "length"` so a caller can tell the reply was cut |
+| LOOP29 | Sad: a reply cut off by the token limit | It still ends the run `done`, and its assistant entry carries `finishReason: "length"` so a caller can tell the reply was cut; an empty reply ends it too, with an empty assistant entry |
 
 ## Parallel tool calls (decision 154)
 

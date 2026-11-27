@@ -76,6 +76,17 @@ test("LOOP29 a reply cut off by the token limit still ends the run, and says so"
 	const assistant = record.entries.find((entry) => entry.type === "assistant_message");
 	// A caller that cares about the cut reads it here rather than guessing.
 	expect(assistant).toMatchObject({ finishReason: "length" });
+
+	// An empty reply is the same family, and it is still the reply: a model that said
+	// nothing ends a conversation rather than parking one, because there is no sentence
+	// the reminder could ask it to finish. The caller sees an empty assistant entry.
+	const empty = harness([{ text: "" }], () => []);
+	const saidNothing = await empty.run({ ending: "reply" });
+	expect(saidNothing).toMatchObject({ reason: "done", turns: 1 });
+	const emptyRecord = await readRecord(empty.storage);
+	expect(emptyRecord.entries.find((entry) => entry.type === "assistant_message")).toMatchObject({
+		text: "",
+	});
 });
 
 test("RCP11 an ending this build cannot honour is not one, so the run keeps the default", async () => {
