@@ -23,6 +23,7 @@ import type { FinishReason } from "../core/model.js";
 import { fail, isErrorCode, ok, type Result } from "../core/result.js";
 import { compileSchema, formatErrors, validateValue, type Validation } from "../core/schema.js";
 import { runTask, type RunResult } from "../core/run.js";
+import { isRunEnding, type RunEnding } from "../core/run.js";
 import type { Ids } from "../core/clock.js";
 import type { Recipe } from "../core/define-recipe.js";
 import type { Tool } from "../core/tool.js";
@@ -128,6 +129,12 @@ export interface Scenario {
 	compaction?: ScenarioCompaction;
 	/** How many calls may run at once, when the file sets a cap (decision 154). */
 	maxParallelCalls?: number;
+	/**
+	 * How the run ends (issue #106), when the file says so rather than the recipe. A
+	 * file that ends on its reply gets no `finish` of its own, because the two
+	 * endings are refused together where a recipe is defined.
+	 */
+	ending?: RunEnding;
 }
 
 export interface ScenarioOutcome {
@@ -550,6 +557,14 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 		scenario.maxParallelCalls = maxParallelCalls;
 	}
 
+	const ending = decodeEnding(value);
+	if (!ending.ok) {
+		return ending;
+	}
+	if (ending.value !== undefined) {
+		scenario.ending = ending.value;
+	}
+
 	const abortAfter = value["abort_after"];
 	if (abortAfter !== undefined) {
 		if (typeof abortAfter !== "number" || !Number.isInteger(abortAfter) || abortAfter < 1) {
@@ -559,6 +574,18 @@ export function decodeScenario(value: unknown): Result<Scenario> {
 	}
 
 	return ok(scenario);
+}
+
+/** The ending a file names, refused when it is a word this build cannot honour. */
+function decodeEnding(value: Record<string, unknown>): Result<RunEnding | undefined> {
+	const ending = value["ending"];
+	if (ending === undefined) {
+		return ok(undefined);
+	}
+	if (!isRunEnding(ending)) {
+		return bad('scenario.ending must be "reply" or "done-check"');
+	}
+	return ok(ending);
 }
 
 export function makeScenarioTool(tool: ScenarioTool, clock: ReturnType<typeof fakeClock>): Tool {
@@ -967,7 +994,12 @@ export async function runScenario(
 	const recipe = recipeFor(scenario, options);
 	const tools: Tool[] =
 		recipe === undefined
-			? [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()]
+			? [
+					...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
+					// A file that ends on its reply has no done-check to call, and a `finish`
+					// beside that ending is the ambiguity `defineRecipe` refuses (issue #106).
+					...(scenario.ending === "reply" ? [] : [createFinishTool()]),
+				]
 			: [...recipe.tools];
 
 	// A recipe brings its own first message, state and instructions; a plain scenario
@@ -993,6 +1025,7 @@ export async function runScenario(
 					...(recipe.maxParallelCalls === undefined
 						? {}
 						: { maxParallelCalls: recipe.maxParallelCalls }),
+					...(recipe.ending === undefined ? {} : { ending: recipe.ending }),
 				};
 
 	/**
@@ -1018,6 +1051,7 @@ export async function runScenario(
 			...(scenario.maxParallelCalls === undefined
 				? {}
 				: { maxParallelCalls: scenario.maxParallelCalls }),
+			...(scenario.ending === undefined ? {} : { ending: scenario.ending }),
 			...recipeParts,
 			...(resume === undefined ? {} : { resume }),
 			system: recipe?.instructions ?? scenario.system,

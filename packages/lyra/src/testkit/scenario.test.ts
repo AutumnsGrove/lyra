@@ -576,6 +576,8 @@ test("SCN03 a malformed scenario is refused with the field named", () => {
 			value: { name: "x", input: "y", model: [{}], expect_record: {} },
 			field: /expect_record/,
 		},
+		// An ending this build cannot honour would silently become the default.
+		{ value: { name: "x", input: "y", model: [{}], ending: "prose" }, field: /ending/ },
 	];
 
 	for (const { value, field } of cases) {
@@ -1027,4 +1029,37 @@ test("SCN08 a hand-built Scenario with no runs is a problem, not an exception", 
 	expect(outcome.problems.join(" ")).toMatch(/no run to make/);
 	expect(outcome.results).toEqual([]);
 	expect(outcome.result.reason).toBe("failed");
+});
+
+test("SCN10 a file that ends on its reply gets no finish of its own", async () => {
+	// The file's own ending, so a conversation can be a scenario: the reply is the
+	// answer and nothing nudges it (issue #106).
+	const replying = await runScenario(
+		scenario({
+			tools: [{ name: "look", behavior: "ok", content: "a page" }],
+			ending: "reply",
+			model: [{ text: "the page says so" }, { text: "never asked" }],
+			expectEvents: [{ type: "run_end", reason: "done" }],
+			expectRecord: [
+				{ type: "assistant_message", text: "the page says so" },
+				{ type: "status", state: "done" },
+			],
+		}),
+	);
+	expect(replying.problems).toEqual([]);
+	expect(replying.result).toMatchObject({ reason: "done", turns: 1 });
+
+	// A finish really is absent, rather than merely unused: a model that calls one
+	// gets the loop's own answer that there is no tool by that name.
+	const calling = await runScenario(
+		scenario({
+			tools: [],
+			ending: "reply",
+			model: [{ toolCalls: [{ id: "c1", name: "finish" }] }, { text: "the answer" }],
+			expectEvents: [{ type: "tool_end", call_id: "c1", is_error: true }],
+			expectRecord: [{ type: "status", state: "done" }],
+		}),
+	);
+	expect(calling.problems).toEqual([]);
+	expect(calling.result).toMatchObject({ reason: "done", turns: 2 });
 });

@@ -181,5 +181,7 @@ name, because what a file looks like is the file's business and which recipes ex
 
 The scenario files are in `scenarios/`: the bad repo from `engineering-practices.md`, a refused then
 accepted `finish`, a vine on a missing line, a citation of another repo's commit, and an argument of the
-wrong type. The resume row is `RSM07` in [`limits-and-interruptions.md`](limits-and-interruptions.md).
+wrong type. `reply-ending.yaml` is a conversation that ends on its reply (SCN10, issue #106), and it is
+also the only file whose run has no `finish` at all. The resume row is `RSM07` in
+[`limits-and-interruptions.md`](limits-and-interruptions.md).
 
