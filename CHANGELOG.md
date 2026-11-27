@@ -8,6 +8,22 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-27
+
+`0.3.1` upgrades with `pnpm add @autumnsgrove/lyra@0.4.0`. Two things an existing caller must handle, and
+both are below: a `switch` that is exhaustive over `ErrorCode` has a tenth arm, and `decodeScenario` no
+longer refuses an unknown `recipe` name. Everything else is additive — new optional fields, new exported
+types and a new tool-call scheduler — and the record's own shape did not change at all, so no record this
+release reads needs migrating and nothing has to be replayed.
+
+**What is new, in one paragraph.** Tool calls from one reply can run at the same time, with a recipe's
+optional `maxParallelCalls` as the ceiling. A recipe can now say how its run ends, which is what a
+conversation needed: `ending: "reply"` makes the model's own reply the deliverable, and the default leaves
+every existing recipe alone. A scenario file can describe a conversation rather than one run, name a host's
+own recipe, and say where its run ends. A host can refuse work with the new `limit` code and 429. A
+`message_end` carries the model's thinking trace while the run happens. The playground, which is unpublished
+and deploys from `main`, runs a `chat` recipe that uses the new ending.
+
 ### Added
 
 - A recipe can say how its run ends: `ending: "reply"` makes the model's own reply the deliverable, so a reply
