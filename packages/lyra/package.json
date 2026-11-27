@@ -1,6 +1,6 @@
 {
 	"name": "@autumnsgrove/lyra",
-	"version": "0.3.1",
+	"version": "0.4.0",
 	"description": "A small, portable agent core: ask a model what to do, run a tool, hand the result back, repeat until the job is done",
 	"license": "MIT",
 	"author": "Autumn Brown <autumn@grove.place>",
