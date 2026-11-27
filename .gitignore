@@ -31,5 +31,9 @@ coverage/
 .vscode/
 .idea/
 
+# Scratch files a session writes inside the tree: a PR body goes to `gh --body-file`, and
+# one that is left behind must not reach a commit (found in review on #108).
+.pr-body-*.md
+
 # Logs
 *.log
