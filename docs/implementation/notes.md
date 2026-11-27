@@ -9,6 +9,28 @@ category: features
 The handoff file (see [`README.md`](README.md)). Judgment calls, surprises, and loose ends from building, newest first. One short entry each, headed with the step and the date, saying what was chosen and why. Autumn reads this before she reads a diff.
 
 
+## Issue #106, a recipe that ends on its reply, 2026-11-27
+
+- **The ending is a recipe option, not a `finish` setting.** `ending: "reply"` sits beside `limits` and
+  `maxParallelCalls`, and the two endings are refused together at definition time: a `finish` beside a reply's
+  ending would make the record's last act say two things (decision 115's habit). The two words are `"reply"` and
+  `"done-check"`, so the default is the behaviour every existing recipe has and nothing moves.
+- **The record gains no field.** A resume already tells the two endings apart by what is under the last message —
+  a `done: true` tool result, or the reply itself — so an explicit marker would be a second copy of a fact the
+  record holds (decision 32's rule). What a resume *reads* is the recipe's `ending`, exactly as it reads the tools
+  for the pin; a recipe that changes its ending without bumping its version is the one case it cannot notice.
+- **A truncated reply still ends a reply-ending run.** A reply cut by the token limit under `ending: "reply"` ends
+  `done` rather than parking, because parking a conversation on a limit the recipe chose its own ending for is the
+  failure the option exists to remove; `finishReason: "length"` on the assistant entry is where a caller that
+  cares reads it. The alternative — nudging, then parking — would have kept the stuck safeguard's worst behaviour
+  for the one case a chat-shaped recipe is most likely to hit.
+- **The scenario vocabulary mirrors the run config, as `max_parallel_calls` does.** A file says `ending: reply`, and
+  a file that says so gets no implicit `finish`, at both the in-process level and in the workerd harness. Writing a
+  testkit recipe instead would have been a second published recipe for one word.
+- **The playground got a recipe, on Autumn's word.** `chat` is the shape the core change is for, so the rig shows it
+  rather than only the library: `now` and `calculator` stay, there is no `finish`, and the picker offers it beside
+  `shell` and `tool-table`. Its bundle is 65,320 B of its 68 KiB ceiling.
+
 ## C slice 8, the wrap-up, 2026-11-26
 
 - **The rig deploys itself and proves itself.** `deploy.yml` runs after a green `ci` on `main`, and its smoke job

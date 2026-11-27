@@ -10,6 +10,20 @@ new API and any breaking change, and a patch bump is fixes only.
 
 ### Added
 
+- A recipe can say how its run ends: `ending: "reply"` makes the model's own reply the deliverable, so a reply
+  with no tool calls ends the run `done` — no sentinel `finish` to forget, no reminder before it, and the
+  assistant message as the record's last entry. The default is `"done-check"`, which is the behaviour every
+  existing recipe has, so nothing moves; the two are refused together at definition time, because a `finish` beside
+  a reply's ending would make the run's last act say two things. Everything the stuck safeguard does besides the
+  "stopped without finishing" nudge still applies, a reply cut off by the token limit still ends the run (its
+  entry carries `finishReason: "length"`), and a resume tells the two endings apart without a new record field
+  (decision 163, issue #106). **Upgrading:** `Recipe` and `RunConfig` gained an optional `ending`, and `RunEnding`
+  and `isRunEnding` are exported from the core, so a host that keeps its own record of how a run ends has a type
+  to name. A scenario file may say `ending: reply` too (SCN10), and a file that says so gets no implicit `finish`.
+- The playground runs a `chat` recipe whose answer is its reply (issue #106), so the conversation shape is
+  visible on the deployed rig rather than only in the library: `now` and `calculator`, and no `finish` at all
+  (PGS48).
+
 - A new stable error code, **`limit`**, for a host refusing work because a limit it enforces has been reached
   (a day's spend, a tenant's quota). It maps to **429**, so a client retries later. It is not a run parked on
   the core's own limit: that is a `parked` status with a limit's detail, and no error at all. **Upgrading:** an

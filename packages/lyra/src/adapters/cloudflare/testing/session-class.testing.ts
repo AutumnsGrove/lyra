@@ -137,8 +137,14 @@ function definitionForScenario(scenario: Scenario, clock: FakeClock): RunDefinit
 		name: scenario.task,
 		version: 1,
 		instructions: scenario.system,
-		tools: [...scenario.tools.map((tool) => makeScenarioTool(tool, clock)), createFinishTool()],
+		tools: [
+			...scenario.tools.map((tool) => makeScenarioTool(tool, clock)),
+			// The same rule as the in-process runner: a file that ends on its reply gets no
+			// `finish`, because two endings are refused together (issue #106).
+			...(scenario.ending === "reply" ? [] : [createFinishTool()]),
+		],
 		...(scenario.compaction === undefined ? {} : { compaction: scenario.compaction.settings }),
+		...(scenario.ending === undefined ? {} : { ending: scenario.ending }),
 	};
 }
 

@@ -109,6 +109,7 @@ before the next request; a follow-up is read when the run would otherwise end.
 | STP03 | Sad: a steer after the run ended | Refused with `conflict`, and nothing is queued or saved |
 | STP04 | Happy: a follow-up is read at the end | A follow-up queued during a run is saved as a `user_message` labelled `follow_up` when the run would end on an accepted `finish` or on the model stopping without one, and the run continues; several are read in arrival order |
 | STP05 | Bad: text over the entry cap | A steer or a follow-up bigger than one entry is `bad_request`, nothing is queued, and the run is unaffected |
+| STP06 | Happy: a follow-up before a reply ends the run | Under a reply's ending, a follow-up queued during the run is saved as a `user_message` labelled `follow_up` before the reply would end it, and the run continues to the turn it caused (issue #106) |
 
 ## Rows (step 2, slice 4)
 
@@ -166,6 +167,8 @@ not get a fresh allowance each time it is interrupted (`LIM06`).
 | RSM06 | Happy: a person lifts a park | A resume by a person continues after a `model_unavailable` park, and after a `limit` or `stuck` park with the new limits, ending `done` |
 | RSM07 | Happy: the test recipe killed at every append | Killed at every append from the task message on, before and after it, the resumed page and handle table equal the uninterrupted run’s, and a call the kill left unanswered adds its line exactly once. The one window that cannot resume is a record holding only the header, because a recipe’s input is on the task message and inventing one would invent the page; it fails with a message saying so |
 | RSM08 | Happy: a follow-up at resume | A resume by a person carrying a follow-up continues a record that ended `done`, `failed` or parked: a `resumed` status, then the message labelled `follow_up`, then the turn it caused, and a second `run_end` |
+| RSM09 | Happy: killed after the reply that ended it | A record whose last message is the reply of a reply-ending run resumes `done` with no request made, and appends nothing but the closing status (issue #106) |
+| RSM10 | Happy: a follow-up after a reply ended the run | A resume carrying a follow-up writes the `follow_up` message and asks the model again in the same conversation, so the reply that ended the segment before it does not end this one (issue #106) |
 
 ## Answered since this document was written
 

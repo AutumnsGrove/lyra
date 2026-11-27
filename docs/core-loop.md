@@ -106,6 +106,43 @@ The events use the protocol's names and carry the run, the clock's time, and the
 | LOOP15 | Sad: nothing left behind | After a run ends `done`, parked, or failed, the clock has no timer waiting, and a run with no listener at all still runs |
 | LOOP16 | Bad: a tool that ignores the stop | A tool that never settles and ignores its signal does not hold the run: its deadline answers for it and the run goes on |
 
+## Ending on a reply (issue #106)
+
+A run ends when a tool's done-check passes, which is the right default for a job with a shape to satisfy
+(decision 25, decision 163). It is the wrong only-behaviour for a conversation: a writing companion's
+answer *is* its reply, there is nothing to cover and nothing that could make the reply false, and the
+sentinel `finish` that workaround cost turned a natural answer into a two-step ritual and parked a
+model that answered well and forgot the second step.
+
+So a recipe may say `ending: "reply"`. Its reply with no tool calls ends the run `done`, and the
+assistant message is the last thing the record holds: no reminder is written, no done-check is asked,
+and the closing status is `done`. A reply whose calls run is followed by the next reply, which may then
+be the answer (LOOP27). The default is `done-check` and leaves every existing recipe exactly as it was,
+so nothing moves without saying so.
+
+**What does not change.** Everything the safeguard does that is not about a model falling silent stays
+armed: a tool that fails the same way repeatedly still parks the run (LOOP28), a reply cut off by the
+token limit still never runs its half-written arguments, and a limit still lands on a step boundary and
+parks (decision 18). A follow-up is still read before the run would end, so it continues the same
+conversation (STP06), and a steer is still read at the gap before each request.
+
+**A truncated reply is still the reply.** A reply cut off by the token limit ends the run under a reply's
+ending rather than parking: the person's conversation ends with what the model said, and
+`finishReason: "length"` on the assistant entry is where a caller that cares reads it (LOOP29). Parking a
+conversation on a limit the recipe chose its own ending for is the failure the option exists to remove.
+
+**What the record says.** A run that ended on a reply holds that reply as its last message and a `done`
+status, so a resume can tell the two endings apart without a new field: a `done` that passed a check has a
+tool result with `done: true` under it, and a `done` that came from a reply has the assistant message
+(RSM09). The recipe's own `ending` is what a resume reads it under, exactly as it reads the tools to pin.
+
+| ID | Case | Expected |
+|---|---|---|
+| LOOP26 | Happy: the reply is the answer | A run that ends on a reply ends `done` on its first reply with no tool calls, in one turn, with no `reminder` written and a closing `done` status |
+| LOOP27 | Happy: a call, then the answer | Under a reply's ending, a reply whose call runs is followed by the next reply, which has no calls and ends the run `done`, and nothing nudges it |
+| LOOP28 | Sad: a tool failing the same way still parks | Three identical tool failures park the run `stuck` with `repeated_failure` naming the tool, so only the "stopped without finishing" nudge is gone rather than the whole safeguard |
+| LOOP29 | Sad: a reply cut off by the token limit | It still ends the run `done`, and its assistant entry carries `finishReason: "length"` so a caller can tell the reply was cut; an empty reply ends it too, with an empty assistant entry |
+
 ## Parallel tool calls (decision 154)
 
 A reply can carry several calls, and most providers send them by default. Running them one after

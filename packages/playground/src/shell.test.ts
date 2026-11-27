@@ -53,8 +53,9 @@ test("PGS02 the session's own options can finish a run, so a deployment can be d
 	expect(recipe).toBe(shellRecipe);
 	// The page's own recipe is here as well: a `start` that names `tool-table` is the
 	// thing slice 2 exists for, so a map that only carried the shell would be a deploy
-	// that answers the person's first click with an unknown recipe.
-	expect([...options.recipes.keys()]).toEqual(["shell", "tool-table"]);
+	// that answers the person's first click with an unknown recipe. `chat` is the one
+	// that ends on its reply (issue #106).
+	expect([...options.recipes.keys()]).toEqual(["shell", "tool-table", "chat"]);
 	// Slice 5's whole table, in the order the recipe carries it: a tool the map lost is a
 	// model that cannot be told to use it, and a test that only checked `now` would let a
 	// dropped write through.

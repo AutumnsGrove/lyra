@@ -30,6 +30,15 @@ Last updated: 2026-11-26. This folder turns `docs/first-slice.md` (what to build
 | 9 | [`lattice-briefs.md`](lattice-briefs.md) | Lattice | steps 0 to 8 | not started |
 | C | [`C-playground.md`](C-playground.md) | Lyra | #69, #59 and #74 (merged), #73 (pull request #78) | **built**: slices 1 to 7b merged and deployed ([#81](https://github.com/AutumnsGrove/lyra/pull/81), [#85](https://github.com/AutumnsGrove/lyra/pull/85), [#87](https://github.com/AutumnsGrove/lyra/pull/87), [#89](https://github.com/AutumnsGrove/lyra/pull/89), [#92](https://github.com/AutumnsGrove/lyra/pull/92), [#94](https://github.com/AutumnsGrove/lyra/pull/94), [#96](https://github.com/AutumnsGrove/lyra/pull/96), [#99](https://github.com/AutumnsGrove/lyra/pull/99), [#101](https://github.com/AutumnsGrove/lyra/pull/101), [#103](https://github.com/AutumnsGrove/lyra/pull/103)), with the smoke job green on `main`; `search_web` is [#91](https://github.com/AutumnsGrove/lyra/issues/91) and the design pass is [#102](https://github.com/AutumnsGrove/lyra/issues/102) |
 
+### Where the last session stopped (2026-11-27, a recipe that ends on its reply)
+
+- **Issue #106 is done, in three commits and one PR.** A recipe can say `ending: "reply"`, so a reply with no
+  tool calls ends the run `done` and nothing nudges it; the two endings are refused together, `RunEnding` and
+  `isRunEnding` are exported, a scenario file may say `ending: reply` (SCN10, `scenarios/reply-ending.yaml`), and
+  the playground ships a `chat` recipe that uses it (PGS48). Rows LOOP26 to LOOP29, RSM09 and RSM10, STP06, RCP09
+  to RCP11, SCN10 and PGS48; decision 163. **Nothing about a run's record changed**, which is why no resume
+  migration is owed.
+
 ### Where the last session stopped (2026-11-26, the playground finished)
 
 - **C is built.** Slices 1 to 7b are merged and deployed, `deploy.yml` deploys from `main` behind the gate, and the

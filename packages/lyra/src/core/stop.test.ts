@@ -353,3 +353,23 @@ test("STP05 a steer or follow-up over the entry cap is refused and nothing is qu
 		record.entries.some((entry) => entry.type === "user_message" && entry.label !== "task"),
 	).toBe(false);
 });
+
+test("STP06 a follow-up is read before a reply ends the run", async () => {
+	const chat = controlHarness([{ text: "hello" }, { text: "there" }], () => []);
+	const handle = chat.start({ ending: "reply" });
+	// Queued before the first reply arrives, so it is waiting when the run would end.
+	expect(handle.followUp("one more thing")).toMatchObject({ ok: true });
+
+	const result = await handle.outcome;
+	expect(result).toMatchObject({ reason: "done", turns: 2 });
+
+	const record = await readRecord(chat.storage);
+	expect(shapeOf(record.entries)).toEqual([
+		"user:task",
+		"status",
+		"assistant_message",
+		"user:follow_up",
+		"assistant_message",
+		"status",
+	]);
+});

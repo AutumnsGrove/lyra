@@ -14,7 +14,8 @@ import { isPositiveInteger, validateLimits, type Limits } from "./limits.js";
 import { compileSchema, SchemaDefinitionError, type InferSchema } from "./schema.js";
 import type { CompactionSettings } from "./compaction.js";
 import { validateCompactionSettings } from "./compaction.js";
-import type { ApprovalSettings, StuckSettings } from "./run.js";
+import type { ApprovalSettings, RunEnding, StuckSettings } from "./run.js";
+import { isRunEnding } from "./run.js";
 import type { Tool } from "./tool.js";
 
 export class RecipeDefinitionError extends Error {
@@ -48,6 +49,12 @@ export interface Recipe<S = unknown> {
 	 * group.
 	 */
 	maxParallelCalls?: number;
+	/**
+	 * How the run ends (issue #106). Absent means `done-check`, which is decision 25's
+	 * rule; `reply` makes the model's own reply the deliverable. Refused together with
+	 * a `finish` tool, because two things would claim to be the ending.
+	 */
+	ending?: RunEnding;
 }
 
 function refuse(message: string): never {
@@ -74,6 +81,7 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	compaction?: CompactionSettings;
 	approvals?: ApprovalSettings;
 	maxParallelCalls?: number;
+	ending?: RunEnding;
 }): Recipe<S> {
 	const name = checkText(options.name, "name");
 	checkText(options.instructions, "instructions");
@@ -122,6 +130,21 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 			'a recipe has a tool called "finish" that was not made by createFinishTool, so its word that the job is done is not checked',
 		);
 	}
+	// An ending this build does not know is a recipe written for a later one, and the
+	// silent answer would be whichever ending the default happens to be.
+	if (options.ending !== undefined && !isRunEnding(options.ending)) {
+		refuse(
+			`a recipe's ending must be "reply" or "done-check", not "${String(options.ending)}"`,
+		);
+	}
+	// Two things claiming to be the ending is the ambiguity decision 115 refuses at
+	// definition time: a reply that ends the run and a finish that ends it would
+	// disagree about what the record's last act actually meant.
+	if (options.ending === "reply" && finish !== undefined) {
+		refuse(
+			"a recipe that ends on its reply cannot also carry a finish tool: two things would claim to be the ending",
+		);
+	}
 
 	if (options.limits !== undefined) {
 		const limits = validateLimits(options.limits);
@@ -168,6 +191,9 @@ export function defineRecipe<const I extends JsonObject, S = unknown>(options: {
 	}
 	if (options.maxParallelCalls !== undefined) {
 		recipe.maxParallelCalls = options.maxParallelCalls;
+	}
+	if (options.ending !== undefined) {
+		recipe.ending = options.ending;
 	}
 	return recipe;
 }
