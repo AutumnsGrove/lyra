@@ -159,7 +159,7 @@ ends on its reply cannot also carry a `finish`, because two things would claim t
 | RCP08 | Bad: a parallel cap that cannot be honoured | A `maxParallelCalls` that is not a positive whole number is refused when the recipe is defined, and one that can be is kept on the recipe |
 | RCP09 | Happy: a recipe that ends on its reply | `ending: "reply"` is kept on the recipe and reaches the run, whose reply then ends it `done`; a recipe that says nothing has no ending of its own, so every existing recipe behaves as it did |
 | RCP10 | Bad: a recipe that claims two endings | `ending: "reply"` together with a `finish` tool is refused when the recipe is defined, in a message naming the ending |
-| RCP11 | Bad: an ending this build cannot honour | An `ending` that is neither `"reply"` nor `"done-check"` is refused when the recipe is defined, naming the value it was given |
+| RCP11 | Bad: an ending this build cannot honour | An `ending` that is neither `"reply"` nor `"done-check"` is refused when the recipe is defined, naming the value it was given; a run handed one by hand — a `RunConfig` that never passed through `defineRecipe` — keeps the default ending rather than refusing to start, which is the rule a bad `maxParallelCalls` follows |
 
 ## The test recipe, and the scenarios
 

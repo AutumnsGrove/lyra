@@ -77,3 +77,17 @@ test("LOOP29 a reply cut off by the token limit still ends the run, and says so"
 	// A caller that cares about the cut reads it here rather than guessing.
 	expect(assistant).toMatchObject({ finishReason: "length" });
 });
+
+test("RCP11 an ending this build cannot honour is not one, so the run keeps the default", async () => {
+	// A `RunConfig` built by hand never passes through `defineRecipe`, so the loop has to
+	// answer for the typo itself rather than trusting the type: the default applies, and
+	// a run does not refuse to start over a setting it can read (the rule a bad
+	// `maxParallelCalls` follows).
+	const nudged = harness(
+		[{ text: "nothing" }, { text: "nothing" }, { text: "nothing" }, { text: "nothing" }],
+		() => [],
+	);
+
+	const result = await nudged.run({ ending: "prose" as "reply" });
+	expect(result).toMatchObject({ reason: "parked", parkedReason: "stuck" });
+});

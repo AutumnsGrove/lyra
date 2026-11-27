@@ -10,6 +10,7 @@
 
 import type { Clock, Recipe } from "@autumnsgrove/lyra";
 
+import { chatRecipe } from "./chat.js";
 import { shellRecipe } from "./shell.js";
 import { toolTableRecipe } from "./tool-table.js";
 
@@ -31,8 +32,11 @@ export function recipeCatalogue(
 		...(options.sleep === undefined ? {} : { sleep: options.sleep }),
 		...(options.fetch === undefined ? {} : { fetch: options.fetch }),
 	});
+	// The conversation, whose answer is its reply rather than a done-check (issue #106).
+	const chat = chatRecipe({ clock });
 	return new Map([
 		[shellRecipe.name, shellRecipe],
 		[toolTable.name, toolTable],
+		[chat.name, chat],
 	]);
 }
