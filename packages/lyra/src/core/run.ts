@@ -144,6 +144,19 @@ export interface StuckSettings {
 	sameFailure?: number;
 }
 
+/**
+ * How a run knows it is done (issue #106). `done-check` is decision 25's rule and the
+ * default: a tool's answer ends the run, so a reply with no calls means the model has
+ * not finished. `reply` is a conversation's: the reply with no tool calls *is* the
+ * deliverable, so there is nothing to check and nothing to nudge.
+ */
+export type RunEnding = "reply" | "done-check";
+
+/** Whether a value is an ending this build can honour, so a typo is refused where it is written. */
+export function isRunEnding(value: unknown): value is RunEnding {
+	return value === "reply" || value === "done-check";
+}
+
 /** What a model that stopped without finishing is told, at most `reminders` times. */
 const REMINDER_TEXT =
 	"You have not called a tool and you have not finished. If the job is done, call finish; otherwise continue with the next tool call.";
@@ -202,6 +215,13 @@ export interface RunConfig {
 	 * number is not a cap, so the default applies.
 	 */
 	maxParallelCalls?: number;
+	/**
+	 * How the run ends (issue #106). Absent means `done-check`, which is decision 25's
+	 * rule: a tool's answer ends it, and a reply with no calls does not. `reply` makes
+	 * the model's own reply the deliverable. A value this build cannot honour is not an
+	 * ending, so the default applies rather than the run refusing to start.
+	 */
+	ending?: RunEnding;
 	/**
 	 * Whether anyone can answer a request this run makes (decision 35). A headless
 	 * runner leaves it false, and a call that would ask is then denied.
@@ -295,6 +315,16 @@ class SaveFailed {
 	constructor(readonly error: LyraError) {}
 }
 
+/**
+ * Whether the record's last message is the reply that ended a reply-ending run (issue
+ * #106). `last` is the last message-shaped entry, so a tool result or a message a
+ * person wrote after the reply makes this false: those mean the run had more to do.
+ */
+function endedOnReply(seed: ResumeSeed): boolean {
+	const last = seed.last;
+	return last !== undefined && last.type === "assistant_message" && last.toolCalls.length === 0;
+}
+
 function messageOf(error: unknown): string {
 	const text = error instanceof Error ? error.message : String(error);
 	return text.slice(0, 500);
@@ -312,6 +342,8 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 	const maxParallelCalls = isPositiveInteger(config.maxParallelCalls)
 		? config.maxParallelCalls
 		: DEFAULT_MAX_PARALLEL_CALLS;
+	/** Whether the model's own reply is the deliverable, rather than a done-check (issue #106). */
+	const endsOnReply = config.ending === "reply";
 	const entryCap = entryCapBytes(config.storage, config.entryCapBytes);
 	const signal = config.signal ?? new AbortController().signal;
 	const control = config.control;
@@ -1466,6 +1498,12 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 				if (await readQueued("follow_up")) {
 					continue;
 				}
+				if (endsOnReply) {
+					// The reply is the answer (issue #106): the run ends here rather than
+					// nudging a model that has said what it came to say, and there is no
+					// done-check for it to pass or fail.
+					return { reason: "done", usage: usageTotal.total(), turns };
+				}
 				// The safeguard: a model that stops without finishing is nudged, and
 				// only a model that stays silent after every nudge parks the run.
 				if (stuck.enabled && remindersSent < stuck.reminders) {
@@ -1714,6 +1752,21 @@ export async function runTask(config: RunConfig): Promise<RunResult> {
 					// A kill landed between an accepted finish and the closing status. The
 					// record already knows the done-check passed, so the run ends done
 					// rather than asking the model for a turn it already gave.
+					recordStarted = true;
+					try {
+						rebuild();
+					} catch {
+						state = undefined;
+					}
+					result = { reason: "done", usage: usageTotal.total(), turns };
+				} else if (
+					endsOnReply &&
+					config.resume.followUp === undefined &&
+					endedOnReply(seed)
+				) {
+					// A kill landed between the reply that ended the run and the closing status.
+					// Under a recipe that ends on a reply the record's last word is the answer,
+					// so the run ends done rather than asking the model for a turn it already gave.
 					recordStarted = true;
 					try {
 						rebuild();

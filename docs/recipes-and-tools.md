@@ -142,6 +142,10 @@ A recipe is a task: `{ name, version, instructions, input, setup, tools, limits?
 `defineRecipe` checks the whole thing when it is defined, so a recipe that could never run is refused at
 module load rather than on a person's first day. `maxParallelCalls` says how many of one reply's calls may
 run at once (decision 154); it is four by default, and a tool still has to opt in before it joins a group.
+`ending` says how the run knows it is done (issue #106, decision 163): `"done-check"` is the default and
+means a tool's answer ends it (decision 25), and `"reply"` means the model's own reply is the deliverable,
+so a reply with no calls ends the run and nothing nudges it. The two are refused together: a recipe that
+ends on its reply cannot also carry a `finish`, because two things would claim to be the ending.
 
 | ID | Case | Expected |
 |---|---|---|
@@ -153,6 +157,9 @@ run at once (decision 154); it is four by default, and a tool still has to opt i
 | RCP06 | Happy: input that is exactly right | `start` accepts it, `setup` turns it into the first message and the state, and the input is saved on the task message |
 | RCP07 | Bad: a record resumed under a changed input schema | The saved input is checked against the recipe's schema before `setup` runs, and a mismatch fails with a message saying the input no longer matches, rather than a `TypeError` out of typed recipe code or a state built from the wrong shape |
 | RCP08 | Bad: a parallel cap that cannot be honoured | A `maxParallelCalls` that is not a positive whole number is refused when the recipe is defined, and one that can be is kept on the recipe |
+| RCP09 | Happy: a recipe that ends on its reply | `ending: "reply"` is kept on the recipe and reaches the run, whose reply then ends it `done`; a recipe that says nothing has no ending of its own, so every existing recipe behaves as it did |
+| RCP10 | Bad: a recipe that claims two endings | `ending: "reply"` together with a `finish` tool is refused when the recipe is defined, in a message naming the ending |
+| RCP11 | Bad: an ending this build cannot honour | An `ending` that is neither `"reply"` nor `"done-check"` is refused when the recipe is defined, naming the value it was given |
 
 ## The test recipe, and the scenarios
 

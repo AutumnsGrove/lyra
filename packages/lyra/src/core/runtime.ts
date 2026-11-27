@@ -222,6 +222,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 		...(definition.maxParallelCalls === undefined
 			? {}
 			: { maxParallelCalls: definition.maxParallelCalls }),
+		...(definition.ending === undefined ? {} : { ending: definition.ending }),
 	});
 
 	const setupFor = (

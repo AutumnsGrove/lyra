@@ -426,3 +426,56 @@ test("RCP06 a good input makes the first message and the state, and is saved wit
 	expect(task.text).toBe("build the page for Monday");
 	expect(task.details).toEqual({ input: { day: "Monday" } });
 });
+
+test("RCP09 a recipe that ends on its reply keeps that ending", () => {
+	const recipe = defineRecipe({
+		name: "fireside",
+		version: 1,
+		instructions: "answer the writer",
+		input: daySchema,
+		setup: (input) => ({ message: input.day, state: undefined }),
+		tools: [toolReturning("read", "a line")],
+		ending: "reply",
+	});
+	expect(recipe.ending).toBe("reply");
+
+	// The default is today's behaviour, so a recipe that says nothing is unchanged.
+	const checking = defineRecipe({
+		name: "timeline-test",
+		version: 1,
+		instructions: "build the page",
+		input: daySchema,
+		setup: (input) => ({ message: input.day, state: undefined }),
+		tools: [createFinishTool<Record<string, never>>({ check: () => ({ ok: true }) })],
+	});
+	expect(checking.ending).toBeUndefined();
+});
+
+test("RCP10 a recipe that claims two endings is refused when it is defined", () => {
+	expect(() =>
+		defineRecipe({
+			name: "two-endings",
+			version: 1,
+			instructions: "answer the writer",
+			input: daySchema,
+			setup: (input) => ({ message: input.day, state: undefined }),
+			tools: [createFinishTool<Record<string, never>>({ check: () => ({ ok: true }) })],
+			ending: "reply",
+		}),
+	).toThrow(/ending/);
+});
+
+test("RCP11 an ending this build cannot honour is refused when the recipe is defined", () => {
+	const bad = () =>
+		defineRecipe({
+			name: "unknown-ending",
+			version: 1,
+			instructions: "answer the writer",
+			input: daySchema,
+			setup: (input) => ({ message: input.day, state: undefined }),
+			tools: [],
+			// A recipe written against a later build, which this one cannot honour.
+			ending: "prose" as "reply",
+		});
+	expect(bad).toThrow(/prose/);
+});

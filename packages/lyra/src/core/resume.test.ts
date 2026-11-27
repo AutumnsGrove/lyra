@@ -447,3 +447,97 @@ test("RSM08 a person continues a finished run with a follow-up", async () => {
 		"done",
 	]);
 });
+
+/** A reply-ending run's record, and the lines a kill leaves when it drops the closing status. */
+async function replyEndedRecord(): Promise<{
+	clock: FakeClock;
+	inner: MemoryStorage;
+	base: Omit<RunConfig, "storage" | "model" | "resume" | "signal" | "onEvent">;
+	whole: string[];
+	killed: string[];
+}> {
+	const clock = fakeClock();
+	const inner = memoryStorage();
+	const base: Omit<RunConfig, "storage" | "model" | "resume" | "signal" | "onEvent"> = {
+		runId: "run-1",
+		task: "test-task",
+		host: "test-host",
+		input: "say something",
+		system: "you are a test",
+		tools: [],
+		ending: "reply",
+		clock,
+		ids: counterIds(),
+	};
+	const uninterrupted = await runTask({
+		...base,
+		model: scriptedModel([{ text: "something" }], { clock }),
+		storage: inner,
+	});
+	expect(uninterrupted.reason).toBe("done");
+
+	const read = await inner.read();
+	expect(read.ok).toBe(true);
+	// Dropping the closing status is the window a kill leaves between the reply that
+	// ended the run and the record saying so.
+	const whole = read.ok ? read.value : [];
+	return { clock, inner, base, whole, killed: whole.slice(0, -1) };
+}
+
+test("RSM09 a record killed after the reply that ended it resumes done", async () => {
+	const { clock, inner, base, whole, killed } = await replyEndedRecord();
+	const model = scriptedModel([{ text: "asked again" }], { clock });
+	const resumed = await runTask({
+		...base,
+		model,
+		storage: inner,
+		resume: { lines: killed, by: "person" },
+	});
+
+	expect(resumed.reason).toBe("done");
+	// The record already held the answer, so the model is not asked for a second one.
+	expect(model.requests).toHaveLength(0);
+
+	const after = await inner.read();
+	expect(after.ok).toBe(true);
+	const lines = after.ok ? after.value : [];
+	// Nothing is written but the closing status, so the resume cannot spend a turn
+	// on a conversation that had already ended.
+	expect(lines.slice(0, -1)).toEqual(whole);
+	expect(lines).toHaveLength(whole.length + 1);
+	const loaded = loadRecord(lines);
+	expect(loaded.ok ? loaded.value.entries.at(-1) : undefined).toMatchObject({
+		type: "status",
+		state: "done",
+	});
+});
+
+test("RSM10 a follow-up continues a run that ended on its reply", async () => {
+	const { clock, inner, base, killed } = await replyEndedRecord();
+	const model = scriptedModel([{ text: "something" }, { text: "the next thing" }], { clock });
+	const resumed = await runTask({
+		...base,
+		model,
+		storage: inner,
+		resume: { lines: killed, by: "person", followUp: "one more thing" },
+	});
+
+	// The reply that ended the first segment does not end the second: the person's
+	// follow-up is read, asked and answered in the same conversation.
+	expect(resumed.reason).toBe("done");
+	expect(model.requests).toHaveLength(1);
+
+	const after = await inner.read();
+	expect(after.ok).toBe(true);
+	const loaded = loadRecord(after.ok ? after.value : []);
+	expect(loaded.ok).toBe(true);
+	if (!loaded.ok) {
+		return;
+	}
+	expect(
+		loaded.value.entries.flatMap((entry) =>
+			entry.type === "user_message" ? [entry.label] : [],
+		),
+	).toEqual(["task", "follow_up"]);
+	expect(loaded.value.entries.at(-1)).toMatchObject({ type: "status", state: "done" });
+});
